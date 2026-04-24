@@ -35,6 +35,8 @@ class Powers:
     ritual_just_applied: bool = False  # skip strength gain on the turn ritual is acquired
     curl_up: int = 0             # enemy: on first HP damage, gain this much block (then consumed)
     angry: int = 0               # enemy: on any attack hit, gain this much strength
+    spore_cloud: int = 0         # enemy: on death, apply this many Vulnerable stacks to player
+    entangled: bool = False      # player: cannot play Skill or Power cards this turn
 
     def tick_start_of_turn(self) -> None:
         """Decrement duration-based statuses."""
@@ -44,6 +46,7 @@ class Powers:
             self.weak -= 1
         if self.frail > 0:
             self.frail -= 1
+        self.entangled = False
 
     def apply_ritual(self) -> None:
         """Fire end-of-round Ritual: gain strength equal to ritual stacks.
@@ -117,6 +120,11 @@ def attack_enemy(state: "CombatState", enemy: "EnemyState", base_dmg: int) -> No
     if enemy.powers.curl_up > 0 and enemy.hp < hp_before:
         enemy.block += enemy.powers.curl_up
         enemy.powers.curl_up = 0
+
+    # SporeCloud fires when the enemy is killed for the first time
+    if hp_before > 0 and enemy.hp <= 0 and enemy.powers.spore_cloud > 0:
+        state.player_powers.vulnerable += enemy.powers.spore_cloud
+        enemy.powers.spore_cloud = 0
 
     # Large slimes split when HP first crosses <= 50% threshold
     if (

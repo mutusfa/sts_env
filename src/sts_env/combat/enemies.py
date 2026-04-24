@@ -33,7 +33,8 @@ class IntentType(Enum):
     DEBUFF = auto()        # enemy debuffs the player only
     ATTACK_DEFEND = auto()
     ATTACK_DEBUFF = auto() # enemy attacks AND debuffs the player
-    SPLIT = auto()  # large slime splits into two mediums
+    SPLIT = auto()         # large slime splits into two mediums
+    ESCAPE = auto()        # Looter/Mugger: enemy flees combat
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,7 @@ class Intent:
     applies_weak: int = 0
     applies_frail: int = 0
     applies_vulnerable: int = 0
+    applies_entangle: int = 0   # Red Slaver: player cannot play Skill cards next turn
     # Block granted to a random alive ally (Shield Gremlin pattern)
     ally_block_gain: int = 0
     # Status/curse cards added to the player's discard pile on resolution
@@ -662,3 +664,197 @@ def _acid_slime_l_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent: 
 
 
 register_enemy(_ACID_SLIME_L, _acid_slime_l_intent)
+
+
+# ---------------------------------------------------------------------------
+# Blue Slaver
+# ---------------------------------------------------------------------------
+# HP 46-50.  Stab (12 dmg) / Rake (7 dmg + Weak 1).
+# Roll >= 40 → wants Stab (if not 2× in a row); else → Rake (if not 2× in a row); else → Stab.
+# Source: MonsterSpecific.cpp line ~2048 (ascension 0)
+
+_BLUE_SLAVER = EnemySpec("BlueSlaver", hp_min=46, hp_max=50)
+
+_BS_INTENTS: dict[str, Intent] = {
+    "Stab": Intent(IntentType.ATTACK, damage=12, hits=1),
+    "Rake": Intent(IntentType.ATTACK_DEBUFF, damage=7, hits=1, applies_weak=1),
+}
+
+
+def _blue_slaver_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
+    history = enemy.move_history
+    roll = rng.randint(0, 99)
+
+    if roll >= 40 and not _last_two_moves(history, "Stab"):
+        chosen = "Stab"
+    elif not _last_two_moves(history, "Rake"):
+        chosen = "Rake"
+    else:
+        chosen = "Stab"
+
+    enemy.move_history.append(chosen)
+    return _BS_INTENTS[chosen]
+
+
+register_enemy(_BLUE_SLAVER, _blue_slaver_intent)
+
+
+# ---------------------------------------------------------------------------
+# Red Slaver
+# ---------------------------------------------------------------------------
+# HP 46-50.  Stab (13 dmg) / Entangle (player entangled 1 turn) / Scrape (8 dmg + Vul 1).
+# Turn 0 always Stab.  Entangle: roll >= 75 if not yet used (misc tracks use).
+# After Entangle used: roll >= 50 and not 2× Stab → Stab; else if not 2× Scrape → Scrape;
+# else → Stab.
+# Source: MonsterSpecific.cpp line ~2775
+
+_RED_SLAVER = EnemySpec("RedSlaver", hp_min=46, hp_max=50)
+
+_RS_INTENTS: dict[str, Intent] = {
+    "Stab":    Intent(IntentType.ATTACK, damage=13, hits=1),
+    "Entangle": Intent(IntentType.DEBUFF, applies_entangle=1),
+    "Scrape":  Intent(IntentType.ATTACK_DEBUFF, damage=8, hits=1, applies_vulnerable=1),
+}
+
+
+def _red_slaver_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
+    history = enemy.move_history
+    used_entangle = bool(enemy.misc)
+
+    if not history:
+        enemy.move_history.append("Stab")
+        return _RS_INTENTS["Stab"]
+
+    roll = rng.randint(0, 99)
+
+    if roll >= 75 and not used_entangle:
+        chosen = "Entangle"
+        enemy.misc = 1  # Mark Entangle as used
+    elif roll >= 50 and used_entangle and not _last_two_moves(history, "Stab"):
+        chosen = "Stab"
+    elif not _last_two_moves(history, "Scrape"):
+        chosen = "Scrape"
+    else:
+        chosen = "Stab"
+
+    enemy.move_history.append(chosen)
+    return _RS_INTENTS[chosen]
+
+
+register_enemy(_RED_SLAVER, _red_slaver_intent)
+
+
+# ---------------------------------------------------------------------------
+# Fungi Beast
+# ---------------------------------------------------------------------------
+# HP 22-28.  Bite (6 dmg, 60%) / Grow (+3 str, 40%).
+# Bite max 2 in a row; Grow max 1 in a row.
+# Pre-battle: SporeCloud 2 (on death → apply Vulnerable 2 to player).
+# Source: MonsterSpecific.cpp line ~2296
+
+_FUNGI_BEAST = EnemySpec("FungiBeast", hp_min=22, hp_max=28)
+
+_FB_INTENTS: dict[str, Intent] = {
+    "Bite": Intent(IntentType.ATTACK, damage=6, hits=1),
+    "Grow": Intent(IntentType.BUFF, strength_gain=3),
+}
+
+
+def _fungi_beast_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
+    history = enemy.move_history
+    roll = rng.randint(0, 99)
+
+    if roll < 60:
+        if _last_two_moves(history, "Bite"):
+            chosen = "Grow"
+        else:
+            chosen = "Bite"
+    elif _last_move(history, "Grow"):
+        chosen = "Bite"
+    else:
+        chosen = "Grow"
+
+    enemy.move_history.append(chosen)
+    return _FB_INTENTS[chosen]
+
+
+def _fungi_beast_pre_battle(enemy: "EnemyState", state: "CombatState") -> None:  # noqa: ARG001
+    enemy.powers.spore_cloud = 2
+
+
+register_enemy(_FUNGI_BEAST, _fungi_beast_intent, _fungi_beast_pre_battle)
+
+
+# ---------------------------------------------------------------------------
+# Looter
+# ---------------------------------------------------------------------------
+# HP 44-48.  Fixed script (asc 0): Mug(10) → Mug(10) → [SmokeBomb(6blk) | Lunge(12)] →
+#   SmokeBomb(6blk) [if Lunge taken] → Escape.
+# Source: MonsterSpecific.cpp line ~899
+
+_LOOTER = EnemySpec("Looter", hp_min=44, hp_max=48)
+
+_LO_MUG        = Intent(IntentType.ATTACK, damage=10, hits=1)
+_LO_SMOKE_BOMB = Intent(IntentType.DEFEND, block_gain=6)
+_LO_LUNGE      = Intent(IntentType.ATTACK, damage=12, hits=1)
+_LO_ESCAPE     = Intent(IntentType.ESCAPE)
+
+
+def _looter_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
+    history = enemy.move_history
+
+    if not history or (len(history) == 1 and history[-1] == "Mug"):
+        enemy.move_history.append("Mug")
+        return _LO_MUG
+
+    last = history[-1]
+    if last == "Mug":  # Third call: second Mug resolved → branch
+        chosen = "SmokeBomb" if rng.random() < 0.5 else "Lunge"
+        enemy.move_history.append(chosen)
+        return _LO_SMOKE_BOMB if chosen == "SmokeBomb" else _LO_LUNGE
+    elif last == "Lunge":
+        enemy.move_history.append("SmokeBomb")
+        return _LO_SMOKE_BOMB
+    else:  # last == "SmokeBomb"
+        enemy.move_history.append("Escape")
+        return _LO_ESCAPE
+
+
+register_enemy(_LOOTER, _looter_intent)
+
+
+# ---------------------------------------------------------------------------
+# Mugger
+# ---------------------------------------------------------------------------
+# HP 48-52.  Same script as Looter but SmokeBomb gives 11 block and Lunge deals 16 dmg.
+# Source: MonsterSpecific.cpp line ~944
+
+_MUGGER = EnemySpec("Mugger", hp_min=48, hp_max=52)
+
+_MU_MUG        = Intent(IntentType.ATTACK, damage=10, hits=1)
+_MU_SMOKE_BOMB = Intent(IntentType.DEFEND, block_gain=11)
+_MU_LUNGE      = Intent(IntentType.ATTACK, damage=16, hits=1)
+_MU_ESCAPE     = Intent(IntentType.ESCAPE)
+
+
+def _mugger_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
+    history = enemy.move_history
+
+    if not history or (len(history) == 1 and history[-1] == "Mug"):
+        enemy.move_history.append("Mug")
+        return _MU_MUG
+
+    last = history[-1]
+    if last == "Mug":
+        chosen = "SmokeBomb" if rng.random() < 0.5 else "Lunge"
+        enemy.move_history.append(chosen)
+        return _MU_SMOKE_BOMB if chosen == "SmokeBomb" else _MU_LUNGE
+    elif last == "Lunge":
+        enemy.move_history.append("SmokeBomb")
+        return _MU_SMOKE_BOMB
+    else:  # last == "SmokeBomb"
+        enemy.move_history.append("Escape")
+        return _MU_ESCAPE
+
+
+register_enemy(_MUGGER, _mugger_intent)

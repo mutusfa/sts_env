@@ -19,7 +19,7 @@ from __future__ import annotations
 import copy
 from collections import Counter
 
-from .cards import get_spec as _get_card_spec, play_card as _play_card, TargetType
+from .cards import get_spec as _get_card_spec, play_card as _play_card, CardType, TargetType
 from .enemies import (
     Intent,
     IntentType,
@@ -179,12 +179,18 @@ class Combat:
             return []
 
         state = self._state
-        live_enemy_indices = [i for i, e in enumerate(state.enemies) if e.alive]
+        live_enemy_indices = [
+            i for i, e in enumerate(state.enemies)
+            if e.alive and not e.is_escaping
+        ]
+        entangled = state.player_powers.entangled
         actions: list[Action] = []
 
         for hi, card_id in enumerate(state.piles.hand):
             spec = _get_card_spec(card_id)
             if spec.cost < 0 or spec.cost > state.energy:
+                continue
+            if entangled and spec.card_type in (CardType.SKILL, CardType.POWER):
                 continue
             if spec.target == TargetType.SINGLE_ENEMY:
                 for ti in live_enemy_indices:
@@ -215,10 +221,11 @@ class Combat:
     def _is_done(self) -> bool:
         state = self._state
         assert state is not None
-        all_enemies_dead = all(
-            not e.alive for e in state.enemies if e.name != "Empty"
+        all_enemies_done = all(
+            not e.alive or e.is_escaping
+            for e in state.enemies if e.name != "Empty"
         )
-        return state.player_hp <= 0 or all_enemies_dead
+        return state.player_hp <= 0 or all_enemies_done
 
     def _observe(self) -> Observation:
         state = self._state
@@ -288,7 +295,7 @@ class Combat:
         # Each living enemy resolves its stored intent, then picks next intent
         new_intents: list[Intent] = []
         for i, enemy in enumerate(state.enemies):
-            if enemy.name == "Empty" or not enemy.alive:
+            if enemy.name == "Empty" or not enemy.alive or enemy.is_escaping:
                 new_intents.append(self._intents[i])
                 continue
 
@@ -311,7 +318,7 @@ class Combat:
             # is first acquired, matching sts_lightspeed's justApplied flag.
             enemy.powers.apply_ritual()
 
-            if not enemy.alive:
+            if not enemy.alive or enemy.is_escaping:
                 new_intents.append(intent)
                 continue
 
@@ -375,6 +382,10 @@ class Combat:
             self._resolve_split(enemy, enemy_index)
             return
 
+        if intent.intent_type == IntentType.ESCAPE:
+            enemy.is_escaping = True
+            return
+
         if intent.intent_type in (IntentType.ATTACK, IntentType.ATTACK_DEFEND, IntentType.ATTACK_DEBUFF):
             for _ in range(intent.hits):
                 raw = calc_damage(intent.damage, enemy.powers, state.player_powers)
@@ -397,6 +408,8 @@ class Combat:
             state.player_powers.frail += intent.applies_frail
         if intent.applies_vulnerable:
             state.player_powers.vulnerable += intent.applies_vulnerable
+        if intent.applies_entangle:
+            state.player_powers.entangled = True
 
         # Ally-targeting block (Shield Gremlin pattern)
         if intent.ally_block_gain:
