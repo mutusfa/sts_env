@@ -244,7 +244,7 @@ class Combat:
                     intent_damage=intent.damage if intent else 0,
                     intent_damage_effective=(
                         calc_damage(intent.damage, enemy.powers, state.player_powers)
-                        if intent and intent.intent_type in (IntentType.ATTACK, IntentType.ATTACK_DEFEND)
+                        if intent and intent.intent_type in (IntentType.ATTACK, IntentType.ATTACK_DEFEND, IntentType.ATTACK_DEBUFF)
                         else 0
                     ),
                     intent_hits=intent.hits if intent else 0,
@@ -375,7 +375,7 @@ class Combat:
             self._resolve_split(enemy, enemy_index)
             return
 
-        if intent.intent_type in (IntentType.ATTACK, IntentType.ATTACK_DEFEND):
+        if intent.intent_type in (IntentType.ATTACK, IntentType.ATTACK_DEFEND, IntentType.ATTACK_DEBUFF):
             for _ in range(intent.hits):
                 raw = calc_damage(intent.damage, enemy.powers, state.player_powers)
                 nb, nhp = apply_damage(raw, state.player_block, state.player_hp)

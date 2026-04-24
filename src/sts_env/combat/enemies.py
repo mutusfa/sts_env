@@ -30,7 +30,9 @@ class IntentType(Enum):
     ATTACK = auto()
     DEFEND = auto()
     BUFF = auto()
+    DEBUFF = auto()        # enemy debuffs the player only
     ATTACK_DEFEND = auto()
+    ATTACK_DEBUFF = auto() # enemy attacks AND debuffs the player
     SPLIT = auto()  # large slime splits into two mediums
 
 
@@ -245,9 +247,9 @@ register_enemy(_JAW_WORM, _jaw_worm_intent)
 _ACID_SLIME_M = EnemySpec("AcidSlimeM", hp_min=28, hp_max=32)
 
 _AS_INTENTS: dict[str, Intent] = {
-    "CorrosiveSpit": Intent(IntentType.ATTACK, damage=7, hits=1, status_card_id="Slimed", status_card_count=1),
+    "CorrosiveSpit": Intent(IntentType.ATTACK_DEBUFF, damage=7, hits=1, status_card_id="Slimed", status_card_count=1),
     "Tackle":        Intent(IntentType.ATTACK, damage=10, hits=1),
-    "Lick":          Intent(IntentType.BUFF, applies_weak=1),
+    "Lick":          Intent(IntentType.DEBUFF, applies_weak=1),
 }
 
 
@@ -310,7 +312,7 @@ _ACID_SLIME_S = EnemySpec("AcidSlimeS", hp_min=8, hp_max=12)
 
 _ASS_INTENTS: dict[str, Intent] = {
     "Tackle": Intent(IntentType.ATTACK, damage=3, hits=1),
-    "Lick":   Intent(IntentType.BUFF, applies_weak=1),
+    "Lick":   Intent(IntentType.DEBUFF, applies_weak=1),
 }
 
 
@@ -406,7 +408,7 @@ def _green_louse_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  
     enemy.move_history.append(chosen)
     if chosen == "Bite":
         return Intent(IntentType.ATTACK, damage=enemy.misc, hits=1)
-    return Intent(IntentType.BUFF, applies_weak=2)
+    return Intent(IntentType.DEBUFF, applies_weak=2)
 
 
 register_enemy(_GREEN_LOUSE, _green_louse_intent, _louse_pre_battle)
@@ -420,7 +422,7 @@ register_enemy(_GREEN_LOUSE, _green_louse_intent, _louse_pre_battle)
 
 _FAT_GREMLIN = EnemySpec("FatGremlin", hp_min=13, hp_max=17)
 
-_FG_SMASH = Intent(IntentType.ATTACK, damage=4, hits=1, applies_weak=1)
+_FG_SMASH = Intent(IntentType.ATTACK_DEBUFF, damage=4, hits=1, applies_weak=1)
 
 
 def _fat_gremlin_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
@@ -545,8 +547,8 @@ register_enemy(_GREMLIN_WIZARD, _gremlin_wizard_intent)
 _SPIKE_SLIME_M = EnemySpec("SpikeSlimeM", hp_min=28, hp_max=32)
 
 _SSM_INTENTS: dict[str, Intent] = {
-    "FlameTackle": Intent(IntentType.ATTACK, damage=8, hits=1, status_card_id="Slimed", status_card_count=1),
-    "Lick":        Intent(IntentType.BUFF, applies_frail=1),
+    "FlameTackle": Intent(IntentType.ATTACK_DEBUFF, damage=8, hits=1, status_card_id="Slimed", status_card_count=1),
+    "Lick":        Intent(IntentType.DEBUFF, applies_frail=1),
 }
 
 
@@ -583,8 +585,8 @@ register_enemy(_SPIKE_SLIME_M, _spike_slime_m_intent)
 _SPIKE_SLIME_L = EnemySpec("SpikeSlimeL", hp_min=64, hp_max=70)
 
 _SSL_INTENTS: dict[str, Intent] = {
-    "FlameTackle": Intent(IntentType.ATTACK, damage=16, hits=1, status_card_id="Slimed", status_card_count=2),
-    "Lick":        Intent(IntentType.BUFF, applies_frail=2),
+    "FlameTackle": Intent(IntentType.ATTACK_DEBUFF, damage=16, hits=1, status_card_id="Slimed", status_card_count=2),
+    "Lick":        Intent(IntentType.DEBUFF, applies_frail=2),
 }
 
 
@@ -627,9 +629,9 @@ register_enemy(_SPIKE_SLIME_L, _spike_slime_l_intent)
 _ACID_SLIME_L = EnemySpec("AcidSlimeL", hp_min=65, hp_max=69)
 
 _AL_INTENTS: dict[str, Intent] = {
-    "CorrosiveSpit": Intent(IntentType.ATTACK, damage=11, hits=1, status_card_id="Slimed", status_card_count=2),
+    "CorrosiveSpit": Intent(IntentType.ATTACK_DEBUFF, damage=11, hits=1, status_card_id="Slimed", status_card_count=2),
     "Tackle":        Intent(IntentType.ATTACK, damage=16, hits=1),
-    "Lick":          Intent(IntentType.BUFF, applies_weak=2),
+    "Lick":          Intent(IntentType.DEBUFF, applies_weak=2),
 }
 
 
