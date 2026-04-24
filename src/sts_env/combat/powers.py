@@ -91,10 +91,15 @@ def gain_block(powers: Powers, amount: int) -> int:
     return amount
 
 
+# Enemy names that split at <= 50% HP
+_SPLIT_NAMES = frozenset({"AcidSlimeL", "SpikeSlimeL"})
+
+
 def attack_enemy(state: "CombatState", enemy: "EnemyState", base_dmg: int) -> None:
     """Deal base_dmg to enemy, applying player strength/weak, enemy vulnerable.
 
     Also fires Angry (on any attack) and Curl Up (on first HP damage).
+    Sets pending_split on large slimes when HP crosses the 50% threshold.
     Mutates enemy and state in place.
     """
     raw = calc_damage(base_dmg, state.player_powers, enemy.powers)
@@ -112,3 +117,13 @@ def attack_enemy(state: "CombatState", enemy: "EnemyState", base_dmg: int) -> No
     if enemy.powers.curl_up > 0 and enemy.hp < hp_before:
         enemy.block += enemy.powers.curl_up
         enemy.powers.curl_up = 0
+
+    # Large slimes split when HP first crosses <= 50% threshold
+    if (
+        enemy.name in _SPLIT_NAMES
+        and not enemy.pending_split
+        and enemy.hp > 0
+        and enemy.hp <= enemy.max_hp // 2
+        and hp_before > enemy.max_hp // 2
+    ):
+        enemy.pending_split = True

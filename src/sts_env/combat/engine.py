@@ -43,6 +43,12 @@ _PLAYER_START_HP = 80
 _ENERGY_PER_TURN = 3
 _CARDS_PER_DRAW = 5
 
+# Large slime → medium slime spawned on split
+_SPLIT_INTO: dict[str, str] = {
+    "AcidSlimeL":  "AcidSlimeM",
+    "SpikeSlimeL": "SpikeSlimeM",
+}
+
 # Ironclad starter deck: 5×Strike, 4×Defend, 1×Bash
 IRONCLAD_STARTER = (
     ["Strike"] * 5
@@ -91,11 +97,14 @@ class Combat:
         piles = Piles(draw=list(self._deck))
         rng.shuffle(piles.draw)
 
-        # Roll enemy HP
+        # Roll enemy HP; "Empty" slots are inert pre-allocated slots for splits
         enemies = []
         for name in self._enemy_names:
-            hp = roll_hp(name, rng)
-            enemies.append(EnemyState(name=name, hp=hp, max_hp=hp))
+            if name == "Empty":
+                enemies.append(EnemyState(name="Empty", hp=0, max_hp=0))
+            else:
+                hp = roll_hp(name, rng)
+                enemies.append(EnemyState(name=name, hp=hp, max_hp=hp))
 
         self._state = CombatState(
             player_hp=self._player_start_hp,
@@ -110,15 +119,19 @@ class Combat:
         )
         self._damage_taken = 0
 
-        # Run pre-battle hooks (e.g. Cultist ritual, Louse curl-up roll)
+        # Run pre-battle hooks (skip Empty slots)
         for enemy in self._state.enemies:
-            run_pre_battle(enemy, self._state)
+            if enemy.name != "Empty":
+                run_pre_battle(enemy, self._state)
 
-        # Pick initial intents for all enemies
+        # Pick initial intents for all enemies (None sentinel for Empty slots)
         self._intents = []
         for i, enemy in enumerate(self._state.enemies):
-            intent = pick_intent_with_state(enemy, rng, turn=0, state=self._state, enemy_index=i)
-            self._intents.append(intent)
+            if enemy.name == "Empty":
+                self._intents.append(Intent(IntentType.BUFF))  # inert placeholder
+            else:
+                intent = pick_intent_with_state(enemy, rng, turn=0, state=self._state, enemy_index=i)
+                self._intents.append(intent)
 
         # Draw opening hand
         self._state.piles.draw_cards(_CARDS_PER_DRAW, rng)
@@ -202,7 +215,9 @@ class Combat:
     def _is_done(self) -> bool:
         state = self._state
         assert state is not None
-        all_enemies_dead = all(not e.alive for e in state.enemies)
+        all_enemies_dead = all(
+            not e.alive for e in state.enemies if e.name != "Empty"
+        )
         return state.player_hp <= 0 or all_enemies_dead
 
     def _observe(self) -> Observation:
@@ -273,9 +288,14 @@ class Combat:
         # Each living enemy resolves its stored intent, then picks next intent
         new_intents: list[Intent] = []
         for i, enemy in enumerate(state.enemies):
-            if not enemy.alive:
+            if enemy.name == "Empty" or not enemy.alive:
                 new_intents.append(self._intents[i])
                 continue
+
+            # Override stored intent with SPLIT if pending
+            if enemy.pending_split:
+                enemy.pending_split = False
+                self._intents[i] = Intent(IntentType.SPLIT)
 
             # Wipe enemy block at start of enemy turn
             enemy.block = 0
@@ -295,6 +315,25 @@ class Combat:
                 new_intents.append(intent)
                 continue
 
+            # Newly spawned mediums (from split) need their initial intent picked
+            # The _resolve_split call already set their name; they are alive.
+            # Check if this slot was replaced (name changed to a medium).
+            if intent.intent_type == IntentType.SPLIT:
+                # Slot i was replaced with a medium; also handle slot i+1 if it was too
+                # Both slots now hold fresh mediums — pick turn=0 intents for them.
+                for split_idx in (i, i + 1):
+                    if split_idx < len(state.enemies) and state.enemies[split_idx].name != "Empty":
+                        medium = state.enemies[split_idx]
+                        if medium.alive:
+                            ni = pick_intent_with_state(
+                                medium, state.rng, turn=0, state=state, enemy_index=split_idx
+                            )
+                            # Ensure new_intents is long enough
+                            while len(new_intents) <= split_idx:
+                                new_intents.append(Intent(IntentType.BUFF))
+                            new_intents[split_idx] = ni
+                continue
+
             # Pick next intent for next turn display
             next_intent = pick_intent_with_state(
                 enemy, state.rng, state.turn + 1, state=state, enemy_index=i
@@ -310,11 +349,31 @@ class Combat:
         state.energy = _ENERGY_PER_TURN
         state.piles.draw_cards(_CARDS_PER_DRAW, state.rng)
 
+    def _resolve_split(self, enemy: EnemyState, idx: int) -> None:
+        """Replace enemy at idx and idx+1 with two fresh medium slimes."""
+        state = self._state
+        assert state is not None
+
+        medium_name = _SPLIT_INTO[enemy.name]
+        split_hp = enemy.hp
+
+        # Replace both slots with fresh medium EnemyStates at split_hp
+        for slot in (idx, idx + 1):
+            state.enemies[slot] = EnemyState(
+                name=medium_name,
+                hp=split_hp,
+                max_hp=split_hp,
+            )
+
     def _resolve_enemy_intent(
         self, enemy: EnemyState, intent: Intent, enemy_index: int
     ) -> None:
         state = self._state
         assert state is not None
+
+        if intent.intent_type == IntentType.SPLIT:
+            self._resolve_split(enemy, enemy_index)
+            return
 
         if intent.intent_type in (IntentType.ATTACK, IntentType.ATTACK_DEFEND):
             for _ in range(intent.hits):
@@ -346,5 +405,10 @@ class Combat:
             if live_allies:
                 target = live_allies[state.rng.randint(0, len(live_allies) - 1)]
                 target.block += intent.ally_block_gain
+
+        # Status cards added to the player's discard pile
+        if intent.status_card_count:
+            for _ in range(intent.status_card_count):
+                state.piles.add_to_discard(intent.status_card_id)
 
 

@@ -41,6 +41,7 @@ class CardSpec:
     cost: int           # -1 = unplayable (curse/status)
     card_type: CardType
     target: TargetType
+    exhausts: bool = False
 
 
 # Handler signature
@@ -78,7 +79,10 @@ def play_card(state: "CombatState", hand_index: int, target_index: int) -> None:
     state.energy -= spec.cost
     card = state.piles.play_card(hand_index)
     _HANDLERS[card_id](state, hand_index, target_index)
-    state.piles.move_to_discard(card)
+    if spec.exhausts:
+        state.piles.move_to_exhaust(card)
+    else:
+        state.piles.move_to_discard(card)
 
 
 # ---------------------------------------------------------------------------
@@ -188,4 +192,20 @@ def _anger(state: "CombatState", _hi: int, ti: int) -> None:
 _register(
     CardSpec("Anger", cost=0, card_type=CardType.ATTACK, target=TargetType.SINGLE_ENEMY),
     _anger,
+)
+
+
+# ---------------------------------------------------------------------------
+# Slimed (Status card — added to deck by slimes)
+# ---------------------------------------------------------------------------
+# Cost 1, does nothing, exhausts when played.
+# Source: sts_lightspeed CardInstance.cpp, Cards.h SLIMED
+
+def _slimed(state: "CombatState", _hi: int, _ti: int) -> None:
+    pass  # no effect; exhausts automatically via spec.exhausts = True
+
+
+_register(
+    CardSpec("Slimed", cost=1, card_type=CardType.STATUS, target=TargetType.NONE, exhausts=True),
+    _slimed,
 )

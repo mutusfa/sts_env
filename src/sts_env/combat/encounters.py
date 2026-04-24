@@ -37,6 +37,30 @@ def acid_slime_m(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: in
     return Combat(deck, ["AcidSlimeM"], seed, player_hp)
 
 
+def spike_slime_m(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
+    return Combat(deck, ["SpikeSlimeM"], seed, player_hp)
+
+
+def acid_slime_l(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
+    """AcidSlimeL with a pre-allocated Empty slot for the split."""
+    return Combat(deck, ["AcidSlimeL", "Empty"], seed, player_hp)
+
+
+def spike_slime_l(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
+    """SpikeSlimeL with a pre-allocated Empty slot for the split."""
+    return Combat(deck, ["SpikeSlimeL", "Empty"], seed, player_hp)
+
+
+_LARGE_SLIME_TYPES = ["AcidSlimeL", "SpikeSlimeL"]
+
+
+def large_slime(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
+    """A randomly-selected large slime (50/50 AcidSlimeL or SpikeSlimeL) with Empty slot."""
+    comp_rng = RNG(seed ^ _COMP_SEED_SALT)
+    chosen = _LARGE_SLIME_TYPES[comp_rng.randint(0, 1)]
+    return Combat(deck, [chosen, "Empty"], seed, player_hp)
+
+
 # ---------------------------------------------------------------------------
 # Small Slimes — SpikeSlimeS + AcidSlimeS
 # ---------------------------------------------------------------------------

@@ -31,6 +31,7 @@ class IntentType(Enum):
     DEFEND = auto()
     BUFF = auto()
     ATTACK_DEFEND = auto()
+    SPLIT = auto()  # large slime splits into two mediums
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,9 @@ class Intent:
     applies_vulnerable: int = 0
     # Block granted to a random alive ally (Shield Gremlin pattern)
     ally_block_gain: int = 0
+    # Status/curse cards added to the player's discard pile on resolution
+    status_card_id: str = ""
+    status_card_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -241,7 +245,7 @@ register_enemy(_JAW_WORM, _jaw_worm_intent)
 _ACID_SLIME_M = EnemySpec("AcidSlimeM", hp_min=28, hp_max=32)
 
 _AS_INTENTS: dict[str, Intent] = {
-    "CorrosiveSpit": Intent(IntentType.ATTACK, damage=7, hits=1, applies_weak=1),
+    "CorrosiveSpit": Intent(IntentType.ATTACK, damage=7, hits=1, status_card_id="Slimed", status_card_count=1),
     "Tackle":        Intent(IntentType.ATTACK, damage=10, hits=1),
     "Lick":          Intent(IntentType.BUFF, applies_weak=1),
 }
@@ -529,3 +533,130 @@ def _gremlin_wizard_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent
 
 
 register_enemy(_GREMLIN_WIZARD, _gremlin_wizard_intent)
+
+
+# ---------------------------------------------------------------------------
+# Spike Slime (M)
+# ---------------------------------------------------------------------------
+# HP 28-32.  FlameTackle (8 dmg + 1 Slimed), Lick (Frail 1).
+# Constraints asc 0: FlameTackle max 2 in a row, Lick max 2 in a row.
+# Source: MonsterSpecific.cpp line ~2822
+
+_SPIKE_SLIME_M = EnemySpec("SpikeSlimeM", hp_min=28, hp_max=32)
+
+_SSM_INTENTS: dict[str, Intent] = {
+    "FlameTackle": Intent(IntentType.ATTACK, damage=8, hits=1, status_card_id="Slimed", status_card_count=1),
+    "Lick":        Intent(IntentType.BUFF, applies_frail=1),
+}
+
+
+def _spike_slime_m_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
+    history = enemy.move_history
+    roll = rng.randint(0, 99)
+
+    if roll < 30:
+        if _last_two_moves(history, "FlameTackle"):
+            chosen = "Lick"
+        else:
+            chosen = "FlameTackle"
+    else:
+        if _last_two_moves(history, "Lick"):
+            chosen = "FlameTackle"
+        else:
+            chosen = "Lick"
+
+    enemy.move_history.append(chosen)
+    return _SSM_INTENTS[chosen]
+
+
+register_enemy(_SPIKE_SLIME_M, _spike_slime_m_intent)
+
+
+# ---------------------------------------------------------------------------
+# Spike Slime (L)
+# ---------------------------------------------------------------------------
+# HP 64-70.  FlameTackle (16 dmg + 2 Slimed), Lick (Frail 2).
+# Splits at <=50% HP.
+# Constraints asc 0: FlameTackle max 2 in a row, Lick max 1 in a row.
+# Source: MonsterSpecific.cpp line ~2801
+
+_SPIKE_SLIME_L = EnemySpec("SpikeSlimeL", hp_min=64, hp_max=70)
+
+_SSL_INTENTS: dict[str, Intent] = {
+    "FlameTackle": Intent(IntentType.ATTACK, damage=16, hits=1, status_card_id="Slimed", status_card_count=2),
+    "Lick":        Intent(IntentType.BUFF, applies_frail=2),
+}
+
+
+def _spike_slime_l_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
+    history = enemy.move_history
+    roll = rng.randint(0, 99)
+
+    if roll < 30:
+        if _last_two_moves(history, "FlameTackle"):
+            chosen = "Lick"
+        else:
+            chosen = "FlameTackle"
+    else:
+        # Lick: constrained to max 1 in a row (lastMove check)
+        if _last_move(history, "Lick"):
+            chosen = "FlameTackle"
+        else:
+            chosen = "Lick"
+
+    enemy.move_history.append(chosen)
+    return _SSL_INTENTS[chosen]
+
+
+register_enemy(_SPIKE_SLIME_L, _spike_slime_l_intent)
+
+
+# ---------------------------------------------------------------------------
+# Acid Slime (L)
+# ---------------------------------------------------------------------------
+# HP 65-69.  CorrosiveSpit (11 dmg + 2 Slimed), Tackle (16 dmg), Lick (Weak 2).
+# Splits at <=50% HP.
+# Constraints asc 0: CorrosiveSpit max 2 in a row, Tackle max 1 in a row, Lick max 1 in a row.
+# Source: MonsterSpecific.cpp line ~2016 (asc 0 branch)
+#
+# Fallbacks (asc 0):
+#   From CorrosiveSpit: Tackle (50%) or Lick (50%)
+#   From Tackle:        CorrosiveSpit (40%) or Lick (60%)
+#   From Lick:          CorrosiveSpit (40%) or Tackle (60%)
+
+_ACID_SLIME_L = EnemySpec("AcidSlimeL", hp_min=65, hp_max=69)
+
+_AL_INTENTS: dict[str, Intent] = {
+    "CorrosiveSpit": Intent(IntentType.ATTACK, damage=11, hits=1, status_card_id="Slimed", status_card_count=2),
+    "Tackle":        Intent(IntentType.ATTACK, damage=16, hits=1),
+    "Lick":          Intent(IntentType.BUFF, applies_weak=2),
+}
+
+
+def _acid_slime_l_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
+    history = enemy.move_history
+    roll = rng.randint(0, 99)
+
+    if roll < 30:
+        if _last_two_moves(history, "CorrosiveSpit"):
+            chosen = "Tackle" if rng.random() < 0.5 else "Lick"
+        else:
+            chosen = "CorrosiveSpit"
+
+    elif roll < 70:
+        if _last_move(history, "Tackle"):
+            chosen = "CorrosiveSpit" if rng.random() < 0.4 else "Lick"
+        else:
+            chosen = "Tackle"
+
+    else:
+        if _last_move(history, "Lick"):
+            chosen = "CorrosiveSpit" if rng.random() < 0.4 else "Tackle"
+        else:
+            chosen = "Lick"
+
+    enemy.move_history.append(chosen)
+    return _AL_INTENTS[chosen]
+
+
+register_enemy(_ACID_SLIME_L, _acid_slime_l_intent)
