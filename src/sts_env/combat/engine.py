@@ -237,6 +237,11 @@ class Combat:
                     },
                     intent_type=intent.intent_type.name if intent else "NONE",
                     intent_damage=intent.damage if intent else 0,
+                    intent_damage_effective=(
+                        calc_damage(intent.damage, enemy.powers, state.player_powers)
+                        if intent and intent.intent_type in (IntentType.ATTACK, IntentType.ATTACK_DEFEND)
+                        else 0
+                    ),
                     intent_hits=intent.hits if intent else 0,
                     intent_block_gain=intent.block_gain if intent else 0,
                 )

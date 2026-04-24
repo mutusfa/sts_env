@@ -80,6 +80,7 @@ class EnemyObs:
     powers: dict[str, Any]
     intent_type: str
     intent_damage: int
+    intent_damage_effective: int
     intent_hits: int
     intent_block_gain: int
 
