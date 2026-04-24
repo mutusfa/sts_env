@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
     from .rng import RNG
-    from .state import EnemyState
+    from .state import CombatState, EnemyState
 
 
 class IntentType(Enum):
@@ -40,6 +40,12 @@ class Intent:
     hits: int = 1
     block_gain: int = 0
     strength_gain: int = 0
+    # Post-resolution debuffs applied to the player after the attack resolves
+    applies_weak: int = 0
+    applies_frail: int = 0
+    applies_vulnerable: int = 0
+    # Block granted to a random alive ally (Shield Gremlin pattern)
+    ally_block_gain: int = 0
 
 
 @dataclass(frozen=True)
@@ -50,14 +56,51 @@ class EnemySpec:
 
 
 IntentPicker = Callable[["EnemyState", "RNG", int], Intent]
+# Context-aware picker also receives state + own enemy_index
+ContextPicker = Callable[["EnemyState", "RNG", int, "CombatState", int], Intent]
+PreBattleHook = Callable[["EnemyState", "CombatState"], None]
 
 _SPECS: dict[str, EnemySpec] = {}
 _PICKERS: dict[str, IntentPicker] = {}
+_CONTEXT_PICKERS: dict[str, ContextPicker] = {}
+_PRE_BATTLE: dict[str, PreBattleHook] = {}
 
 
-def register_enemy(spec: EnemySpec, picker: IntentPicker) -> None:
+def register_enemy(
+    spec: EnemySpec,
+    picker: IntentPicker | None = None,
+    pre_battle: PreBattleHook | None = None,
+    *,
+    context_picker: ContextPicker | None = None,
+) -> None:
     _SPECS[spec.name] = spec
-    _PICKERS[spec.name] = picker
+    if picker is not None:
+        _PICKERS[spec.name] = picker
+    if context_picker is not None:
+        _CONTEXT_PICKERS[spec.name] = context_picker
+    if pre_battle is not None:
+        _PRE_BATTLE[spec.name] = pre_battle
+
+
+def run_pre_battle(enemy: "EnemyState", state: "CombatState") -> None:
+    """Call the enemy's pre-battle hook if one is registered."""
+    hook = _PRE_BATTLE.get(enemy.name)
+    if hook is not None:
+        hook(enemy, state)
+
+
+def pick_intent_with_state(
+    enemy: "EnemyState",
+    rng: "RNG",
+    turn: int,
+    state: "CombatState",
+    enemy_index: int,
+) -> Intent:
+    """Pick intent, supplying state for context-aware enemies (e.g. ShieldGremlin)."""
+    ctx = _CONTEXT_PICKERS.get(enemy.name)
+    if ctx is not None:
+        return ctx(enemy, rng, turn, state, enemy_index)
+    return _PICKERS[enemy.name](enemy, rng, turn)
 
 
 def get_spec(name: str) -> EnemySpec:
@@ -66,6 +109,9 @@ def get_spec(name: str) -> EnemySpec:
 
 def pick_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:
     return _PICKERS[enemy.name](enemy, rng, turn)
+
+
+
 
 
 def roll_hp(name: str, rng: "RNG") -> int:
@@ -85,11 +131,16 @@ _CULTIST = EnemySpec("Cultist", hp_min=48, hp_max=54)
 
 def _cultist_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
     if turn == 0:
-        return Intent(IntentType.BUFF, strength_gain=0)  # ritual 3 applied in engine
+        return Intent(IntentType.BUFF, strength_gain=0)
     return Intent(IntentType.ATTACK, damage=6, hits=1)
 
 
-register_enemy(_CULTIST, _cultist_intent)
+def _cultist_pre_battle(enemy: "EnemyState", state: "CombatState") -> None:  # noqa: ARG001
+    enemy.powers.ritual = 3
+    enemy.powers.ritual_just_applied = True
+
+
+register_enemy(_CULTIST, _cultist_intent, _cultist_pre_battle)
 
 
 # ---------------------------------------------------------------------------
@@ -190,12 +241,10 @@ register_enemy(_JAW_WORM, _jaw_worm_intent)
 _ACID_SLIME_M = EnemySpec("AcidSlimeM", hp_min=28, hp_max=32)
 
 _AS_INTENTS: dict[str, Intent] = {
-    "CorrosiveSpit": Intent(IntentType.ATTACK, damage=7, hits=1),
+    "CorrosiveSpit": Intent(IntentType.ATTACK, damage=7, hits=1, applies_weak=1),
     "Tackle":        Intent(IntentType.ATTACK, damage=10, hits=1),
-    "Lick":          Intent(IntentType.BUFF),
+    "Lick":          Intent(IntentType.BUFF, applies_weak=1),
 }
-
-_AS_APPLIES_WEAK = {"CorrosiveSpit", "Lick"}
 
 
 def _acid_slime_m_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
@@ -227,14 +276,256 @@ def _acid_slime_m_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent: 
 register_enemy(_ACID_SLIME_M, _acid_slime_m_intent)
 
 
-def move_applies_weak(enemy_name: str, move_name: str) -> bool:
-    """Return True if the given move applies Weak to the player."""
-    if enemy_name == "AcidSlimeM":
-        return move_name in _AS_APPLIES_WEAK
-    return False
+# ---------------------------------------------------------------------------
+# Spike Slime (S)
+# ---------------------------------------------------------------------------
+# HP 10-14, always TACKLE (5 dmg).
+# Source: MonsterSpecific.cpp line ~2771
+
+_SPIKE_SLIME_S = EnemySpec("SpikeSlimeS", hp_min=10, hp_max=14)
+
+_SSS_TACKLE = Intent(IntentType.ATTACK, damage=5, hits=1)
 
 
-def move_name_for_last_intent(enemy: "EnemyState") -> str | None:
-    if enemy.move_history:
-        return enemy.move_history[-1]
-    return None
+def _spike_slime_s_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
+    enemy.move_history.append("Tackle")
+    return _SSS_TACKLE
+
+
+register_enemy(_SPIKE_SLIME_S, _spike_slime_s_intent)
+
+
+# ---------------------------------------------------------------------------
+# Acid Slime (S)
+# ---------------------------------------------------------------------------
+# HP 8-12. Strictly alternates: first move is 50/50, then strict alternation.
+# Tackle: 3 dmg. Lick: applies Weak 1.
+# Source: MonsterSpecific.cpp line ~1891 — each move setMove to the other.
+
+_ACID_SLIME_S = EnemySpec("AcidSlimeS", hp_min=8, hp_max=12)
+
+_ASS_INTENTS: dict[str, Intent] = {
+    "Tackle": Intent(IntentType.ATTACK, damage=3, hits=1),
+    "Lick":   Intent(IntentType.BUFF, applies_weak=1),
+}
+
+
+def _acid_slime_s_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
+    history = enemy.move_history
+    if not history:
+        # First move: 50/50 via a randomBoolean
+        chosen = "Tackle" if rng.random() < 0.5 else "Lick"
+    else:
+        # Strict alternation — opposite of last move
+        chosen = "Lick" if history[-1] == "Tackle" else "Tackle"
+    enemy.move_history.append(chosen)
+    return _ASS_INTENTS[chosen]
+
+
+register_enemy(_ACID_SLIME_S, _acid_slime_s_intent)
+
+
+# ---------------------------------------------------------------------------
+# Red Louse
+# ---------------------------------------------------------------------------
+# HP 10-15.  Pre-battle: roll bite dmg 5-7 (stored in enemy.misc) and
+# Curl Up 3-7.  Moves: BITE (misc dmg) / GROW (+3 str asc 0).
+# Constraints (asc 0): GROW max 1 in a row; BITE max 2 in a row (lastTwoMoves).
+# Source: MonsterSpecific.cpp line ~2585, Monster.cpp line ~115.
+
+_RED_LOUSE = EnemySpec("RedLouse", hp_min=10, hp_max=15)
+
+
+def _louse_pre_battle(enemy: "EnemyState", state: "CombatState") -> None:
+    """Roll bite damage and Curl Up stacks."""
+    enemy.misc = state.rng.randint(5, 7)
+    enemy.powers.curl_up = state.rng.randint(3, 7)
+
+
+def _red_louse_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
+    history = enemy.move_history
+    roll = rng.randint(0, 99)
+
+    if roll < 25:
+        # Wants Grow.  Constraint (asc 0): lastMove(Grow) AND lastTwoMoves(Grow)
+        # → max 2 in a row.
+        if _last_move(history, "Grow") and _last_two_moves(history, "Grow"):
+            chosen = "Bite"
+        else:
+            chosen = "Grow"
+    else:
+        # Wants Bite; constrained to max 2 in a row (lastTwoMoves)
+        if _last_two_moves(history, "Bite"):
+            chosen = "Grow"
+        else:
+            chosen = "Bite"
+
+    enemy.move_history.append(chosen)
+    if chosen == "Bite":
+        return Intent(IntentType.ATTACK, damage=enemy.misc, hits=1)
+    # Grow: strength +3 (asc 0)
+    return Intent(IntentType.BUFF, strength_gain=3)
+
+
+register_enemy(_RED_LOUSE, _red_louse_intent, _louse_pre_battle)
+
+
+# ---------------------------------------------------------------------------
+# Green Louse
+# ---------------------------------------------------------------------------
+# HP 11-17.  Same pre-battle as Red Louse (bite roll + Curl Up).
+# Moves: BITE (misc dmg) / SPIT_WEB (Weak 2).
+# Constraints: SPIT_WEB max 1 in a row (lastMove); BITE max 2 in a row.
+# Source: MonsterSpecific.cpp line ~2315.
+
+_GREEN_LOUSE = EnemySpec("GreenLouse", hp_min=11, hp_max=17)
+
+
+def _green_louse_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
+    history = enemy.move_history
+    roll = rng.randint(0, 99)
+
+    if roll < 25:
+        # Wants SpitWeb.  Constraint (asc 0): lastMove(SpitWeb) AND lastTwoMoves(SpitWeb)
+        # → max 2 in a row.
+        if _last_move(history, "SpitWeb") and _last_two_moves(history, "SpitWeb"):
+            chosen = "Bite"
+        else:
+            chosen = "SpitWeb"
+    else:
+        # Wants Bite; constrained to max 2 in a row
+        if _last_two_moves(history, "Bite"):
+            chosen = "SpitWeb"
+        else:
+            chosen = "Bite"
+
+    enemy.move_history.append(chosen)
+    if chosen == "Bite":
+        return Intent(IntentType.ATTACK, damage=enemy.misc, hits=1)
+    return Intent(IntentType.BUFF, applies_weak=2)
+
+
+register_enemy(_GREEN_LOUSE, _green_louse_intent, _louse_pre_battle)
+
+
+# ---------------------------------------------------------------------------
+# Fat Gremlin
+# ---------------------------------------------------------------------------
+# HP 13-17, always SMASH (4 dmg + Weak 1 to player).
+# Source: MonsterSpecific.cpp line ~2291
+
+_FAT_GREMLIN = EnemySpec("FatGremlin", hp_min=13, hp_max=17)
+
+_FG_SMASH = Intent(IntentType.ATTACK, damage=4, hits=1, applies_weak=1)
+
+
+def _fat_gremlin_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
+    enemy.move_history.append("Smash")
+    return _FG_SMASH
+
+
+register_enemy(_FAT_GREMLIN, _fat_gremlin_intent)
+
+
+# ---------------------------------------------------------------------------
+# Mad Gremlin
+# ---------------------------------------------------------------------------
+# HP 20-24.  Pre-battle: Angry 1.  Always SCRATCH (4 dmg).
+# Source: MonsterSpecific.cpp line ~2507, preBattleAction line ~158.
+
+_MAD_GREMLIN = EnemySpec("MadGremlin", hp_min=20, hp_max=24)
+
+_MG_SCRATCH = Intent(IntentType.ATTACK, damage=4, hits=1)
+
+
+def _mad_gremlin_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
+    enemy.move_history.append("Scratch")
+    return _MG_SCRATCH
+
+
+def _mad_gremlin_pre_battle(enemy: "EnemyState", state: "CombatState") -> None:  # noqa: ARG001
+    enemy.powers.angry = 1
+
+
+register_enemy(_MAD_GREMLIN, _mad_gremlin_intent, _mad_gremlin_pre_battle)
+
+
+# ---------------------------------------------------------------------------
+# Sneaky Gremlin
+# ---------------------------------------------------------------------------
+# HP 10-14, always PUNCTURE (9 dmg).
+# Source: MonsterSpecific.cpp line ~2747
+
+_SNEAKY_GREMLIN = EnemySpec("SneakyGremlin", hp_min=10, hp_max=14)
+
+_SG_PUNCTURE = Intent(IntentType.ATTACK, damage=9, hits=1)
+
+
+def _sneaky_gremlin_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
+    enemy.move_history.append("Puncture")
+    return _SG_PUNCTURE
+
+
+register_enemy(_SNEAKY_GREMLIN, _sneaky_gremlin_intent)
+
+
+# ---------------------------------------------------------------------------
+# Shield Gremlin
+# ---------------------------------------------------------------------------
+# HP 12-15.  PROTECT: give 7 block to a random alive ally.
+# When alone (no live ally at intent-pick time): SHIELD_BASH (6 dmg).
+# Requires state context to determine liveness of allies → uses context_picker.
+# Source: MonsterSpecific.cpp line ~2699.
+
+_SHIELD_GREMLIN = EnemySpec("ShieldGremlin", hp_min=12, hp_max=15)
+
+_SGREM_PROTECT = Intent(IntentType.BUFF, ally_block_gain=7)
+_SGREM_BASH = Intent(IntentType.ATTACK, damage=6, hits=1)
+
+
+def _shield_gremlin_picker(
+    enemy: "EnemyState",
+    rng: "RNG",  # noqa: ARG001
+    turn: int,  # noqa: ARG001
+    state: "CombatState",
+    enemy_index: int,
+) -> Intent:
+    has_live_ally = any(
+        e.alive for i, e in enumerate(state.enemies) if i != enemy_index
+    )
+    if has_live_ally:
+        enemy.move_history.append("Protect")
+        return _SGREM_PROTECT
+    else:
+        enemy.move_history.append("ShieldBash")
+        return _SGREM_BASH
+
+
+register_enemy(_SHIELD_GREMLIN, context_picker=_shield_gremlin_picker)
+
+
+# ---------------------------------------------------------------------------
+# Gremlin Wizard
+# ---------------------------------------------------------------------------
+# HP 21-25.  Charges for 3 turns (enemy.misc counts 1→2→3), then fires
+# ULTIMATE_BLAST (25 dmg) and resets the counter to 0.
+# Source: MonsterSpecific.cpp line ~2438.
+
+_GREMLIN_WIZARD = EnemySpec("GremlinWizard", hp_min=21, hp_max=25)
+
+_GW_CHARGING = Intent(IntentType.BUFF)
+_GW_BLAST = Intent(IntentType.ATTACK, damage=25, hits=1)
+
+
+def _gremlin_wizard_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001, ARG002
+    if enemy.misc < 3:
+        enemy.misc += 1
+        enemy.move_history.append("Charging")
+        return _GW_CHARGING
+    else:
+        enemy.misc = 0
+        enemy.move_history.append("UltimateBlast")
+        return _GW_BLAST
+
+
+register_enemy(_GREMLIN_WIZARD, _gremlin_wizard_intent)

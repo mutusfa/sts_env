@@ -17,6 +17,10 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .state import CombatState, EnemyState
 
 
 @dataclass(slots=True)
@@ -26,8 +30,11 @@ class Powers:
     strength: int = 0
     vulnerable: int = 0          # turns remaining
     weak: int = 0                # turns remaining
+    frail: int = 0               # turns remaining; reduces block gain to floor(x * 0.75)
     ritual: int = 0              # stacks; fires at end of enemy turn → +strength
     ritual_just_applied: bool = False  # skip strength gain on the turn ritual is acquired
+    curl_up: int = 0             # enemy: on first HP damage, gain this much block (then consumed)
+    angry: int = 0               # enemy: on any attack hit, gain this much strength
 
     def tick_start_of_turn(self) -> None:
         """Decrement duration-based statuses."""
@@ -35,6 +42,8 @@ class Powers:
             self.vulnerable -= 1
         if self.weak > 0:
             self.weak -= 1
+        if self.frail > 0:
+            self.frail -= 1
 
     def apply_ritual(self) -> None:
         """Fire end-of-round Ritual: gain strength equal to ritual stacks.
@@ -73,3 +82,33 @@ def apply_damage(
     hp_dmg = raw_dmg - blocked
     new_hp = target_hp - hp_dmg
     return new_block, new_hp
+
+
+def gain_block(powers: Powers, amount: int) -> int:
+    """Return actual block gained, reduced by Frail (floor(amount * 0.75))."""
+    if powers.frail > 0:
+        return math.floor(amount * 0.75)
+    return amount
+
+
+def attack_enemy(state: "CombatState", enemy: "EnemyState", base_dmg: int) -> None:
+    """Deal base_dmg to enemy, applying player strength/weak, enemy vulnerable.
+
+    Also fires Angry (on any attack) and Curl Up (on first HP damage).
+    Mutates enemy and state in place.
+    """
+    raw = calc_damage(base_dmg, state.player_powers, enemy.powers)
+
+    # Angry fires on any attack hit, before applying damage
+    if enemy.powers.angry > 0:
+        enemy.powers.strength += enemy.powers.angry
+
+    hp_before = enemy.hp
+    new_block, new_hp = apply_damage(raw, enemy.block, enemy.hp)
+    enemy.block = new_block
+    enemy.hp = new_hp
+
+    # Curl Up fires the first time the enemy takes HP damage
+    if enemy.powers.curl_up > 0 and enemy.hp < hp_before:
+        enemy.block += enemy.powers.curl_up
+        enemy.powers.curl_up = 0

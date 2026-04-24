@@ -86,12 +86,8 @@ def play_card(state: "CombatState", hand_index: int, target_index: int) -> None:
 # ---------------------------------------------------------------------------
 
 def _strike(state: "CombatState", _hi: int, ti: int) -> None:
-    from .powers import calc_damage, apply_damage
-
-    raw = calc_damage(6, state.player_powers, state.enemies[ti].powers)
-    nb, nhp = apply_damage(raw, state.enemies[ti].block, state.enemies[ti].hp)
-    state.enemies[ti].block = nb
-    state.enemies[ti].hp = nhp
+    from .powers import attack_enemy
+    attack_enemy(state, state.enemies[ti], 6)
 
 
 _register(
@@ -101,7 +97,8 @@ _register(
 
 
 def _defend(state: "CombatState", _hi: int, _ti: int) -> None:
-    state.player_block += 5
+    from .powers import gain_block
+    state.player_block += gain_block(state.player_powers, 5)
 
 
 _register(
@@ -111,12 +108,8 @@ _register(
 
 
 def _bash(state: "CombatState", _hi: int, ti: int) -> None:
-    from .powers import calc_damage, apply_damage
-
-    raw = calc_damage(8, state.player_powers, state.enemies[ti].powers)
-    nb, nhp = apply_damage(raw, state.enemies[ti].block, state.enemies[ti].hp)
-    state.enemies[ti].block = nb
-    state.enemies[ti].hp = nhp
+    from .powers import attack_enemy
+    attack_enemy(state, state.enemies[ti], 8)
     state.enemies[ti].powers.vulnerable += 2
 
 
@@ -137,12 +130,8 @@ _register(
 
 
 def _pommel_strike(state: "CombatState", _hi: int, ti: int) -> None:
-    from .powers import calc_damage, apply_damage
-
-    raw = calc_damage(9, state.player_powers, state.enemies[ti].powers)
-    nb, nhp = apply_damage(raw, state.enemies[ti].block, state.enemies[ti].hp)
-    state.enemies[ti].block = nb
-    state.enemies[ti].hp = nhp
+    from .powers import attack_enemy
+    attack_enemy(state, state.enemies[ti], 9)
     state.piles.draw_cards(1, state.rng)
 
 
@@ -153,7 +142,8 @@ _register(
 
 
 def _shrug_it_off(state: "CombatState", _hi: int, _ti: int) -> None:
-    state.player_block += 8
+    from .powers import gain_block
+    state.player_block += gain_block(state.player_powers, 8)
     state.piles.draw_cards(1, state.rng)
 
 
@@ -164,13 +154,9 @@ _register(
 
 
 def _iron_wave(state: "CombatState", _hi: int, ti: int) -> None:
-    from .powers import calc_damage, apply_damage
-
-    raw = calc_damage(5, state.player_powers, state.enemies[ti].powers)
-    nb, nhp = apply_damage(raw, state.enemies[ti].block, state.enemies[ti].hp)
-    state.enemies[ti].block = nb
-    state.enemies[ti].hp = nhp
-    state.player_block += 5
+    from .powers import attack_enemy, gain_block
+    attack_enemy(state, state.enemies[ti], 5)
+    state.player_block += gain_block(state.player_powers, 5)
 
 
 _register(
@@ -180,14 +166,11 @@ _register(
 
 
 def _cleave(state: "CombatState", _hi: int, _ti: int) -> None:
-    from .powers import calc_damage, apply_damage
+    from .powers import attack_enemy
 
     for enemy in state.enemies:
         if enemy.hp > 0:
-            raw = calc_damage(8, state.player_powers, enemy.powers)
-            nb, nhp = apply_damage(raw, enemy.block, enemy.hp)
-            enemy.block = nb
-            enemy.hp = nhp
+            attack_enemy(state, enemy, 8)
 
 
 _register(
@@ -197,12 +180,8 @@ _register(
 
 
 def _anger(state: "CombatState", _hi: int, ti: int) -> None:
-    from .powers import calc_damage, apply_damage
-
-    raw = calc_damage(6, state.player_powers, state.enemies[ti].powers)
-    nb, nhp = apply_damage(raw, state.enemies[ti].block, state.enemies[ti].hp)
-    state.enemies[ti].block = nb
-    state.enemies[ti].hp = nhp
+    from .powers import attack_enemy
+    attack_enemy(state, state.enemies[ti], 6)
     state.piles.add_to_discard("Anger")
 
 

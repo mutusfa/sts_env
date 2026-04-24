@@ -23,6 +23,7 @@ class EnemyState:
     block: int = 0
     powers: Powers = field(default_factory=Powers)
     move_history: list[str] = field(default_factory=list)
+    misc: int = 0  # per-enemy scratch space: louse bite dmg, wizard charge counter, etc.
 
     @property
     def alive(self) -> bool:

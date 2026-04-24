@@ -18,16 +18,14 @@ from __future__ import annotations
 
 import copy
 from collections import Counter
-from dataclasses import dataclass, field
 
 from .cards import get_spec as _get_card_spec, play_card as _play_card, TargetType
 from .enemies import (
     Intent,
     IntentType,
-    move_applies_weak,
-    move_name_for_last_intent,
-    pick_intent,
+    pick_intent_with_state,
     roll_hp,
+    run_pre_battle,
 )
 from .powers import Powers, apply_damage, calc_damage
 from .rng import RNG
@@ -82,19 +80,6 @@ class Combat:
         self._intents: list[Intent] = []
 
     # ------------------------------------------------------------------
-    # Factory helpers
-    # ------------------------------------------------------------------
-
-    @classmethod
-    def ironclad_starter(
-        cls,
-        enemy: str,
-        seed: int,
-        player_hp: int = _PLAYER_START_HP,
-    ) -> "Combat":
-        return cls(IRONCLAD_STARTER, [enemy], seed, player_hp)
-
-    # ------------------------------------------------------------------
     # Public interface
     # ------------------------------------------------------------------
 
@@ -125,12 +110,15 @@ class Combat:
         )
         self._damage_taken = 0
 
+        # Run pre-battle hooks (e.g. Cultist ritual, Louse curl-up roll)
+        for enemy in self._state.enemies:
+            run_pre_battle(enemy, self._state)
+
         # Pick initial intents for all enemies
         self._intents = []
-        for enemy in self._state.enemies:
-            intent = pick_intent(enemy, rng, turn=0)
+        for i, enemy in enumerate(self._state.enemies):
+            intent = pick_intent_with_state(enemy, rng, turn=0, state=self._state, enemy_index=i)
             self._intents.append(intent)
-            _apply_immediate_buffs(enemy, intent, self._state)
 
         # Draw opening hand
         self._state.piles.draw_cards(_CARDS_PER_DRAW, rng)
@@ -234,6 +222,8 @@ class Combat:
                         "strength": enemy.powers.strength,
                         "vulnerable": enemy.powers.vulnerable,
                         "weak": enemy.powers.weak,
+                        "curl_up": enemy.powers.curl_up,
+                        "angry": enemy.powers.angry,
                     },
                     intent_type=intent.intent_type.name if intent else "NONE",
                     intent_damage=intent.damage if intent else 0,
@@ -255,6 +245,7 @@ class Combat:
                 "strength": state.player_powers.strength,
                 "vulnerable": state.player_powers.vulnerable,
                 "weak": state.player_powers.weak,
+                "frail": state.player_powers.frail,
             },
             energy=state.energy,
             hand=list(state.piles.hand),
@@ -305,8 +296,9 @@ class Combat:
                 continue
 
             # Pick next intent for next turn display
-            next_intent = pick_intent(enemy, state.rng, state.turn + 1)
-            _apply_immediate_buffs(enemy, next_intent, state)
+            next_intent = pick_intent_with_state(
+                enemy, state.rng, state.turn + 1, state=state, enemy_index=i
+            )
             new_intents.append(next_intent)
 
         # Advance the round counter once, after all enemies have acted.
@@ -339,22 +331,20 @@ class Combat:
         if intent.strength_gain:
             enemy.powers.strength += intent.strength_gain
 
-        # Check if the move applies Weak to the player
-        move = move_name_for_last_intent(enemy)
-        if move and move_applies_weak(enemy.name, move):
-            state.player_powers.weak += 1
+        # Post-resolution debuffs applied to the player
+        if intent.applies_weak:
+            state.player_powers.weak += intent.applies_weak
+        if intent.applies_frail:
+            state.player_powers.frail += intent.applies_frail
+        if intent.applies_vulnerable:
+            state.player_powers.vulnerable += intent.applies_vulnerable
+
+        # Ally-targeting block (Shield Gremlin pattern)
+        if intent.ally_block_gain:
+            live_allies = [e for i, e in enumerate(state.enemies)
+                           if e.alive and i != enemy_index]
+            if live_allies:
+                target = live_allies[state.rng.randint(0, len(live_allies) - 1)]
+                target.block += intent.ally_block_gain
 
 
-def _apply_immediate_buffs(
-    enemy: EnemyState, intent: Intent, state: CombatState
-) -> None:
-    """Some intents (like Cultist's Ritual) have immediate effect when chosen.
-
-    In StS, Ritual is a *power* applied on turn 0 that persists; we model it
-    by giving the Cultist ritual stacks so apply_ritual() fires each turn.
-    The ritual_just_applied flag prevents strength gain on the same turn the
-    power is first acquired (mirrors sts_lightspeed's justApplied mechanism).
-    """
-    if enemy.name == "Cultist" and enemy.powers.ritual == 0 and state.turn == 0:
-        enemy.powers.ritual = 3
-        enemy.powers.ritual_just_applied = True
