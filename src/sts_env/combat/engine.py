@@ -47,13 +47,16 @@ _ENERGY_PER_TURN = 3
 _CARDS_PER_DRAW = 5
 
 # Large slime → medium slime spawned on split
-_SPLIT_INTO: dict[str, str] = {
+# Value is either a single name (both slots get the same) or a tuple of two
+# names (slot i gets the first, slot i+1 gets the second).
+_SPLIT_INTO: dict[str, str | tuple[str, str]] = {
     "AcidSlimeL":  "AcidSlimeM",
     "SpikeSlimeL": "SpikeSlimeM",
+    "SlimeBoss":   ("AcidSlimeM", "SpikeSlimeM"),
 }
 
 # Ironclad starter deck: 5×Strike, 4×Defend, 1×Bash
-IRONCLAD_STARTER = (
+IRONCLAD_STARTER: list[str] = (
     ["Strike"] * 5
     + ["Defend"] * 4
     + ["Bash"] * 1
@@ -512,13 +515,19 @@ class Combat:
         state = self._state
         assert state is not None
 
-        medium_name = _SPLIT_INTO[enemy.name]
+        split_target = _SPLIT_INTO[enemy.name]
         split_hp = enemy.hp
 
-        # Replace both slots with fresh medium EnemyStates at split_hp
-        for slot in (idx, idx + 1):
+        if isinstance(split_target, tuple):
+            # Heterogeneous split (e.g. SlimeBoss → AcidSlimeM + SpikeSlimeM)
+            names = (split_target[0], split_target[1])
+        else:
+            # Homogeneous split (e.g. AcidSlimeL → 2× AcidSlimeM)
+            names = (split_target, split_target)
+
+        for slot, name in zip((idx, idx + 1), names):
             state.enemies[slot] = EnemyState(
-                name=medium_name,
+                name=name,
                 hp=split_hp,
                 max_hp=split_hp,
             )

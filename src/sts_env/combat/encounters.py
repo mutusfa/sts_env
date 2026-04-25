@@ -251,6 +251,15 @@ def exordium_wildlife(
 
 
 # ---------------------------------------------------------------------------
+# Slime Boss — Act 1 boss encounter
+# ---------------------------------------------------------------------------
+
+def slime_boss(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
+    """Slime Boss with a pre-allocated Empty slot for the split."""
+    return Combat(deck, ["SlimeBoss", "Empty"], seed, player_hp)
+
+
+# ---------------------------------------------------------------------------
 # Act 1 pool-selection helpers
 # ---------------------------------------------------------------------------
 # Source: MonsterEncounters.h MonsterEncounterPool namespace

@@ -8,6 +8,7 @@ from sts_env.combat.card import Card
 from sts_env.combat.cards import CardType, get_spec
 from sts_env.combat.enemies import Intent, IntentType
 from sts_env.run.state import RunState
+from sts_env.run.character import Character, IRONCLAD_STARTER as CHAR_IRONCLAD_STARTER
 from sts_env.run import relics, rewards, scenarios, builder
 from sts_env.combat.rng import RNG
 
@@ -235,6 +236,41 @@ class TestScenario3:
         e1 = scenarios.scenario3_encounters(seed=42)
         e2 = scenarios.scenario3_encounters(seed=42)
         assert e1 == e2
+
+
+# ---------------------------------------------------------------------------
+# Act 1 scenario tests
+# ---------------------------------------------------------------------------
+
+class TestAct1Scenario:
+    """Test act1_encounters scenario generation."""
+
+    def test_returns_8_encounters(self):
+        encounters = scenarios.act1_encounters(seed=42)
+        assert len(encounters) == 8
+
+    def test_correct_types(self):
+        encounters = scenarios.act1_encounters(seed=42)
+        types = [t for t, _ in encounters]
+        assert types.count("easy") == 3
+        assert types.count("hard") == 2
+        assert types.count("elite") == 2
+        assert types.count("boss") == 1
+
+    def test_boss_is_last(self):
+        encounters = scenarios.act1_encounters(seed=42)
+        assert encounters[-1][0] == "boss"
+        assert encounters[-1][1] == "Slime Boss"
+
+    def test_deterministic(self):
+        e1 = scenarios.act1_encounters(seed=42)
+        e2 = scenarios.act1_encounters(seed=42)
+        assert e1 == e2
+
+    def test_ordering(self):
+        encounters = scenarios.act1_encounters(seed=42)
+        types = [t for t, _ in encounters]
+        assert types == ["easy", "easy", "hard", "elite", "easy", "hard", "elite", "boss"]
 
 
 # ---------------------------------------------------------------------------
@@ -466,3 +502,133 @@ class TestCardPotions:
         assert "AttackPotion" in COMMON_POTIONS
         assert "SkillPotion" in COMMON_POTIONS
         assert "PowerPotion" in UNCOMMON_POTIONS
+
+
+# ---------------------------------------------------------------------------
+# Character tests
+# ---------------------------------------------------------------------------
+
+class TestCharacter:
+    """Test the Character dataclass for the strategic layer."""
+
+    def test_ironclad_factory(self):
+        """Character.ironclad() returns a fresh Ironclad with starter state."""
+        c = Character.ironclad()
+        assert c.deck == ["Strike"] * 5 + ["Defend"] * 4 + ["Bash"]
+        assert c.player_hp == 80
+        assert c.player_max_hp == 80
+        assert c.potions == []
+        assert c.gold == 99
+        assert c.floor == 0
+        assert c.relics == ["BurningBlood"]
+        assert c.max_potion_slots == 3
+
+    def test_add_card(self):
+        """add_card should append to deck."""
+        c = Character.ironclad()
+        n = len(c.deck)
+        c.add_card("PommelStrike")
+        assert len(c.deck) == n + 1
+        assert c.deck[-1] == "PommelStrike"
+
+    def test_add_potion(self):
+        """add_potion should fill slots up to max_potion_slots."""
+        c = Character.ironclad()
+        c.add_potion("FirePotion")
+        assert c.potions == ["FirePotion"]
+        c.add_potion("BloodPotion")
+        c.add_potion("BlockPotion")
+        assert len(c.potions) == 3
+        # 4th is discarded
+        c.add_potion("SteroidPotion")
+        assert len(c.potions) == 3
+
+    def test_has_relic(self):
+        """has_relic returns True when the relic is present."""
+        c = Character.ironclad()
+        assert c.has_relic("BurningBlood") is True
+        assert c.has_relic("Pantograph") is False
+
+    def test_heal(self):
+        """heal caps at max_hp."""
+        c = Character.ironclad()
+        c.player_hp = 70
+        c.heal(6)
+        assert c.player_hp == 76
+        c.heal(100)
+        assert c.player_hp == 80
+
+    def test_summary(self):
+        """summary returns a human-readable one-liner."""
+        c = Character.ironclad()
+        s = c.summary()
+        assert "HP=80/80" in s
+        assert "Gold=99" in s
+        assert "Floor=0" in s
+        assert "Deck(10)" in s
+        assert "BurningBlood" in s
+
+    def test_snapshot(self):
+        """snapshot returns a plain dict with all state."""
+        c = Character.ironclad()
+        snap = c.snapshot()
+        assert isinstance(snap, dict)
+        assert snap["player_hp"] == 80
+        assert snap["player_max_hp"] == 80
+        assert len(snap["deck"]) == 10
+        assert snap["relics"] == ["BurningBlood"]
+        # snapshot should be a copy — mutating it doesn't affect the Character
+        snap["gold"] = 9999
+        assert c.gold == 99
+
+    def test_ironclad_starter_backward_compat(self):
+        """IRONCLAD_STARTER from engine.py should still match."""
+        assert IRONCLAD_STARTER == CHAR_IRONCLAD_STARTER
+
+    def test_combat_kwargs(self):
+        """combat_kwargs returns the right fields for build_combat."""
+        c = Character.ironclad()
+        c.player_hp = 60
+        c.add_potion("FirePotion")
+        kw = c.combat_kwargs()
+        assert kw == {
+            "deck": list(c.deck),
+            "player_hp": 60,
+            "player_max_hp": 80,
+            "potions": ["FirePotion"],
+        }
+
+    def test_build_combat_with_character(self):
+        """build_combat accepts a Character object."""
+        c = Character.ironclad()
+        c.player_hp = 60
+        c.add_potion("FirePotion")
+        combat = builder.build_combat(
+            "easy", "cultist", seed=42, character=c
+        )
+        obs = combat.reset()
+        assert obs.player_hp == 60
+        assert "FirePotion" in obs.potions
+
+    def test_build_combat_character_overrides_kwargs(self):
+        """When character is given, individual kwargs are ignored."""
+        c = Character.ironclad()
+        c.player_hp = 50
+        combat = builder.build_combat(
+            "easy", "cultist", seed=42,
+            character=c,
+            player_hp=99,  # should be ignored
+        )
+        obs = combat.reset()
+        assert obs.player_hp == 50
+
+    def test_character_is_mutable(self):
+        """Character should be mutable (not frozen)."""
+        c = Character.ironclad()
+        c.player_hp = 1
+        c.gold = 500
+        c.floor = 42
+        assert c.player_hp == 1
+        assert c.gold == 500
+        assert c.floor == 42
+

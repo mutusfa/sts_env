@@ -108,7 +108,7 @@ def gain_block(powers: Powers, amount: int, ignore_dexterity: bool = False) -> i
 
 
 # Enemy names that split at <= 50% HP
-_SPLIT_NAMES = frozenset({"AcidSlimeL", "SpikeSlimeL"})
+_SPLIT_NAMES = frozenset({"AcidSlimeL", "SpikeSlimeL", "SlimeBoss"})
 
 
 def attack_enemy(state: "CombatState", enemy: "EnemyState", base_dmg: int) -> None:

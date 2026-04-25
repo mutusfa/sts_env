@@ -969,3 +969,35 @@ def _sentry_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noq
 
 
 register_enemy(_SENTRY, _sentry_intent)
+
+
+# ---------------------------------------------------------------------------
+# Slime Boss (Act 1 Boss)
+# ---------------------------------------------------------------------------
+# HP 140.  Fixed 3-turn cycle: Goop Spray → Preparing → Slam, repeating.
+#
+#   Goop Spray: Add 3 Slimed status cards to the player's discard pile.
+#               Intent type: DEBUFF. No damage, no block.
+#   Preparing:  Does nothing (telegraph for Slam). Intent type: BUFF.
+#   Slam:       Deal 35 damage. Intent type: ATTACK.
+#
+# Splits at ≤50% HP (≤70 HP) into AcidSlimeM + SpikeSlimeM.
+# Source: MonsterSpecific.cpp line ~2540 (ascension 0)
+
+_SLIME_BOSS = EnemySpec("SlimeBoss", hp_min=140, hp_max=140)
+
+_SB_GOOP_SPRAY = Intent(IntentType.DEBUFF, status_card_id="Slimed", status_card_count=3)
+_SB_PREPARING = Intent(IntentType.BUFF)
+_SB_SLAM = Intent(IntentType.ATTACK, damage=35, hits=1)
+
+_SB_CYCLE = [_SB_GOOP_SPRAY, _SB_PREPARING, _SB_SLAM]
+
+
+def _slime_boss_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
+    idx = turn % len(_SB_CYCLE)
+    move_names = ["GoopSpray", "Preparing", "Slam"]
+    enemy.move_history.append(move_names[idx])
+    return _SB_CYCLE[idx]
+
+
+register_enemy(_SLIME_BOSS, _slime_boss_intent)
