@@ -37,6 +37,10 @@ class Powers:
     angry: int = 0               # enemy: on any attack hit, gain this much strength
     spore_cloud: int = 0         # enemy: on death, apply this many Vulnerable stacks to player
     entangled: bool = False      # player: cannot play Skill or Power cards this turn
+    dexterity: int = 0           # player: flat bonus to all block gains
+    metallicize: int = 0         # player: gain this much block at end of each player turn
+    strength_loss_eot: int = 0   # player: lose this much strength at end of turn (Steroid/Flex)
+    dexterity_loss_eot: int = 0  # player: lose this much dexterity at end of turn (Speed)
 
     def tick_start_of_turn(self) -> None:
         """Decrement duration-based statuses."""
@@ -87,11 +91,18 @@ def apply_damage(
     return new_block, new_hp
 
 
-def gain_block(powers: Powers, amount: int) -> int:
-    """Return actual block gained, reduced by Frail (floor(amount * 0.75))."""
+def gain_block(powers: Powers, amount: int, ignore_dexterity: bool = False) -> int:
+    """Return actual block gained, with Dexterity bonus then Frail reduction.
+
+    ignore_dexterity=True is used by potions that grant flat block bypassing Frail
+    (Block Potion in StS grants exactly 12 regardless of Frail).
+    """
+    if ignore_dexterity:
+        return amount
+    total = amount + powers.dexterity
     if powers.frail > 0:
-        return math.floor(amount * 0.75)
-    return amount
+        return math.floor(total * 0.75)
+    return total
 
 
 # Enemy names that split at <= 50% HP

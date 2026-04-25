@@ -27,6 +27,7 @@ from .enemies import (
     roll_hp,
     run_pre_battle,
 )
+from .potions import get_spec as _get_potion_spec, use_potion as _use_potion
 from .powers import Powers, apply_damage, calc_damage
 from .rng import RNG
 from .state import (
@@ -76,11 +77,22 @@ class Combat:
         enemies: list[str],
         seed: int,
         player_hp: int = _PLAYER_START_HP,
+        player_max_hp: int | None = None,
+        potions: list[str] | None = None,
+        max_potion_slots: int = 3,
     ) -> None:
+        potions = list(potions) if potions else []
+        if len(potions) > max_potion_slots:
+            raise ValueError(
+                f"Too many potions ({len(potions)}) for max_potion_slots={max_potion_slots}."
+            )
         self._deck = list(deck)
         self._enemy_names = list(enemies)
         self._seed = seed
         self._player_start_hp = player_hp
+        self._player_max_hp = player_max_hp if player_max_hp is not None else player_hp
+        self._starting_potions = potions
+        self._max_potion_slots = max_potion_slots
         self._state: CombatState | None = None
         self._damage_taken: int = 0
         self._intents: list[Intent] = []
@@ -108,7 +120,7 @@ class Combat:
 
         self._state = CombatState(
             player_hp=self._player_start_hp,
-            player_max_hp=self._player_start_hp,
+            player_max_hp=self._player_max_hp,
             player_block=0,
             player_powers=Powers(),
             energy=_ENERGY_PER_TURN,
@@ -116,6 +128,8 @@ class Combat:
             enemies=enemies,
             rng=rng,
             turn=0,
+            potions=list(self._starting_potions),
+            max_potion_slots=self._max_potion_slots,
         )
         self._damage_taken = 0
 
@@ -158,6 +172,12 @@ class Combat:
         elif action.action_type == ActionType.END_TURN:
             self._resolve_end_of_player_turn()
 
+        elif action.action_type == ActionType.USE_POTION:
+            _use_potion(state, action.potion_index, action.target_index)
+
+        elif action.action_type == ActionType.DISCARD_POTION:
+            state.potions.pop(action.potion_index)
+
         self._damage_taken = self._player_start_hp - state.player_hp
         reward = float(state.player_hp - hp_before)
 
@@ -197,6 +217,15 @@ class Combat:
                     actions.append(Action.play_card(hi, ti))
             else:
                 actions.append(Action.play_card(hi, 0))
+
+        for pi, potion_id in enumerate(state.potions):
+            spec = _get_potion_spec(potion_id)
+            if spec.target == TargetType.SINGLE_ENEMY:
+                for ti in live_enemy_indices:
+                    actions.append(Action.use_potion(pi, ti))
+            else:
+                actions.append(Action.use_potion(pi))
+            actions.append(Action.discard_potion(pi))
 
         actions.append(Action.end_turn())
         return actions
@@ -268,6 +297,10 @@ class Combat:
                 "vulnerable": state.player_powers.vulnerable,
                 "weak": state.player_powers.weak,
                 "frail": state.player_powers.frail,
+                "dexterity": state.player_powers.dexterity,
+                "metallicize": state.player_powers.metallicize,
+                "strength_loss_eot": state.player_powers.strength_loss_eot,
+                "dexterity_loss_eot": state.player_powers.dexterity_loss_eot,
             },
             energy=state.energy,
             hand=list(state.piles.hand),
@@ -278,11 +311,25 @@ class Combat:
             done=self._is_done(),
             player_dead=state.player_hp <= 0,
             turn=state.turn,
+            potions=list(state.potions),
+            max_potion_slots=state.max_potion_slots,
         )
 
     def _resolve_end_of_player_turn(self) -> None:
         state = self._state
         assert state is not None
+
+        # Metallicize: gain block at end of player turn (before enemies attack)
+        if state.player_powers.metallicize > 0:
+            state.player_block += state.player_powers.metallicize
+
+        # End-of-turn stat losses (Steroid/Flex/Speed potions)
+        if state.player_powers.strength_loss_eot > 0:
+            state.player_powers.strength -= state.player_powers.strength_loss_eot
+            state.player_powers.strength_loss_eot = 0
+        if state.player_powers.dexterity_loss_eot > 0:
+            state.player_powers.dexterity -= state.player_powers.dexterity_loss_eot
+            state.player_powers.dexterity_loss_eot = 0
 
         # Discard hand
         state.piles.discard_hand(state.rng)

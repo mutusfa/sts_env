@@ -44,6 +44,8 @@ class CombatState:
     enemies: list[EnemyState]
     rng: RNG
     turn: int = 0
+    potions: list[str] = field(default_factory=list)
+    max_potion_slots: int = 3
 
 
 # ---------------------------------------------------------------------------
@@ -53,6 +55,8 @@ class CombatState:
 class ActionType(Enum):
     PLAY_CARD = auto()
     END_TURN = auto()
+    USE_POTION = auto()
+    DISCARD_POTION = auto()
 
 
 @dataclass(frozen=True)
@@ -60,6 +64,7 @@ class Action:
     action_type: ActionType
     hand_index: int = 0
     target_index: int = 0
+    potion_index: int = 0
 
     @staticmethod
     def play_card(hand_index: int, target_index: int = 0) -> "Action":
@@ -68,6 +73,14 @@ class Action:
     @staticmethod
     def end_turn() -> "Action":
         return Action(ActionType.END_TURN)
+
+    @staticmethod
+    def use_potion(potion_index: int, target_index: int = 0) -> "Action":
+        return Action(ActionType.USE_POTION, potion_index=potion_index, target_index=target_index)
+
+    @staticmethod
+    def discard_potion(potion_index: int) -> "Action":
+        return Action(ActionType.DISCARD_POTION, potion_index=potion_index)
 
 
 # ---------------------------------------------------------------------------
@@ -103,3 +116,5 @@ class Observation:
     done: bool
     player_dead: bool
     turn: int
+    potions: list[str]
+    max_potion_slots: int
