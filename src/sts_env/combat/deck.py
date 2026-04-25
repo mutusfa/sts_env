@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .card import Card
 from .rng import RNG
 
 
@@ -24,14 +25,14 @@ from .rng import RNG
 class Piles:
     """All four card piles for one combat.
 
-    Card identities are represented as strings (card IDs).
-    Multiple copies are distinct list entries (same string value).
+    Cards are represented as Card objects.
+    Multiple copies are distinct list entries.
     """
 
-    draw: list[str] = field(default_factory=list)
-    hand: list[str] = field(default_factory=list)
-    discard: list[str] = field(default_factory=list)
-    exhaust: list[str] = field(default_factory=list)
+    draw: list[Card] = field(default_factory=list)
+    hand: list[Card] = field(default_factory=list)
+    discard: list[Card] = field(default_factory=list)
+    exhaust: list[Card] = field(default_factory=list)
 
     # ------------------------------------------------------------------
     # Mutations
@@ -43,9 +44,9 @@ class Piles:
         self.discard.clear()
         rng.shuffle(self.draw)
 
-    def draw_cards(self, n: int, rng: RNG) -> list[str]:
+    def draw_cards(self, n: int, rng: RNG) -> list[Card]:
         """Draw up to *n* cards into hand; triggers reshuffle if needed."""
-        drawn: list[str] = []
+        drawn: list[Card] = []
         for _ in range(n):
             if not self.draw:
                 if not self.discard:
@@ -57,22 +58,26 @@ class Piles:
                 drawn.append(card)
         return drawn
 
-    def place_on_top(self, card: str) -> None:
+    def place_on_top(self, card: str | Card) -> None:
         """Insert a card at the top of the draw pile (index 0)."""
+        if isinstance(card, str):
+            card = Card(card)
         self.draw.insert(0, card)
 
-    def play_card(self, hand_index: int) -> str:
+    def play_card(self, hand_index: int) -> Card:
         """Remove a card from hand and return it (to be moved to discard or exhaust)."""
         return self.hand.pop(hand_index)
 
-    def move_to_discard(self, card: str) -> None:
+    def move_to_discard(self, card: Card) -> None:
         self.discard.append(card)
 
-    def move_to_exhaust(self, card: str) -> None:
+    def move_to_exhaust(self, card: Card) -> None:
         self.exhaust.append(card)
 
-    def add_to_discard(self, card: str) -> None:
+    def add_to_discard(self, card: str | Card) -> None:
         """Add a card directly to the discard pile (e.g. Anger's copy)."""
+        if isinstance(card, str):
+            card = Card(card)
         self.discard.append(card)
 
     def discard_hand(self, rng: RNG) -> None:  # noqa: ARG002 (rng reserved for future on-discard effects)

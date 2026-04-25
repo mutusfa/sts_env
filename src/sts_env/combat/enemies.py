@@ -54,6 +54,10 @@ class Intent:
     # Status/curse cards added to the player's discard pile on resolution
     status_card_id: str = ""
     status_card_count: int = 0
+    # If True, status cards go to draw pile instead of discard (Sentry Bolt / Dazed)
+    status_to_draw: bool = False
+    # Energy loss applied to the player at the start of their next turn
+    energy_loss: int = 0
 
 
 @dataclass(frozen=True)
@@ -858,3 +862,110 @@ def _mugger_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noq
 
 
 register_enemy(_MUGGER, _mugger_intent)
+
+
+# ---------------------------------------------------------------------------
+# Gremlin Nob (Elite)
+# ---------------------------------------------------------------------------
+# HP 82-86.  Turn 0: Bellow (lose 2 energy next turn, Nob gains Angry).
+# Turn 1+: Rush (14 dmg).  If player plays a Skill, Nob gains 2 Strength.
+#
+# Simplified: always Rush after turn 0. The "skill played → gain strength"
+# mechanic would require a trigger system; we skip it for now.
+# Source: MonsterSpecific.cpp line ~2363
+
+_GREMLIN_NOB = EnemySpec("GremlinNob", hp_min=82, hp_max=86)
+
+_GN_BELLOW = Intent(IntentType.BUFF, strength_gain=0, energy_loss=2)  # Angry applied via pre_battle; energy_loss on player next turn
+_GN_RUSH = Intent(IntentType.ATTACK, damage=14, hits=1)
+
+
+def _gremlin_nob_pre_battle(enemy: "EnemyState", state: "CombatState") -> None:
+    """Apply Angry 1 on spawn and set skill_played_str for Skill-punish."""
+    enemy.powers.angry = 1
+    enemy.skill_played_str = 2
+
+
+def _gremlin_nob_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
+    if turn == 0:
+        enemy.move_history.append("Bellow")
+        return _GN_BELLOW
+    enemy.move_history.append("Rush")
+    return _GN_RUSH
+
+
+register_enemy(_GREMLIN_NOB, _gremlin_nob_intent, _gremlin_nob_pre_battle)
+
+
+# ---------------------------------------------------------------------------
+# Lagavulin (Elite)
+# ---------------------------------------------------------------------------
+# HP 109-111.  Starts asleep for 3 turns (or until attacked).
+# While sleeping: -1 player strength at end of each turn + 8 metallicize (block).
+# Awake cycle: Attack (18 dmg) → Siphon Soul (-1 str, -1 dex to player) → Attack (18 dmg).
+# Source: MonsterSpecific.cpp line ~2483
+
+_LAGAVULIN = EnemySpec("Lagavulin", hp_min=109, hp_max=111)
+
+_LAG_SLEEP = Intent(IntentType.DEFEND, block_gain=0)  # block from metallicize
+_LAG_ATTACK = Intent(IntentType.ATTACK, damage=18, hits=1)
+_LAG_SIPHON = Intent(IntentType.DEBUFF)  # -1 str -1 dex applied via context
+
+
+def _lagavulin_pre_battle(enemy: "EnemyState", state: "CombatState") -> None:
+    """Start asleep with 8 metallicize. Sleep lasts 3 turns or until attacked."""
+    enemy.powers.asleep = True
+    enemy.powers.enemy_metallicize = 8
+    enemy.misc = 3  # sleep turns remaining
+
+
+def _lagavulin_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
+    if enemy.powers.asleep:
+        enemy.move_history.append("Sleep")
+        return _LAG_SLEEP
+
+    # Awake cycle: Attack → Siphon → Attack → repeat
+    # Use move history to determine position in cycle
+    # Count awake moves
+    awake_moves = [m for m in enemy.move_history if m in ("Attack", "SiphonSoul")]
+    if not awake_moves:
+        # First awake move
+        enemy.move_history.append("Attack")
+        return _LAG_ATTACK
+
+    last_awake = awake_moves[-1]
+    if last_awake == "Attack":
+        enemy.move_history.append("SiphonSoul")
+        return _LAG_SIPHON
+    else:
+        enemy.move_history.append("Attack")
+        return _LAG_ATTACK
+
+
+register_enemy(_LAGAVULIN, _lagavulin_intent, _lagavulin_pre_battle)
+
+
+# ---------------------------------------------------------------------------
+# Sentry (Elite — appears as group of 3)
+# ---------------------------------------------------------------------------
+# HP 38-42 each.  Cycle: Beam (9 dmg) / Bolt (add 1 Dazed to discard).
+# Each sentry alternates independently.
+# Source: MonsterSpecific.cpp line ~2659
+
+_SENTRY = EnemySpec("Sentry", hp_min=38, hp_max=42)
+
+_SENTRY_BEAM = Intent(IntentType.ATTACK, damage=9, hits=1)
+_SENTRY_BOLT = Intent(IntentType.DEBUFF, status_card_id="Dazed", status_card_count=1, status_to_draw=True)
+
+
+def _sentry_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
+    history = enemy.move_history
+    if not history or history[-1] == "Bolt":
+        enemy.move_history.append("Beam")
+        return _SENTRY_BEAM
+    else:
+        enemy.move_history.append("Bolt")
+        return _SENTRY_BOLT
+
+
+register_enemy(_SENTRY, _sentry_intent)

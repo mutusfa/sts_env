@@ -41,6 +41,8 @@ class Powers:
     metallicize: int = 0         # player: gain this much block at end of each player turn
     strength_loss_eot: int = 0   # player: lose this much strength at end of turn (Steroid/Flex)
     dexterity_loss_eot: int = 0  # player: lose this much dexterity at end of turn (Speed)
+    asleep: bool = False         # enemy: sleeping (Lagavulin); does nothing until attacked
+    enemy_metallicize: int = 0   # enemy: gain this much block at end of each enemy turn (Lagavulin sleeping)
 
     def tick_start_of_turn(self) -> None:
         """Decrement duration-based statuses."""
@@ -114,6 +116,7 @@ def attack_enemy(state: "CombatState", enemy: "EnemyState", base_dmg: int) -> No
 
     Also fires Angry (on any attack) and Curl Up (on first HP damage).
     Sets pending_split on large slimes when HP crosses the 50% threshold.
+    Wakes up sleeping enemies (Lagavulin).
     Mutates enemy and state in place.
     """
     raw = calc_damage(base_dmg, state.player_powers, enemy.powers)
@@ -126,6 +129,11 @@ def attack_enemy(state: "CombatState", enemy: "EnemyState", base_dmg: int) -> No
     new_block, new_hp = apply_damage(raw, enemy.block, enemy.hp)
     enemy.block = new_block
     enemy.hp = new_hp
+
+    # Wake up sleeping enemies on HP damage
+    if enemy.powers.asleep and enemy.hp < hp_before:
+        enemy.powers.asleep = False
+        enemy.powers.enemy_metallicize = 0
 
     # Curl Up fires the first time the enemy takes HP damage
     if enemy.powers.curl_up > 0 and enemy.hp < hp_before:

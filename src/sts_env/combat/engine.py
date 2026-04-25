@@ -26,6 +26,7 @@ from .enemies import (
     pick_intent_with_state,
     roll_hp,
     run_pre_battle,
+    _LAG_SLEEP,
 )
 from .potions import get_spec as _get_potion_spec, use_potion as _use_potion
 from .powers import Powers, apply_damage, calc_damage
@@ -39,6 +40,7 @@ from .state import (
     Observation,
 )
 from .deck import Piles
+from .card import Card
 
 _PLAYER_START_HP = 80
 _ENERGY_PER_TURN = 3
@@ -86,7 +88,7 @@ class Combat:
             raise ValueError(
                 f"Too many potions ({len(potions)}) for max_potion_slots={max_potion_slots}."
             )
-        self._deck = list(deck)
+        self._deck = [Card(c) if isinstance(c, str) else c for c in deck]
         self._enemy_names = list(enemies)
         self._seed = seed
         self._player_start_hp = player_hp
@@ -95,6 +97,7 @@ class Combat:
         self._max_potion_slots = max_potion_slots
         self._state: CombatState | None = None
         self._damage_taken: int = 0
+        self._max_hp_gained: int = 0
         self._intents: list[Intent] = []
 
     # ------------------------------------------------------------------
@@ -132,6 +135,7 @@ class Combat:
             max_potion_slots=self._max_potion_slots,
         )
         self._damage_taken = 0
+        self._max_hp_gained = 0
 
         # Run pre-battle hooks (skip Empty slots)
         for enemy in self._state.enemies:
@@ -167,7 +171,15 @@ class Combat:
             raise RuntimeError("Combat is already done.")
 
         if action.action_type == ActionType.PLAY_CARD:
+            card = state.piles.hand[action.hand_index]
+            card_spec = _get_card_spec(card.card_id)
             _play_card(state, action.hand_index, action.target_index)
+            # Gremlin Nob skill-punish: if a Skill was played, enemies with
+            # skill_played_str gain that much strength
+            if card_spec.card_type == CardType.SKILL:
+                for enemy in state.enemies:
+                    if enemy.alive and enemy.skill_played_str > 0:
+                        enemy.powers.strength += enemy.skill_played_str
 
         elif action.action_type == ActionType.END_TURN:
             self._resolve_end_of_player_turn()
@@ -178,7 +190,16 @@ class Combat:
         elif action.action_type == ActionType.DISCARD_POTION:
             state.potions.pop(action.potion_index)
 
+        elif action.action_type == ActionType.CHOOSE_CARD:
+            card = state.potion_choices.pop(action.choice_index)
+            state.piles.hand.append(card)
+            state.potion_choices.clear()
+
+        elif action.action_type == ActionType.SKIP_CHOICE:
+            state.potion_choices.clear()
+
         self._damage_taken = self._player_start_hp - state.player_hp
+        self._max_hp_gained = state.player_max_hp - self._player_max_hp
         reward = float(state.player_hp - hp_before)
 
         info: dict = {}
@@ -187,6 +208,11 @@ class Combat:
     @property
     def damage_taken(self) -> int:
         return self._damage_taken
+
+    @property
+    def max_hp_gained(self) -> int:
+        """Max HP gained during this combat (e.g. from Feed killing an enemy)."""
+        return self._max_hp_gained
 
     def valid_actions(self) -> list[Action]:
         """Return all legal actions for the current state.
@@ -199,6 +225,15 @@ class Combat:
             return []
 
         state = self._state
+
+        # If potion choices are pending, ONLY CHOOSE_CARD / SKIP_CHOICE are valid
+        if state.potion_choices:
+            actions: list[Action] = []
+            for i in range(len(state.potion_choices)):
+                actions.append(Action.choose_card(i))
+            actions.append(Action.skip_choice())
+            return actions
+
         live_enemy_indices = [
             i for i, e in enumerate(state.enemies)
             if e.alive and not e.is_escaping
@@ -206,9 +241,10 @@ class Combat:
         entangled = state.player_powers.entangled
         actions: list[Action] = []
 
-        for hi, card_id in enumerate(state.piles.hand):
-            spec = _get_card_spec(card_id)
-            if spec.cost < 0 or spec.cost > state.energy:
+        for hi, card in enumerate(state.piles.hand):
+            spec = _get_card_spec(card.card_id)
+            effective_cost = card.cost_override if card.cost_override is not None else spec.cost
+            if effective_cost < 0 or effective_cost > state.energy:
                 continue
             if entangled and spec.card_type in (CardType.SKILL, CardType.POWER):
                 continue
@@ -275,6 +311,10 @@ class Combat:
                         "weak": enemy.powers.weak,
                         "curl_up": enemy.powers.curl_up,
                         "angry": enemy.powers.angry,
+                        "asleep": enemy.powers.asleep,
+                        "enemy_metallicize": enemy.powers.enemy_metallicize,
+                        "spore_cloud": enemy.powers.spore_cloud,
+                        "entangled": enemy.powers.entangled,
                     },
                     intent_type=intent.intent_type.name if intent else "NONE",
                     intent_damage=intent.damage if intent else 0,
@@ -304,15 +344,17 @@ class Combat:
             },
             energy=state.energy,
             hand=list(state.piles.hand),
-            draw_pile=dict(Counter(state.piles.draw)),
-            discard_pile=dict(Counter(state.piles.discard)),
-            exhaust_pile=dict(Counter(state.piles.exhaust)),
+            draw_pile=dict(Counter(c.card_id for c in state.piles.draw)),
+            discard_pile=dict(Counter(c.card_id for c in state.piles.discard)),
+            exhaust_pile=dict(Counter(c.card_id for c in state.piles.exhaust)),
             enemies=enemy_obs,
             done=self._is_done(),
             player_dead=state.player_hp <= 0,
             turn=state.turn,
             potions=list(state.potions),
             max_potion_slots=state.max_potion_slots,
+            max_hp_gained=self._max_hp_gained,
+            potion_choices=list(state.potion_choices),
         )
 
     def _resolve_end_of_player_turn(self) -> None:
@@ -330,6 +372,10 @@ class Combat:
         if state.player_powers.dexterity_loss_eot > 0:
             state.player_powers.dexterity -= state.player_powers.dexterity_loss_eot
             state.player_powers.dexterity_loss_eot = 0
+
+        # Clear ephemeral cost overrides before discarding
+        for card in state.piles.hand:
+            card.clear_cost_override()
 
         # Discard hand
         state.piles.discard_hand(state.rng)
@@ -355,6 +401,45 @@ class Combat:
             enemy.block = 0
             # Tick enemy power durations (Vulnerable/Weak)
             enemy.powers.tick_start_of_turn()
+
+            # Sleeping enemies (Lagavulin): gain block from enemy_metallicize,
+            # drain player strength, decrement sleep counter
+            if enemy.powers.asleep:
+                enemy.block += enemy.powers.enemy_metallicize
+                if enemy.misc > 0:
+                    enemy.misc -= 1
+                if enemy.misc <= 0:
+                    # Wake up after sleep timer expires — fall through to
+                    # resolve an awake intent immediately (don't skip turn)
+                    enemy.powers.asleep = False
+                    enemy.powers.enemy_metallicize = 0
+                    # Pick first awake intent and override the stored sleep intent
+                    next_intent = pick_intent_with_state(
+                        enemy, state.rng, state.turn + 1, state=state, enemy_index=i
+                    )
+                    self._intents[i] = next_intent
+                else:
+                    # Drain 1 player strength while sleeping (can push negative)
+                    state.player_powers.strength -= 1
+                    # Skip intent resolution while asleep
+                    enemy.powers.apply_ritual()
+                    if not enemy.alive or enemy.is_escaping:
+                        new_intents.append(self._intents[i])
+                        continue
+                    # Pick next intent (still sleeping)
+                    next_intent = pick_intent_with_state(
+                        enemy, state.rng, state.turn + 1, state=state, enemy_index=i
+                    )
+                    new_intents.append(next_intent)
+                    continue
+
+            # If enemy was woken up by player attack this turn (e.g. Lagavulin),
+            # the stored intent is still the sleep intent — re-pick an awake one
+            if enemy.name == "Lagavulin" and not enemy.powers.asleep and self._intents[i] is _LAG_SLEEP:
+                next_intent = pick_intent_with_state(
+                    enemy, state.rng, state.turn, state=state, enemy_index=i
+                )
+                self._intents[i] = next_intent
 
             # Resolve the intent chosen at start of last player turn
             intent = self._intents[i]
@@ -398,9 +483,28 @@ class Combat:
         state.turn += 1
         self._intents = new_intents
 
+        # Exhaust Dazed status cards from discard pile (added by enemies like Sentries).
+        # StS behavior: Dazed exhausts at end of turn rather than staying in discard.
+        # This must happen after enemies act (they add Dazed) and before the next draw.
+        dazed_in_discard = [c for c in state.piles.discard if c.card_id == "Dazed"]
+        for c in dazed_in_discard:
+            state.piles.discard.remove(c)
+            state.piles.exhaust.append(c)
+
+        # Also exhaust any Dazed still in hand (shouldn't normally happen but be safe)
+        dazed_in_hand = [c for c in state.piles.hand if c.card_id == "Dazed"]
+        for c in dazed_in_hand:
+            state.piles.hand.remove(c)
+            state.piles.exhaust.append(c)
+
         # Start next player turn
         state.player_block = 0
         state.energy = _ENERGY_PER_TURN
+        # Apply accumulated energy loss (e.g. Gremlin Nob Bellow)
+        if state.energy_loss_next_turn > 0:
+            state.energy -= state.energy_loss_next_turn
+            state.energy = max(0, state.energy)
+            state.energy_loss_next_turn = 0
         state.piles.draw_cards(_CARDS_PER_DRAW, state.rng)
 
     def _resolve_split(self, enemy: EnemyState, idx: int) -> None:
@@ -431,6 +535,12 @@ class Combat:
 
         if intent.intent_type == IntentType.ESCAPE:
             enemy.is_escaping = True
+            return
+
+        # Lagavulin Siphon Soul: -1 str, -1 dex to player (can push negative)
+        if enemy.name == "Lagavulin" and intent.intent_type == IntentType.DEBUFF:
+            state.player_powers.strength -= 1
+            state.player_powers.dexterity -= 1
             return
 
         if intent.intent_type in (IntentType.ATTACK, IntentType.ATTACK_DEFEND, IntentType.ATTACK_DEBUFF):
@@ -466,9 +576,16 @@ class Combat:
                 target = live_allies[state.rng.randint(0, len(live_allies) - 1)]
                 target.block += intent.ally_block_gain
 
-        # Status cards added to the player's discard pile
+        # Status cards added to the player's discard or draw pile
         if intent.status_card_count:
             for _ in range(intent.status_card_count):
-                state.piles.add_to_discard(intent.status_card_id)
+                if intent.status_to_draw:
+                    state.piles.place_on_top(intent.status_card_id)
+                else:
+                    state.piles.add_to_discard(intent.status_card_id)
+
+        # Energy loss applied at start of player's next turn (e.g. Gremlin Nob Bellow)
+        if intent.energy_loss > 0:
+            state.energy_loss_next_turn += intent.energy_loss
 
 

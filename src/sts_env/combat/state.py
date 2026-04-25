@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Any
 
+from .card import Card
 from .deck import Piles
 from .powers import Powers
 from .rng import RNG
@@ -26,6 +27,7 @@ class EnemyState:
     misc: int = 0  # per-enemy scratch space: louse bite dmg, wizard charge counter, etc.
     pending_split: bool = False  # set when HP crosses <=50% for large slimes
     is_escaping: bool = False    # Looter/Mugger: fled combat; counts as dead for win condition
+    skill_played_str: int = 0    # Gremlin Nob: gain this much strength when player plays a Skill
 
     @property
     def alive(self) -> bool:
@@ -46,6 +48,8 @@ class CombatState:
     turn: int = 0
     potions: list[str] = field(default_factory=list)
     max_potion_slots: int = 3
+    energy_loss_next_turn: int = 0  # accumulated energy loss (e.g. Gremlin Nob Bellow)
+    potion_choices: list[Card] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +61,8 @@ class ActionType(Enum):
     END_TURN = auto()
     USE_POTION = auto()
     DISCARD_POTION = auto()
+    CHOOSE_CARD = auto()
+    SKIP_CHOICE = auto()
 
 
 @dataclass(frozen=True)
@@ -65,6 +71,7 @@ class Action:
     hand_index: int = 0
     target_index: int = 0
     potion_index: int = 0
+    choice_index: int = 0
 
     @staticmethod
     def play_card(hand_index: int, target_index: int = 0) -> "Action":
@@ -81,6 +88,14 @@ class Action:
     @staticmethod
     def discard_potion(potion_index: int) -> "Action":
         return Action(ActionType.DISCARD_POTION, potion_index=potion_index)
+
+    @staticmethod
+    def choose_card(choice_index: int) -> "Action":
+        return Action(ActionType.CHOOSE_CARD, choice_index=choice_index)
+
+    @staticmethod
+    def skip_choice() -> "Action":
+        return Action(ActionType.SKIP_CHOICE)
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +123,7 @@ class Observation:
     player_block: int
     player_powers: dict[str, Any]
     energy: int
-    hand: list[str]
+    hand: list[Card]
     draw_pile: dict[str, int]
     discard_pile: dict[str, int]
     exhaust_pile: dict[str, int]
@@ -118,3 +133,5 @@ class Observation:
     turn: int
     potions: list[str]
     max_potion_slots: int
+    max_hp_gained: int = 0  # max HP gained this combat (e.g. Feed), exposed for strategic valuation
+    potion_choices: list[Card] = ()

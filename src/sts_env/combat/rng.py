@@ -26,3 +26,7 @@ class RNG:
 
     def random(self) -> float:
         return self._rng.random()
+
+    def sample(self, population: list[T], k: int) -> list[T]:
+        """Return k unique elements chosen from population without replacement."""
+        return self._rng.sample(population, k)
