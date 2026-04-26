@@ -138,3 +138,33 @@ Status: **Complete**
 - Map-based run_act1 clears all room types (Monster, Elite, Rest, Boss)
 - SimStrategyAgent.pick_path prefers REST when HP < 40%, Elite when HP healthy
 - Card upgrades work end-to-end: rest_upgrade appends "+" → Card.card_id carries "+" → play_card resolves upgrade deltas
+
+---
+
+## Iteration 4 — Card System Overhaul + Pending Effect Stack
+Status: **Complete** (user-driven)
+
+**Changes by Julius:**
+- **Declarative card system**: Replaced 61 imperative handlers with `CardSpec` dataclass carrying declarative effect fields (attack, block, vulnerable, weak, etc.) + optional `custom` callable escape hatch. Only ~20 cards need custom handlers now.
+- **Pending effect stack**: `pending.py` with `ChoiceFrame` (agent input) and `ThunkFrame` (auto-drain). LIFO resolution lets complex cards like Havoc push thunks before sub-effects.
+- **Card upgrade via "+" suffix**: `Card.card_id` carries upgrade state (`"Strike+"`). `CardSpec.upgrade` dict maps field→delta. `get_spec()` strips "+" for lookup.
+- **Complex cards implemented**: BurningPact, Headbutt, Armaments (choice-based upgrade), DualWield, Havoc (thunk-based exhaust), SecondWind, Rampage, SearingBlow, LimitBreak.
+- **No-ops eliminated**: DemonForm, Corruption, DarkEmbrace, DoubleTap, Juggernaut, Brutality all now have working custom handlers.
+- **Massive test suite**: 586 env tests (was 141) — 77 cards, 52 engine, 44 powers, 100 enemies, 75 encounters, 24 potions, 20 split, 12 pending, 7 havoc, etc.
+
+**Agent adapter fix:**
+- `tree_search.py` state key updated: `pending_choices` → `pending_stack` compact representation + `rampage_extra`
+- 67 agent tests passing
+
+### Test Results
+- **sts_env**: 586 passed, 3 skipped ✅
+- **sts_agent**: 67 passed, 9 skipped ✅
+- Total: **653 tests passing**
+
+### Remaining Gaps
+1. [MEDIUM] EVENT/SHOP/TREASURE rooms are no-ops (logged and skipped)
+2. [MEDIUM] Only BurningBlood has mechanical effect among boss relics
+3. [MEDIUM] Oracle tests need `slaythespire` module (external dependency)
+4. [LOW] Builder uses private attribute mutation for potions/max_hp on Combat
+5. [LOW] Encounter ID string matching is fragile (labels must match exactly)
+6. [LOW] _pick_path greedy walk doesn't look ahead past immediate branch
