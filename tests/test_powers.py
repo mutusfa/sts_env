@@ -6,6 +6,14 @@ from sts_env.combat.powers import Powers, apply_damage, calc_damage, gain_block,
 from sts_env.combat.state import EnemyState, CombatState, Action, ActionType
 from sts_env.combat.deck import Piles
 from sts_env.combat.rng import RNG
+from sts_env.combat.events import Event, subscribe
+from sts_env.combat.listeners_powers import POWER_SUBSCRIPTIONS
+
+
+def _subscribe_power(state, power_attr: str, owner="player") -> None:
+    """Subscribe all listeners for a given power attribute."""
+    for event, handler_name in POWER_SUBSCRIPTIONS.get(power_attr, []):
+        subscribe(state, event, handler_name, owner)
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +226,8 @@ def test_attack_enemy_curl_up_triggers_on_first_hp_damage():
     e = EnemyState(name="RedLouse", hp=12, max_hp=12)
     e.powers.curl_up = 5
     state = _make_state(e)
-    attack_enemy(state, e, 3)   # 3 dmg, no block → HP damage triggers Curl Up
+    subscribe(state, Event.HP_LOSS, "curl_up", 0)
+    attack_enemy(state, e, 3, enemy_index=0)   # 3 dmg, no block → HP damage triggers Curl Up
     assert e.hp == 9
     assert e.block == 5         # Curl Up grants block
     assert e.powers.curl_up == 0  # consumed
@@ -229,7 +238,8 @@ def test_attack_enemy_curl_up_does_not_trigger_when_fully_blocked():
     e = EnemyState(name="RedLouse", hp=12, max_hp=12, block=10)
     e.powers.curl_up = 5
     state = _make_state(e)
-    attack_enemy(state, e, 3)   # fully blocked → no HP damage
+    subscribe(state, Event.HP_LOSS, "curl_up", 0)
+    attack_enemy(state, e, 3, enemy_index=0)   # fully blocked → no HP damage
     assert e.hp == 12
     assert e.powers.curl_up == 5  # not consumed
 
@@ -238,11 +248,12 @@ def test_attack_enemy_curl_up_only_triggers_once():
     e = EnemyState(name="RedLouse", hp=20, max_hp=20)
     e.powers.curl_up = 4
     state = _make_state(e)
-    attack_enemy(state, e, 5)
+    subscribe(state, Event.HP_LOSS, "curl_up", 0)
+    attack_enemy(state, e, 5, enemy_index=0)
     assert e.powers.curl_up == 0
     assert e.block == 4  # Curl Up granted block
     # Second attack: no more Curl Up; block is consumed by the hit normally
-    attack_enemy(state, e, 3)
+    attack_enemy(state, e, 3, enemy_index=0)
     assert e.powers.curl_up == 0  # still 0, did not re-trigger
 
 
@@ -327,6 +338,7 @@ def test_demon_form_start_of_turn():
     )
     obs = combat.reset()
     combat._state.player_powers.demon_form = 2
+    _subscribe_power(combat._state, "demon_form")
     str_before = combat._state.player_powers.strength
     combat.step(Action.end_turn())
     assert combat._state.player_powers.strength == str_before + 2
@@ -340,6 +352,7 @@ def test_brutality_start_of_turn():
     )
     obs = combat.reset()
     combat._state.player_powers.brutality = 1
+    _subscribe_power(combat._state, "brutality")
     combat.step(Action.end_turn())
     hp_with = combat._state.player_hp
 
@@ -361,6 +374,7 @@ def test_berserk_energy_start_of_turn():
     )
     obs = combat.reset()
     combat._state.player_powers.berserk_energy = 2
+    _subscribe_power(combat._state, "berserk_energy")
     combat.step(Action.end_turn())
     # 3 base + 2 berserk = 5
     assert combat._state.energy == 5
@@ -368,38 +382,42 @@ def test_berserk_energy_start_of_turn():
 
 def test_dark_embrace_draws_on_exhaust():
     """Dark Embrace draws 1 card per exhaust."""
-    from sts_env.combat.engine import _on_card_exhausted
+    from sts_env.combat.events import Event, subscribe, emit
     state = _make_combat_state(
         draw=[Card("Strike"), Card("Defend")],
     )
     state.player_powers.dark_embrace = 1
+    subscribe(state, Event.CARD_EXHAUSTED, "dark_embrace", "player")
     draw_before = len(state.piles.draw)
-    _on_card_exhausted(state, Card("Slimed"))
+    emit(state, Event.CARD_EXHAUSTED, "player", card=Card("Slimed"))
     assert len(state.piles.draw) == draw_before - 1  # drew 1
 
 
 def test_feel_no_pain_block_on_exhaust():
     """Feel No Pain grants block per exhaust."""
-    from sts_env.combat.engine import _on_card_exhausted
+    from sts_env.combat.events import Event, subscribe, emit
     state = _make_combat_state()
     state.player_powers.feel_no_pain = 3
-    _on_card_exhausted(state, Card("Slimed"))
+    subscribe(state, Event.CARD_EXHAUSTED, "feel_no_pain", "player")
+    emit(state, Event.CARD_EXHAUSTED, "player", card=Card("Slimed"))
     assert state.player_block == 3
 
 
 def test_sentinel_energy_on_exhaust():
     """Sentinel grants energy when exhausted."""
-    from sts_env.combat.engine import _on_card_exhausted
+    from sts_env.combat.events import Event, subscribe, emit
     state = _make_combat_state()
-    _on_card_exhausted(state, Card("Sentinel"))
+    subscribe(state, Event.CARD_EXHAUSTED, "sentinel", "player")
+    emit(state, Event.CARD_EXHAUSTED, "player", card=Card("Sentinel"))
     assert state.energy == 5  # 3 base + 2
 
 
 def test_sentinel_upgraded_energy_on_exhaust():
     """Upgraded Sentinel grants 3 energy when exhausted."""
-    from sts_env.combat.engine import _on_card_exhausted
+    from sts_env.combat.events import Event, subscribe, emit
     state = _make_combat_state()
-    _on_card_exhausted(state, Card("Sentinel+"))
+    subscribe(state, Event.CARD_EXHAUSTED, "sentinel", "player")
+    emit(state, Event.CARD_EXHAUSTED, "player", card=Card("Sentinel+"))
     assert state.energy == 6  # 3 base + 3
 
 
@@ -428,12 +446,13 @@ def test_corruption_exhausts_skills():
 
 def test_juggernaut_damage_on_block_gain():
     """Juggernaut: deal damage to random enemy when gaining block."""
-    from sts_env.combat.engine import _on_block_gained
+    from sts_env.combat.events import Event, subscribe, emit
     state = _make_combat_state(
         enemies=[EnemyState(name="E1", hp=30, max_hp=30)],
     )
     state.player_powers.juggernaut = 5
-    _on_block_gained(state, 5)
+    subscribe(state, Event.BLOCK_GAINED, "juggernaut", "player")
+    emit(state, Event.BLOCK_GAINED, "player", amount=5)
     assert state.enemies[0].hp < 30
 
 

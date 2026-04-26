@@ -28,6 +28,11 @@ from .enemies import (
     run_pre_battle,
     _LAG_SLEEP,
 )
+from .events import Event, subscribe, emit
+from .listeners_enemies import ENEMY_SUBSCRIPTIONS, ENEMY_CONDITION_SUBSCRIPTIONS
+from .listeners_powers import POWER_SUBSCRIPTIONS
+from .listeners_relics import RELIC_SUBSCRIPTIONS
+from .listeners_potions import POTION_SUBSCRIPTIONS
 from .potions import get_spec as _get_potion_spec, use_potion as _use_potion
 from .powers import Powers, apply_damage, calc_damage
 from .rng import RNG
@@ -49,44 +54,39 @@ _CARDS_PER_DRAW = 5
 
 
 # ---------------------------------------------------------------------------
-# Trigger helpers — centralised hooks fired by engine at the right moments
+# Helpers
 # ---------------------------------------------------------------------------
-
-def _on_card_exhausted(state: "CombatState", card: Card) -> None:
-    """Fire all effects triggered by exhausting a card."""
-    from .cards import get_spec as _gs
-    spec = _gs(card.card_id)
-    # Sentinel: gain energy if this card is exhausted
-    if spec.card_id == "Sentinel":
-        upgraded = 1 if card.upgraded else 0
-        gain = 2 + (1 if upgraded else 0)
-        state.energy += gain
-    # Dark Embrace: draw per card exhausted
-    if state.player_powers.dark_embrace > 0:
-        state.piles.draw_cards(state.player_powers.dark_embrace, state.rng)
-    # Feel No Pain: gain block per card exhausted
-    if state.player_powers.feel_no_pain > 0:
-        state.player_block += state.player_powers.feel_no_pain
-
-
-def _on_block_gained(state: "CombatState", amount: int) -> None:
-    """Fire effects triggered by the player gaining block (Juggernaut)."""
-    if state.player_powers.juggernaut > 0 and amount > 0:
-        alive = [e for e in state.enemies if e.alive and e.name != "Empty"]
-        if alive:
-            target = alive[state.rng.randint(0, len(alive) - 1)]
-            from .powers import calc_damage, apply_damage
-            raw = calc_damage(state.player_powers.juggernaut, state.player_powers, target.powers)
-            nb, nhp = apply_damage(raw, target.block, target.hp)
-            target.block = nb
-            target.hp = nhp
-
 
 def _drain_stack(state: CombatState) -> None:
     """Pop and run ThunkFrames until the stack is empty or a ChoiceFrame is on top."""
     while state.pending_stack and isinstance(state.pending_stack[-1], ThunkFrame):
         frame = state.pending_stack.pop()
         frame.run(state)
+
+
+def _tick_player_start(state: CombatState) -> None:
+    """Decrement player duration-based statuses before enemies act."""
+    if state.player_powers.vulnerable > 0:
+        state.player_powers.vulnerable -= 1
+    if state.player_powers.weak > 0:
+        state.player_powers.weak -= 1
+    if state.player_powers.frail > 0:
+        state.player_powers.frail -= 1
+    state.player_powers.entangled = False
+
+
+def damage_player(state: CombatState, raw_dmg: int) -> None:
+    """Apply damage to the player, updating block/hp and emitting HP_LOSS.
+
+    After emit returns, callers should re-check ``state.player_hp`` to
+    support Fairy-in-a-Bottle resurrection.
+    """
+    hp_before = state.player_hp
+    nb, nhp = apply_damage(raw_dmg, state.player_block, state.player_hp)
+    state.player_block = nb
+    state.player_hp = nhp
+    if nhp < hp_before:
+        emit(state, Event.HP_LOSS, "player", hp_before=hp_before)
 
 
 # Large slime → medium slime spawned on split
@@ -128,6 +128,7 @@ class Combat:
         player_max_hp: int | None = None,
         potions: list[str] | None = None,
         max_potion_slots: int = 3,
+        relics: frozenset[str] | None = None,
     ) -> None:
         potions = list(potions) if potions else []
         if len(potions) > max_potion_slots:
@@ -141,6 +142,7 @@ class Combat:
         self._player_max_hp = player_max_hp if player_max_hp is not None else player_hp
         self._starting_potions = potions
         self._max_potion_slots = max_potion_slots
+        self._starting_relics = relics if relics is not None else frozenset()
         self._state: CombatState | None = None
         self._damage_taken: int = 0
         self._max_hp_gained: int = 0
@@ -179,14 +181,62 @@ class Combat:
             turn=0,
             potions=list(self._starting_potions),
             max_potion_slots=self._max_potion_slots,
+            relics=self._starting_relics,
         )
         self._damage_taken = 0
         self._max_hp_gained = 0
 
+        # Wire subscriptions for relics
+        for relic_name in self._state.relics:
+            for event, handler_name in RELIC_SUBSCRIPTIONS.get(relic_name, []):
+                subscribe(self._state, event, handler_name, "player")
+
+        # Wire subscriptions for potions
+        # Potions can stack (e.g. two FairyInABottle), so we append one
+        # subscriber per potion instance (bypassing idempotency).
+        for potion_id in self._state.potions:
+            for event, handler_name in POTION_SUBSCRIPTIONS.get(potion_id, []):
+                self._state.subscribers[event]["player"].append(handler_name)
+
+        # Wire subscriptions for player powers.
+        # Duration-tick listeners for the player are NOT subscribed here because
+        # the player tick is handled by _tick_player_start in the engine.
+        # Enemy ticks are wired per-enemy via TURN_START events.
+        # Triggered-effect and turn-boundary listeners are subscribed when active.
+        always_subscribe_player = (
+            "metallicize", "demon_form", "brutality", "berserk_energy",
+            "strength_loss_eot", "dexterity_loss_eot",
+        )
+        for attr, subs in POWER_SUBSCRIPTIONS.items():
+            if attr in always_subscribe_player:
+                for event, handler_name in subs:
+                    subscribe(self._state, event, handler_name, "player")
+            elif attr not in ("vulnerable", "weak", "frail", "entangled", "ritual"):
+                val = getattr(self._state.player_powers, attr, 0)
+                if isinstance(val, bool):
+                    if val:
+                        for event, handler_name in subs:
+                            subscribe(self._state, event, handler_name, "player")
+                elif val > 0:
+                    for event, handler_name in subs:
+                        subscribe(self._state, event, handler_name, "player")
+
         # Run pre-battle hooks (skip Empty slots)
-        for enemy in self._state.enemies:
+        for i, enemy in enumerate(self._state.enemies):
             if enemy.name != "Empty":
                 run_pre_battle(enemy, self._state)
+                # Wire name-based enemy subscriptions
+                for event, handler_name in ENEMY_SUBSCRIPTIONS.get(enemy.name, []):
+                    owner = "player" if event == Event.CARD_PLAYED else i
+                    subscribe(self._state, event, handler_name, owner)
+        # Wire condition-based enemy subscriptions (curl_up, spore_cloud, ritual)
+        # and always subscribe tick handlers (they guard with > 0 internally)
+        for i, enemy in enumerate(self._state.enemies):
+            if enemy.name == "Empty":
+                continue
+            for power_attr, event, handler_name, owner_override in ENEMY_CONDITION_SUBSCRIPTIONS:
+                owner = owner_override if owner_override is not None else i
+                subscribe(self._state, event, handler_name, owner)
 
         # Pick initial intents for all enemies (None sentinel for Empty slots)
         self._intents = []
@@ -199,6 +249,9 @@ class Combat:
 
         # Draw opening hand
         self._state.piles.draw_cards(_CARDS_PER_DRAW, rng)
+
+        # Fire COMBAT_START event
+        emit(self._state, Event.COMBAT_START, "player")
 
         return self._observe()
 
@@ -222,23 +275,17 @@ class Combat:
             block_before = state.player_block
             _play_card(state, action.hand_index, action.target_index)
             block_gained = state.player_block - block_before
-            # Juggernaut: deal damage when block is gained
+
+            # Emit CARD_PLAYED for subscribed listeners (Rage, Gremlin Nob)
+            emit(state, Event.CARD_PLAYED, "player", card=card, card_spec=card_spec)
+
+            # Emit BLOCK_GAINED if block was gained (Juggernaut)
             if block_gained > 0:
-                _on_block_gained(state, block_gained)
-            # Gremlin Nob skill-punish: if a Skill was played, enemies with
-            # skill_played_str gain that much strength
-            if card_spec.card_type == CardType.SKILL:
-                for enemy in state.enemies:
-                    if enemy.alive and enemy.skill_played_str > 0:
-                        enemy.powers.strength += enemy.skill_played_str
-            # Rage: gain block per Attack played this turn
-            if card_spec.card_type == CardType.ATTACK and state.player_powers.rage_block > 0:
-                block_gain = state.player_powers.rage_block
-                state.player_block += block_gain
-                _on_block_gained(state, block_gain)
+                emit(state, Event.BLOCK_GAINED, "player", amount=block_gained)
+
             # Triggered exhaust effects (Dark Embrace, Feel No Pain, Sentinel)
             if card_spec.exhausts or (state.player_powers.corruption and card_spec.card_type == CardType.SKILL):
-                _on_card_exhausted(state, card)
+                emit(state, Event.CARD_EXHAUSTED, "player", card=card)
             _drain_stack(state)
 
         elif action.action_type == ActionType.END_TURN:
@@ -450,17 +497,8 @@ class Combat:
         state = self._state
         assert state is not None
 
-        # Metallicize: gain block at end of player turn (before enemies attack)
-        if state.player_powers.metallicize > 0:
-            state.player_block += state.player_powers.metallicize
-
-        # End-of-turn stat losses (Steroid/Flex/Speed potions)
-        if state.player_powers.strength_loss_eot > 0:
-            state.player_powers.strength -= state.player_powers.strength_loss_eot
-            state.player_powers.strength_loss_eot = 0
-        if state.player_powers.dexterity_loss_eot > 0:
-            state.player_powers.dexterity -= state.player_powers.dexterity_loss_eot
-            state.player_powers.dexterity_loss_eot = 0
+        # Emit player TURN_END (Metallicize, strength/dex_loss_eot, etc.)
+        emit(state, Event.TURN_END, "player")
 
         # Reset per-turn triggered power counters
         state.player_powers.rage_block = 0
@@ -479,7 +517,7 @@ class Combat:
         for card in ethereal_in_hand:
             state.piles.hand.remove(card)
             state.piles.move_to_exhaust(card)
-            _on_card_exhausted(state, card)
+            emit(state, Event.CARD_EXHAUSTED, "player", card=card)
 
         # Discard hand
         state.piles.discard_hand(state.rng)
@@ -487,7 +525,7 @@ class Combat:
         # Tick player power durations *before* enemies act so that statuses
         # applied by enemies this turn survive until the next player turn
         # (mirrors sts_lightspeed's decrementIfNotJustApplied logic).
-        state.player_powers.tick_start_of_turn()
+        _tick_player_start(state)
 
         # Each living enemy resolves its stored intent, then picks next intent
         new_intents: list[Intent] = []
@@ -503,8 +541,9 @@ class Combat:
 
             # Wipe enemy block at start of enemy turn
             enemy.block = 0
-            # Tick enemy power durations (Vulnerable/Weak)
-            enemy.powers.tick_start_of_turn()
+
+            # Emit enemy TURN_START (vulnerable/weak/frail tick, etc.)
+            emit(state, Event.TURN_START, i)
 
             # Sleeping enemies (Lagavulin): gain block from enemy_metallicize,
             # drain player strength, decrement sleep counter
@@ -525,8 +564,8 @@ class Combat:
                 else:
                     # Drain 1 player strength while sleeping (can push negative)
                     state.player_powers.strength -= 1
-                    # Skip intent resolution while asleep
-                    enemy.powers.apply_ritual()
+                    # Emit enemy TURN_END (Ritual, etc.)
+                    emit(state, Event.TURN_END, i)
                     if not enemy.alive or enemy.is_escaping:
                         new_intents.append(self._intents[i])
                         continue
@@ -549,10 +588,8 @@ class Combat:
             intent = self._intents[i]
             self._resolve_enemy_intent(enemy, intent, i)
 
-            # Apply ritual stacks *after* the attack (end-of-round effect).
-            # ritual_just_applied ensures no strength gain on the turn ritual
-            # is first acquired, matching sts_lightspeed's justApplied flag.
-            enemy.powers.apply_ritual()
+            # Emit enemy TURN_END (Ritual, etc.)
+            emit(state, Event.TURN_END, i)
 
             if not enemy.alive or enemy.is_escaping:
                 new_intents.append(intent)
@@ -596,17 +633,8 @@ class Combat:
             state.energy = max(0, state.energy)
             state.energy_loss_next_turn = 0
 
-        # Start-of-turn triggered powers
-        # Demon Form: gain strength
-        if state.player_powers.demon_form > 0:
-            state.player_powers.strength += state.player_powers.demon_form
-        # Brutality: lose 1 HP, draw 1
-        if state.player_powers.brutality > 0:
-            state.player_hp = max(0, state.player_hp - 1)
-            state.piles.draw_cards(1, state.rng)
-        # Berserk: gain energy
-        if state.player_powers.berserk_energy > 0:
-            state.energy += state.player_powers.berserk_energy
+        # Emit player TURN_START (Demon Form, Brutality, Berserk, vulnerable/weak/frail tick)
+        emit(state, Event.TURN_START, "player")
 
         state.piles.draw_cards(_CARDS_PER_DRAW, state.rng)
 
@@ -655,9 +683,7 @@ class Combat:
         if intent.intent_type in (IntentType.ATTACK, IntentType.ATTACK_DEFEND, IntentType.ATTACK_DEBUFF):
             for _ in range(intent.hits):
                 raw = calc_damage(intent.damage, enemy.powers, state.player_powers)
-                nb, nhp = apply_damage(raw, state.player_block, state.player_hp)
-                state.player_block = nb
-                state.player_hp = nhp
+                damage_player(state, raw)
                 if state.player_hp <= 0:
                     return
 
@@ -696,5 +722,3 @@ class Combat:
         # Energy loss applied at start of player's next turn (e.g. Gremlin Nob Bellow)
         if intent.energy_loss > 0:
             state.energy_loss_next_turn += intent.energy_loss
-
-

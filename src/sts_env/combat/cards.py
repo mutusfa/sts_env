@@ -182,14 +182,14 @@ def _apply_spec(
         if spec.x_cost:
             hits = x_energy
         if spec.target == TargetType.ALL_ENEMIES:
-            for enemy in state.enemies:
+            for ei, enemy in enumerate(state.enemies):
                 if enemy.hp > 0 and enemy.name != "Empty":
                     for _ in range(hits):
-                        attack_enemy(state, enemy, dmg)
+                        attack_enemy(state, enemy, dmg, enemy_index=ei)
         else:
             enemy = state.enemies[target_index]
             for _ in range(hits):
-                attack_enemy(state, enemy, dmg)
+                attack_enemy(state, enemy, dmg, enemy_index=target_index)
 
     # 4. Debuffs applied to target(s)
     vuln = spec.vulnerable + u.get("vulnerable", 0)
@@ -332,11 +332,11 @@ def _havoc_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> N
 
     # Push thunk FIRST (LIFO): exhaust the played card after its effects resolve.
     # This thunk will run after any frames the played card pushes (e.g. BurningPact's choice).
-    from .engine import _on_card_exhausted
+    from .events import Event, emit as _emit
 
     def _havoc_exhaust_played(s: "CombatState") -> None:
         s.piles.move_to_exhaust(top_card)
-        _on_card_exhausted(s, top_card)
+        _emit(s, Event.CARD_EXHAUSTED, "player", card=top_card)
 
     state.pending_stack.append(
         ThunkFrame(run=_havoc_exhaust_played, label="havoc-exhaust-played")
@@ -351,10 +351,11 @@ def _havoc_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> N
 def _sword_boomerang_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
     dmg = 3 + (1 if upgraded else 0)
     for _ in range(3):
-        alive = [e for e in state.enemies if e.hp > 0 and e.name != "Empty"]
-        if alive:
-            target = alive[state.rng.randint(0, len(alive) - 1)]
-            attack_enemy(state, target, dmg)
+        alive_indices = [i for i, e in enumerate(state.enemies) if e.hp > 0 and e.name != "Empty"]
+        if alive_indices:
+            idx = alive_indices[state.rng.randint(0, len(alive_indices) - 1)]
+            target = state.enemies[idx]
+            attack_enemy(state, target, dmg, enemy_index=idx)
 
 
 def _wild_strike_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> None:
@@ -440,11 +441,11 @@ def _burning_pact_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int
         choices = list(state.piles.hand)
 
         def on_choose(s: "CombatState", card: Card) -> None:
-            from .engine import _on_card_exhausted
+            from .events import Event, emit as _emit
             if card in s.piles.hand:
                 s.piles.hand.remove(card)
             s.piles.move_to_exhaust(card)
-            _on_card_exhausted(s, card)
+            _emit(s, Event.CARD_EXHAUSTED, "player", card=card)
             s.piles.draw_cards(draw_n, s.rng)
 
         def on_skip(s: "CombatState") -> None:

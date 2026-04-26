@@ -10,7 +10,7 @@ Potions in v1 (13 total):
 
 Deferred:
   AttackPotion, SkillPotion, PowerPotion — require mid-action card-choice UI.
-  FairyInABottle, SmokeBomb — special trigger/context mechanics.
+  SmokeBomb — special trigger/context mechanics.
 
 Damage notes:
   Potion damage in StS bypasses player Strength, Weak, and enemy Vulnerable.
@@ -161,6 +161,17 @@ def _blood_potion(state: "CombatState", _ti: int) -> None:
 def _heart_of_iron(state: "CombatState", _ti: int) -> None:
     """Gain Metallicize 4: gain 4 block at end of each player turn."""
     state.player_powers.metallicize += 4
+
+
+@potion("FairyInABottle", TargetType.NONE)
+def _fairy_in_a_bottle(state: "CombatState", _ti: int) -> None:
+    """Passive: auto-revive at 30% max HP on lethal damage (consumed on use).
+
+    The actual revive logic lives in listeners_potions.py, triggered by the
+    HP_LOSS event. This handler is a no-op because the potion is never
+    actively "used" — it triggers passively.
+    """
+    pass
 
 
 # ---------------------------------------------------------------------------

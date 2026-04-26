@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Any
 
 from .card import Card
 from .deck import Piles
+from .events import Event, Owner
 from .pending import ChoiceFrame, Frame, ThunkFrame
 from .powers import Powers
 from .rng import RNG
@@ -52,6 +54,10 @@ class CombatState:
     energy_loss_next_turn: int = 0  # accumulated energy loss (e.g. Gremlin Nob Bellow)
     pending_stack: list[Frame] = field(default_factory=list)
     rampage_extra: int = 0         # accumulated Rampage bonus this combat
+    subscribers: dict[Event, dict[Owner, list[str]]] = field(
+        default_factory=lambda: defaultdict(lambda: defaultdict(list))
+    )
+    relics: frozenset[str] = frozenset()
 
 
 # ---------------------------------------------------------------------------

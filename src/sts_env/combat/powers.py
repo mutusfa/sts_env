@@ -54,6 +54,7 @@ class Powers:
     corruption: bool = False     # skills cost 0 and are exhausted when played
     double_tap: int = 0          # next N attacks this turn are played twice
     rage_block: int = 0          # gain this much block per Attack played this turn
+    _red_skull_active: bool = False  # internal: RedSkull relic tracking
 
     def tick_start_of_turn(self) -> None:
         """Decrement duration-based statuses."""
@@ -118,18 +119,16 @@ def gain_block(powers: Powers, amount: int, ignore_dexterity: bool = False) -> i
     return total
 
 
-# Enemy names that split at <= 50% HP
-_SPLIT_NAMES = frozenset({"AcidSlimeL", "SpikeSlimeL", "SlimeBoss"})
 
-
-def attack_enemy(state: "CombatState", enemy: "EnemyState", base_dmg: int) -> None:
+def attack_enemy(state: "CombatState", enemy: "EnemyState", base_dmg: int, enemy_index: int | None = None) -> None:
     """Deal base_dmg to enemy, applying player strength/weak, enemy vulnerable.
 
-    Also fires Angry (on any attack) and Curl Up (on first HP damage).
-    Sets pending_split on large slimes when HP crosses the 50% threshold.
-    Wakes up sleeping enemies (Lagavulin).
+    Also fires Angry (on any attack) and emits HP_LOSS / DEATH events via the
+    event bus (Curl Up, Lagavulin wake, slime split, Spore Cloud).
     Mutates enemy and state in place.
     """
+    from .events import Event, emit as _emit
+
     raw = calc_damage(base_dmg, state.player_powers, enemy.powers)
 
     # Angry fires on any attack hit, before applying damage
@@ -141,27 +140,10 @@ def attack_enemy(state: "CombatState", enemy: "EnemyState", base_dmg: int) -> No
     enemy.block = new_block
     enemy.hp = new_hp
 
-    # Wake up sleeping enemies on HP damage
-    if enemy.powers.asleep and enemy.hp < hp_before:
-        enemy.powers.asleep = False
-        enemy.powers.enemy_metallicize = 0
+    # Emit HP_LOSS for enemy reactions (Curl Up, Lagavulin wake, slime split)
+    if enemy.hp < hp_before and enemy_index is not None:
+        _emit(state, Event.HP_LOSS, enemy_index, hp_before=hp_before)
 
-    # Curl Up fires the first time the enemy takes HP damage
-    if enemy.powers.curl_up > 0 and enemy.hp < hp_before:
-        enemy.block += enemy.powers.curl_up
-        enemy.powers.curl_up = 0
-
-    # SporeCloud fires when the enemy is killed for the first time
-    if hp_before > 0 and enemy.hp <= 0 and enemy.powers.spore_cloud > 0:
-        state.player_powers.vulnerable += enemy.powers.spore_cloud
-        enemy.powers.spore_cloud = 0
-
-    # Large slimes split when HP first crosses <= 50% threshold
-    if (
-        enemy.name in _SPLIT_NAMES
-        and not enemy.pending_split
-        and enemy.hp > 0
-        and enemy.hp <= enemy.max_hp // 2
-        and hp_before > enemy.max_hp // 2
-    ):
-        enemy.pending_split = True
+    # Emit DEATH for death-triggered effects (Spore Cloud)
+    if hp_before > 0 and enemy.hp <= 0 and enemy_index is not None:
+        _emit(state, Event.DEATH, enemy_index, hp_before=hp_before)

@@ -745,7 +745,7 @@ def test_fungi_beast_death_applies_vulnerable():
     combat2._state.enemies[0].powers.spore_cloud = 2
     state = combat2._state
     from sts_env.combat.powers import attack_enemy
-    attack_enemy(state, state.enemies[0], 10)
+    attack_enemy(state, state.enemies[0], 10, enemy_index=0)
     assert state.player_powers.vulnerable == 2
 
 

@@ -339,6 +339,7 @@ def test_targeting_valid_after_split():
 def test_pending_split_set_by_attack():
     """attack_enemy should set pending_split when HP crosses <=50% threshold."""
     from sts_env.combat.powers import attack_enemy
+    from sts_env.combat.events import Event, subscribe
 
     large = EnemyState(name="AcidSlimeL", hp=67, max_hp=67)
     state = CombatState(
@@ -346,10 +347,11 @@ def test_pending_split_set_by_attack():
         player_powers=Powers(), energy=3,
         piles=Piles(draw=[]), enemies=[large], rng=RNG(0),
     )
+    subscribe(state, Event.HP_LOSS, "slime_split", 0)
     # Deal just enough to cross the 50% threshold
     threshold = 67 // 2  # 33
     damage_needed = 67 - threshold  # 34
-    attack_enemy(state, large, damage_needed)
+    attack_enemy(state, large, damage_needed, enemy_index=0)
     assert large.pending_split, "pending_split should be True after crossing 50% HP"
 
 
