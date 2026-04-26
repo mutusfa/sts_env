@@ -8,6 +8,7 @@ from typing import Any
 
 from .card import Card
 from .deck import Piles
+from .pending import ChoiceFrame, Frame, ThunkFrame
 from .powers import Powers
 from .rng import RNG
 
@@ -49,9 +50,7 @@ class CombatState:
     potions: list[str] = field(default_factory=list)
     max_potion_slots: int = 3
     energy_loss_next_turn: int = 0  # accumulated energy loss (e.g. Gremlin Nob Bellow)
-    pending_choices: list[Card] = field(default_factory=list)
-    pending_choice_kind: str = ""   # "potion" | "headbutt" | "armaments" | "dualwield" | "burningpact"
-    pending_choice_extra: int = 0   # generic int payload per choice kind (e.g. draw count for burningpact)
+    pending_stack: list[Frame] = field(default_factory=list)
     rampage_extra: int = 0         # accumulated Rampage bonus this combat
 
 

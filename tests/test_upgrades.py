@@ -147,6 +147,9 @@ class TestUpgradedDraw:
         combat = _make_combat_with_card("BurningPact", upgraded=1)
         combat._state.energy = 3
         play_card(combat._state, 0, 0)
-        # BurningPact now presents choices (exhaust 1 card from hand, then draw)
-        assert combat._state.pending_choice_kind == "burningpact"
-        assert combat._state.pending_choice_extra == 3  # draws 3 upgraded
+        # BurningPact pushes a ChoiceFrame onto the pending_stack
+        from sts_env.combat.pending import ChoiceFrame
+        assert len(combat._state.pending_stack) == 1
+        frame = combat._state.pending_stack[-1]
+        assert isinstance(frame, ChoiceFrame)
+        assert frame.kind == "burningpact"

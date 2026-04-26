@@ -41,6 +41,7 @@ from .state import (
 )
 from .deck import Piles
 from .card import Card
+from .pending import ChoiceFrame, ThunkFrame
 
 _PLAYER_START_HP = 80
 _ENERGY_PER_TURN = 3
@@ -79,6 +80,13 @@ def _on_block_gained(state: "CombatState", amount: int) -> None:
             nb, nhp = apply_damage(raw, target.block, target.hp)
             target.block = nb
             target.hp = nhp
+
+
+def _drain_stack(state: CombatState) -> None:
+    """Pop and run ThunkFrames until the stack is empty or a ChoiceFrame is on top."""
+    while state.pending_stack and isinstance(state.pending_stack[-1], ThunkFrame):
+        frame = state.pending_stack.pop()
+        frame.run(state)
 
 
 # Large slime → medium slime spawned on split
@@ -231,50 +239,30 @@ class Combat:
             # Triggered exhaust effects (Dark Embrace, Feel No Pain, Sentinel)
             if card_spec.exhausts or (state.player_powers.corruption and card_spec.card_type == CardType.SKILL):
                 _on_card_exhausted(state, card)
+            _drain_stack(state)
 
         elif action.action_type == ActionType.END_TURN:
             self._resolve_end_of_player_turn()
 
         elif action.action_type == ActionType.USE_POTION:
             _use_potion(state, action.potion_index, action.target_index)
+            _drain_stack(state)
 
         elif action.action_type == ActionType.DISCARD_POTION:
             state.potions.pop(action.potion_index)
 
         elif action.action_type == ActionType.CHOOSE_CARD:
-            card = state.pending_choices.pop(action.choice_index)
-            kind = state.pending_choice_kind
-            extra = state.pending_choice_extra
-            state.pending_choices.clear()
-            state.pending_choice_kind = ""
-            state.pending_choice_extra = 0
-            if kind == "potion":
-                state.piles.hand.append(card)
-            elif kind == "headbutt":
-                # Remove from discard, place on top of draw
-                if card in state.piles.discard:
-                    state.piles.discard.remove(card)
-                state.piles.place_on_top(card)
-            elif kind == "armaments":
-                card.card_id = card.card_id.rstrip("+") + "+" * (card.card_id.count("+") + 1)
-            elif kind == "dualwield":
-                for _ in range(extra):
-                    state.piles.add_to_hand(Card(card.card_id))
-            elif kind == "burningpact":
-                if card in state.piles.hand:
-                    state.piles.hand.remove(card)
-                state.piles.move_to_exhaust(card)
-                _on_card_exhausted(state, card)
-                state.piles.draw_cards(extra, state.rng)
+            frame = state.pending_stack.pop()
+            assert isinstance(frame, ChoiceFrame)
+            card = frame.choices[action.choice_index]
+            frame.on_choose(state, card)
+            _drain_stack(state)
 
         elif action.action_type == ActionType.SKIP_CHOICE:
-            kind = state.pending_choice_kind
-            extra = state.pending_choice_extra
-            state.pending_choices.clear()
-            state.pending_choice_kind = ""
-            state.pending_choice_extra = 0
-            if kind == "burningpact":
-                state.piles.draw_cards(extra, state.rng)
+            frame = state.pending_stack.pop()
+            assert isinstance(frame, ChoiceFrame)
+            frame.on_skip(state)
+            _drain_stack(state)
 
         self._damage_taken = self._player_start_hp - state.player_hp
         self._max_hp_gained = state.player_max_hp - self._player_max_hp
@@ -304,10 +292,11 @@ class Combat:
 
         state = self._state
 
-        # If potion choices are pending, ONLY CHOOSE_CARD / SKIP_CHOICE are valid
-        if state.pending_choices:
+        # If a ChoiceFrame is on top of the stack, ONLY CHOOSE_CARD / SKIP_CHOICE are valid
+        if state.pending_stack and isinstance(state.pending_stack[-1], ChoiceFrame):
+            frame = state.pending_stack[-1]
             actions: list[Action] = []
-            for i in range(len(state.pending_choices)):
+            for i in range(len(frame.choices)):
                 actions.append(Action.choose_card(i))
             actions.append(Action.skip_choice())
             return actions
@@ -445,8 +434,16 @@ class Combat:
             potions=list(state.potions),
             max_potion_slots=state.max_potion_slots,
             max_hp_gained=self._max_hp_gained,
-            pending_choices=list(state.pending_choices),
-            pending_choice_kind=state.pending_choice_kind,
+            pending_choices=(
+                list(state.pending_stack[-1].choices)
+                if state.pending_stack and isinstance(state.pending_stack[-1], ChoiceFrame)
+                else []
+            ),
+            pending_choice_kind=(
+                state.pending_stack[-1].kind
+                if state.pending_stack and isinstance(state.pending_stack[-1], ChoiceFrame)
+                else ""
+            ),
         )
 
     def _resolve_end_of_player_turn(self) -> None:

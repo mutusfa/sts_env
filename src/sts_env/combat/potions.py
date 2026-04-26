@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Callable
 
 from .card import Card
 from .cards import CardType, TargetType, _SPECS as _CARD_SPECS
+from .pending import ChoiceFrame
 from .powers import Powers, apply_damage, calc_damage
 
 if TYPE_CHECKING:
@@ -166,37 +167,33 @@ def _heart_of_iron(state: "CombatState", _ti: int) -> None:
 # Choose-a-card potions (add a random card to hand at cost 0)
 # ---------------------------------------------------------------------------
 
-def _get_playable_cards_by_type(card_type) -> list[str]:
-    """Return card IDs of playable (cost >= 0) cards of the given CardType."""
-    return [cid for cid, spec in _CARD_SPECS.items()
+
+def _make_potion_choice(state: "CombatState", card_type: CardType) -> None:
+    """Present 3 random cards of the given type; agent picks one for hand at cost 0."""
+    pool = [cid for cid, spec in _CARD_SPECS.items()
             if spec.card_type == card_type and spec.cost >= 0]
+    k = min(3, len(pool))
+    choices = state.rng.sample(pool, k)
+    cards = [Card(cid, cost_override=0) for cid in choices]
+
+    def on_choose(s: "CombatState", card: Card) -> None:
+        s.piles.hand.append(card)
+
+    state.pending_stack.append(
+        ChoiceFrame(choices=cards, kind="potion", on_choose=on_choose)
+    )
 
 
 @potion("AttackPotion", TargetType.NONE)
 def _attack_potion(state: "CombatState", _ti: int) -> None:
-    """Present 3 random Attack cards to choose from. Agent picks one via CHOOSE_CARD."""
-    pool = _get_playable_cards_by_type(CardType.ATTACK)
-    k = min(3, len(pool))
-    choices = state.rng.sample(pool, k)
-    state.pending_choices = [Card(cid, cost_override=0) for cid in choices]
-    state.pending_choice_kind = "potion"
+    _make_potion_choice(state, CardType.ATTACK)
 
 
 @potion("SkillPotion", TargetType.NONE)
 def _skill_potion(state: "CombatState", _ti: int) -> None:
-    """Present 3 random Skill cards to choose from. Agent picks one via CHOOSE_CARD."""
-    pool = _get_playable_cards_by_type(CardType.SKILL)
-    k = min(3, len(pool))
-    choices = state.rng.sample(pool, k)
-    state.pending_choices = [Card(cid, cost_override=0) for cid in choices]
-    state.pending_choice_kind = "potion"
+    _make_potion_choice(state, CardType.SKILL)
 
 
 @potion("PowerPotion", TargetType.NONE)
 def _power_potion(state: "CombatState", _ti: int) -> None:
-    """Present 3 random Power cards to choose from. Agent picks one via CHOOSE_CARD."""
-    pool = _get_playable_cards_by_type(CardType.POWER)
-    k = min(3, len(pool))
-    choices = state.rng.sample(pool, k)
-    state.pending_choices = [Card(cid, cost_override=0) for cid in choices]
-    state.pending_choice_kind = "potion"
+    _make_potion_choice(state, CardType.POWER)

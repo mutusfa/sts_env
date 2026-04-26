@@ -27,6 +27,7 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING, Callable
 
 from .card import Card
+from .pending import ChoiceFrame, ThunkFrame
 from .powers import attack_enemy, gain_block
 
 if TYPE_CHECKING:
@@ -301,26 +302,50 @@ def _anger_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> N
 
 
 def _havoc_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> None:
-    if state.piles.draw:
-        top_card = state.piles.draw.pop(0)
-        top_spec = _SPECS.get(top_card.card_id.rstrip("+"))
-        if top_spec and top_spec.playable:
-            # Resolve the top card's effects
-            alive = [e for e in state.enemies if e.hp > 0 and e.name != "Empty"]
-            if top_spec.target == TargetType.SINGLE_ENEMY:
-                ti = 0  # pick first alive enemy
-                for idx, e in enumerate(state.enemies):
-                    if e.alive and e.name != "Empty":
-                        ti = idx
-                        break
-            else:
-                ti = 0
-            up = 1 if top_card.upgraded else 0
-            _apply_spec(state, top_spec, ti, up)
-            if top_spec.custom is not None:
-                top_spec.custom(state, -1, ti, up)
-        # Havoc exhausts the top card regardless
+    # Reshuffle if draw is empty
+    if not state.piles.draw:
+        if not state.piles.discard:
+            return  # nothing to play
+        state.piles.shuffle_draw_from_discard(state.rng)
+    if not state.piles.draw:
+        return
+
+    top_card = state.piles.draw.pop(0)
+    top_spec = _SPECS.get(top_card.card_id.rstrip("+"))
+
+    if not top_spec or not top_spec.playable:
+        # Unplayable card: still exhaust it
         state.piles.move_to_exhaust(top_card)
+        return
+
+    # Pick target for the played card
+    if top_spec.target == TargetType.SINGLE_ENEMY:
+        alive = [e for e in state.enemies if e.hp > 0 and e.name != "Empty"]
+        if alive:
+            ti = state.enemies.index(alive[state.rng.randint(0, len(alive) - 1)])
+        else:
+            ti = 0
+    else:
+        ti = 0
+
+    up = 1 if top_card.upgraded else 0
+
+    # Push thunk FIRST (LIFO): exhaust the played card after its effects resolve.
+    # This thunk will run after any frames the played card pushes (e.g. BurningPact's choice).
+    from .engine import _on_card_exhausted
+
+    def _havoc_exhaust_played(s: "CombatState") -> None:
+        s.piles.move_to_exhaust(top_card)
+        _on_card_exhausted(s, top_card)
+
+    state.pending_stack.append(
+        ThunkFrame(run=_havoc_exhaust_played, label="havoc-exhaust-played")
+    )
+
+    # Now resolve the top card's effects — any frames it pushes land on top of our thunk
+    _apply_spec(state, top_spec, ti, up)
+    if top_spec.custom is not None:
+        top_spec.custom(state, -1, ti, up)
 
 
 def _sword_boomerang_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
@@ -411,10 +436,24 @@ def _searing_blow_custom(state: "CombatState", _hi: int, _ti: int, upgrade_count
 
 def _burning_pact_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
     draw_n = 2 + (1 if upgraded else 0)
-    state.pending_choice_extra = draw_n
     if state.piles.hand:
-        state.pending_choices = list(state.piles.hand)
-        state.pending_choice_kind = "burningpact"
+        choices = list(state.piles.hand)
+
+        def on_choose(s: "CombatState", card: Card) -> None:
+            from .engine import _on_card_exhausted
+            if card in s.piles.hand:
+                s.piles.hand.remove(card)
+            s.piles.move_to_exhaust(card)
+            _on_card_exhausted(s, card)
+            s.piles.draw_cards(draw_n, s.rng)
+
+        def on_skip(s: "CombatState") -> None:
+            s.piles.draw_cards(draw_n, s.rng)
+
+        state.pending_stack.append(
+            ChoiceFrame(choices=choices, kind="burningpact",
+                        on_choose=on_choose, on_skip=on_skip)
+        )
     else:
         # Empty hand: draw immediately
         state.piles.draw_cards(draw_n, state.rng)
@@ -422,8 +461,16 @@ def _burning_pact_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int
 
 def _headbutt_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> None:
     if state.piles.discard:
-        state.pending_choices = list(state.piles.discard)
-        state.pending_choice_kind = "headbutt"
+        choices = list(state.piles.discard)
+
+        def on_choose(s: "CombatState", card: Card) -> None:
+            if card in s.piles.discard:
+                s.piles.discard.remove(card)
+            s.piles.place_on_top(card)
+
+        state.pending_stack.append(
+            ChoiceFrame(choices=choices, kind="headbutt", on_choose=on_choose)
+        )
 
 
 def _armaments_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
@@ -443,8 +490,13 @@ def _armaments_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -
                 if spec.card_id == "SearingBlow" or not card.upgraded:
                     choices.append(card)
         if choices:
-            state.pending_choices = choices
-            state.pending_choice_kind = "armaments"
+
+            def on_choose(s: "CombatState", card: Card) -> None:
+                card.card_id = card.card_id.rstrip("+") + "+" * (card.card_id.count("+") + 1)
+
+            state.pending_stack.append(
+                ChoiceFrame(choices=choices, kind="armaments", on_choose=on_choose)
+            )
 
 
 def _dual_wield_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
@@ -454,9 +506,15 @@ def _dual_wield_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) 
         if spec and spec.card_type in (CardType.ATTACK, CardType.POWER):
             choices.append(card)
     if choices:
-        state.pending_choices = choices
-        state.pending_choice_kind = "dualwield"
-        state.pending_choice_extra = 1 + (1 if upgraded else 0)
+        extra = 1 + (1 if upgraded else 0)
+
+        def on_choose(s: "CombatState", card: Card) -> None:
+            for _ in range(extra):
+                s.piles.add_to_hand(Card(card.card_id))
+
+        state.pending_stack.append(
+            ChoiceFrame(choices=choices, kind="dualwield", on_choose=on_choose)
+        )
 
 
 # ---------------------------------------------------------------------------
