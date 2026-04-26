@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
 from .card import Card
-from .cards import TargetType
+from .cards import CardType, TargetType, _SPECS
 from .powers import Powers, apply_damage, calc_damage
 
 if TYPE_CHECKING:
@@ -168,7 +168,6 @@ def _heart_of_iron(state: "CombatState", _ti: int) -> None:
 
 def _get_playable_cards_by_type(card_type) -> list[str]:
     """Return card IDs of playable (cost >= 0) cards of the given CardType."""
-    from .cards import _SPECS
     return [cid for cid, spec in _SPECS.items()
             if spec.card_type == card_type and spec.cost >= 0]
 
@@ -176,7 +175,6 @@ def _get_playable_cards_by_type(card_type) -> list[str]:
 @potion("AttackPotion", TargetType.NONE)
 def _attack_potion(state: "CombatState", _ti: int) -> None:
     """Present 3 random Attack cards to choose from. Agent picks one via CHOOSE_CARD."""
-    from .cards import CardType
     pool = _get_playable_cards_by_type(CardType.ATTACK)
     k = min(3, len(pool))
     choices = state.rng.sample(pool, k)
@@ -186,7 +184,6 @@ def _attack_potion(state: "CombatState", _ti: int) -> None:
 @potion("SkillPotion", TargetType.NONE)
 def _skill_potion(state: "CombatState", _ti: int) -> None:
     """Present 3 random Skill cards to choose from. Agent picks one via CHOOSE_CARD."""
-    from .cards import CardType
     pool = _get_playable_cards_by_type(CardType.SKILL)
     k = min(3, len(pool))
     choices = state.rng.sample(pool, k)
@@ -196,7 +193,6 @@ def _skill_potion(state: "CombatState", _ti: int) -> None:
 @potion("PowerPotion", TargetType.NONE)
 def _power_potion(state: "CombatState", _ti: int) -> None:
     """Present 3 random Power cards to choose from. Agent picks one via CHOOSE_CARD."""
-    from .cards import CardType
     pool = _get_playable_cards_by_type(CardType.POWER)
     k = min(3, len(pool))
     choices = state.rng.sample(pool, k)
