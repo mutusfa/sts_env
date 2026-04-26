@@ -101,13 +101,13 @@ Status: **Complete**
 **Expanded Goal:** Replace fixed linear encounter sequence with a real StS-style Act 1:
   - Map generation with branching paths and diverse room types
   - Rest Sites (heal 30% max_hp OR upgrade a card)
-  - Card upgrade system wired into the engine (Card.upgraded → UPGRADE_BONUSES → play_card)
+  - Card upgrade system wired into the engine (card_id "+" suffix → upgrade deltas → play_card)
   - Boss relic reward (6 relics offered, BurningBlood has mechanical effect)
   - Strategy agent probe-based routing at map forks
   - Shops and Events are out of scope for this iteration (v2)
 
 ### Gaps Resolved
-- ✓ [CRITICAL] Card upgrade system — UPGRADE_BONUSES dict + `_ub()` helper, all 61 handlers accept `upgraded` param, `_strip_upgrade()` parses "Strike+" at Combat init
+- ✓ [CRITICAL] Card upgrade system — upgrade deltas in CardSpec, all handlers accept `upgraded` param, card_id "+" suffix carries upgrade state
 - ✓ [CRITICAL] Map generation — MapNode/MapEdge/StSMap data structures, 15-floor branching map, generate_act1_map(), all_paths()
 - ✓ [CRITICAL] Room types — RoomType enum (MONSTER/ELITE/REST/BOSS/EVENT/SHOP/TREASURE), room-specific encounter dispatch
 - ✓ [CRITICAL] Rest Site logic — rest_heal (30% max_hp), rest_upgrade (card→card+), pick_rest_choice with 3 strategies
@@ -137,4 +137,4 @@ Status: **Complete**
 - Full 15-floor map generation works with branching paths
 - Map-based run_act1 clears all room types (Monster, Elite, Rest, Boss)
 - SimStrategyAgent.pick_path prefers REST when HP < 40%, Elite when HP healthy
-- Card upgrades work end-to-end: rest_upgrade → Card.upgraded=1 → handler reads UPGRADE_BONUSES
+- Card upgrades work end-to-end: rest_upgrade appends "+" → Card.card_id carries "+" → play_card resolves upgrade deltas

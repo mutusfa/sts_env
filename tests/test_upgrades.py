@@ -11,7 +11,8 @@ def _make_combat_with_card(card_id: str, upgraded: int = 0) -> Combat:
     """Create a combat with a specific card in hand."""
     combat = Combat(deck=list(IRONCLAD_STARTER), enemies=["JawWorm"], seed=42)
     combat.reset()
-    test_card = Card(card_id, upgraded=upgraded)
+    effective_id = card_id + "+" if upgraded else card_id
+    test_card = Card(effective_id)
     combat._state.piles.hand.insert(0, test_card)
     return combat
 
@@ -106,6 +107,28 @@ class TestUpgradedCost:
         assert spec.cost == 3
         assert spec.upgrade.get("cost", 0) == -1
         assert spec.cost + spec.upgrade.get("cost", 0) == 2
+
+
+class TestCardIdSuffix:
+    """Test that card_id carries the '+' suffix for upgrades."""
+
+    def test_play_card_resolves_plus_suffix_to_upgraded_spec(self):
+        combat = Combat(deck=list(IRONCLAD_STARTER), enemies=["JawWorm"], seed=42)
+        combat.reset()
+        combat._state.piles.hand.insert(0, Card("Strike+"))
+        enemy = combat._state.enemies[0]
+        old_hp = enemy.hp
+        combat._state.energy = 3
+        play_card(combat._state, 0, 0)
+        assert enemy.hp == old_hp - 9
+
+    def test_base_id_helper(self):
+        assert Card("Strike").base_id == "Strike"
+        assert Card("Strike+").base_id == "Strike"
+
+    def test_is_upgraded_helper(self):
+        assert not Card("Strike").upgraded
+        assert Card("Strike+").upgraded
 
 
 class TestUpgradedDraw:

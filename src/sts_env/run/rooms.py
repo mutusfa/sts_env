@@ -55,10 +55,6 @@ def rest_upgrade(character: Character, card_id: str) -> None:
 
     Finds the first non-upgraded copy of card_id and replaces it
     with the upgraded version (appends '+' suffix to the card ID).
-
-    NOTE: In the real game, card upgrades change the card's stats.
-    Our upgrade system is tracked at combat time via Card.upgraded.
-    Here we mark the deck entry by appending '+'.
     """
     # Find first non-upgraded copy
     for i, card in enumerate(character.deck):

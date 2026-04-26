@@ -190,14 +190,16 @@ class TestBestUpgradeTarget:
 
 
 # =========================================================================
-# Card upgrade integration (deck "+" suffix → combat upgraded=1)
+# Card upgrade integration (deck "+" suffix → Card.card_id carries "+")
 # =========================================================================
 
 class TestUpgradeSuffixParsing:
-    def test_strike_plus_parsed_as_upgraded(self):
-        from sts_env.combat.engine import _strip_upgrade
-        assert _strip_upgrade("Strike+") == ("Strike", 1)
-        assert _strip_upgrade("Strike") == ("Strike", 0)
+    def test_strike_plus_is_full_card_id(self):
+        from sts_env.combat.card import Card
+        c = Card("Strike+")
+        assert c.card_id == "Strike+"
+        assert c.base_id == "Strike"
+        assert c.upgraded
 
     def test_deck_with_upgraded_cards_combat(self):
         from sts_env.combat import Combat
@@ -213,11 +215,10 @@ class TestUpgradeSuffixParsing:
             player_hp=c.player_hp,
         )
         combat.reset()
-        # Check that the deck contains an upgraded Strike
         all_cards = (
             combat._state.piles.draw
             + combat._state.piles.hand
             + combat._state.piles.discard
         )
-        upgraded_strikes = [c for c in all_cards if c.card_id == "Strike" and c.upgraded == 1]
+        upgraded_strikes = [c for c in all_cards if c.card_id == "Strike+"]
         assert len(upgraded_strikes) == 1

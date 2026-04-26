@@ -139,7 +139,8 @@ def register(
 
 
 def get_spec(card_id: str) -> CardSpec:
-    return _SPECS[card_id]
+    base = card_id[:-1] if card_id.endswith("+") else card_id
+    return _SPECS[base]
 
 
 def _apply_spec(
@@ -225,9 +226,14 @@ def play_card(state: "CombatState", hand_index: int, target_index: int) -> None:
     """Validate and execute a card play, updating state in place."""
     raw = state.piles.hand[hand_index]
     if isinstance(raw, str):
-        card_id, cost_override, upgraded = raw, None, 0
+        raw_id = raw
+        cost_override = None
     else:
-        card_id, cost_override, upgraded = raw.card_id, raw.cost_override, raw.upgraded
+        raw_id = raw.card_id
+        cost_override = raw.cost_override
+
+    upgraded = 1 if raw_id.endswith("+") else 0
+    card_id = raw_id[:-1] if upgraded else raw_id
 
     spec = _SPECS[card_id]
 
