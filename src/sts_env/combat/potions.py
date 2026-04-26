@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
 from .card import Card
-from .cards import CardType, TargetType, _SPECS
+from .cards import CardType, TargetType, _SPECS as _CARD_SPECS
 from .powers import Powers, apply_damage, calc_damage
 
 if TYPE_CHECKING:
@@ -168,7 +168,7 @@ def _heart_of_iron(state: "CombatState", _ti: int) -> None:
 
 def _get_playable_cards_by_type(card_type) -> list[str]:
     """Return card IDs of playable (cost >= 0) cards of the given CardType."""
-    return [cid for cid, spec in _SPECS.items()
+    return [cid for cid, spec in _CARD_SPECS.items()
             if spec.card_type == card_type and spec.cost >= 0]
 
 

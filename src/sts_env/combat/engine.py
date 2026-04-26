@@ -46,6 +46,13 @@ _PLAYER_START_HP = 80
 _ENERGY_PER_TURN = 3
 _CARDS_PER_DRAW = 5
 
+
+def _strip_upgrade(card_str: str) -> tuple[str, int]:
+    """Parse a card string like 'Strike+' into ('Strike', 1)."""
+    if card_str.endswith("+"):
+        return card_str[:-1], 1
+    return card_str, 0
+
 # Large slime → medium slime spawned on split
 # Value is either a single name (both slots get the same) or a tuple of two
 # names (slot i gets the first, slot i+1 gets the second).
@@ -91,7 +98,7 @@ class Combat:
             raise ValueError(
                 f"Too many potions ({len(potions)}) for max_potion_slots={max_potion_slots}."
             )
-        self._deck = [Card(c) if isinstance(c, str) else c for c in deck]
+        self._deck = [Card(_strip_upgrade(c)[0], upgraded=_strip_upgrade(c)[1]) if isinstance(c, str) else c for c in deck]
         self._enemy_names = list(enemies)
         self._seed = seed
         self._player_start_hp = player_hp

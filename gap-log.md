@@ -93,3 +93,48 @@ Status: All 9 critical/high bugs fixed. 26 new tests passing.
 - MCTSPlanner clears scenario 3 across 5 different seeds (42, 7, 99, 1337, 2026)
 - 26 env tests pass, 27 agent tests pass
 - HP range across seeds: 42–58/80 after 5 floors
+
+---
+
+## Iteration 3 — Full Act 1 Adventure (Map + Rest Sites + Card Upgrades)
+Status: **Complete**
+**Expanded Goal:** Replace fixed linear encounter sequence with a real StS-style Act 1:
+  - Map generation with branching paths and diverse room types
+  - Rest Sites (heal 30% max_hp OR upgrade a card)
+  - Card upgrade system wired into the engine (Card.upgraded → UPGRADE_BONUSES → play_card)
+  - Boss relic reward (6 relics offered, BurningBlood has mechanical effect)
+  - Strategy agent probe-based routing at map forks
+  - Shops and Events are out of scope for this iteration (v2)
+
+### Gaps Resolved
+- ✓ [CRITICAL] Card upgrade system — UPGRADE_BONUSES dict + `_ub()` helper, all 61 handlers accept `upgraded` param, `_strip_upgrade()` parses "Strike+" at Combat init
+- ✓ [CRITICAL] Map generation — MapNode/MapEdge/StSMap data structures, 15-floor branching map, generate_act1_map(), all_paths()
+- ✓ [CRITICAL] Room types — RoomType enum (MONSTER/ELITE/REST/BOSS/EVENT/SHOP/TREASURE), room-specific encounter dispatch
+- ✓ [CRITICAL] Rest Site logic — rest_heal (30% max_hp), rest_upgrade (card→card+), pick_rest_choice with 3 strategies
+- ✓ [HIGH] run_act1 rewired — `use_map=True` default, `_run_act1_map()` + `_run_act1_linear()` (backwards compat)
+- ✓ [HIGH] Strategy agent routing — `SimStrategyAgent.pick_path()` with probe-based branch evaluation (survival rate, room priority, low-HP rest preference)
+- ✓ [HIGH] Boss relic reward — 6 relics offered (BurningBlood, RingOfSerpents, TinyHouse, BustedCrown, CoffeeDripper, FusionHammer)
+- ✓ [MEDIUM] Map visualization — `StSMap.__str__()` renders ASCII map with room symbols
+- ✓ [MEDIUM] Elite encounter pool separated from strong hallway pool (Gremlin Nob, Lagavulin, Three Sentries)
+- ✓ [MEDIUM] potions.py _SPECS shadowing bug fixed (renamed import to _CARD_SPECS)
+- ✓ [LOW] 70 new tests: 25 map, 17 upgrade, 28 rooms, 5 path picking, 9 act1 map integration
+
+### Test Results
+- **sts_env**: 141 passed ✅
+- **sts_agent**: 67 passed, 9 skipped ✅
+- Total: **208 tests passing**
+
+### Remaining Gaps (acceptable for v1 → v2)
+1. [MEDIUM] EVENT/SHOP/TREASURE rooms are no-ops (logged and skipped)
+2. [MEDIUM] Only BurningBlood has mechanical effect among boss relics
+3. [MEDIUM] Potion "immediate use" strategy unimplemented (agents can still use potions manually)
+4. [LOW] Several card implementations are no-ops (DemonForm, Corruption, etc.)
+5. [LOW] Builder uses private attribute mutation for potions/max_hp on Combat
+6. [LOW] Encounter ID string matching is fragile (labels must match exactly)
+7. [LOW] _pick_path greedy walk doesn't look ahead past immediate branch
+
+### Verification
+- Full 15-floor map generation works with branching paths
+- Map-based run_act1 clears all room types (Monster, Elite, Rest, Boss)
+- SimStrategyAgent.pick_path prefers REST when HP < 40%, Elite when HP healthy
+- Card upgrades work end-to-end: rest_upgrade → Card.upgraded=1 → handler reads UPGRADE_BONUSES

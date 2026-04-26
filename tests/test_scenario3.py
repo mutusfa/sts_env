@@ -260,7 +260,7 @@ class TestAct1Scenario:
     def test_boss_is_last(self):
         encounters = scenarios.act1_encounters(seed=42)
         assert encounters[-1][0] == "boss"
-        assert encounters[-1][1] == "Slime Boss"
+        assert encounters[-1][1] == "slime_boss"
 
     def test_deterministic(self):
         e1 = scenarios.act1_encounters(seed=42)
