@@ -123,7 +123,7 @@ def _best_upgrade_target(character: Character) -> str | None:
     Priority: Bash > attacks > defends > others.
     Only considers cards that haven't been upgraded yet (no '+' suffix).
     """
-    from ..combat.cards import UPGRADE_BONUSES
+    from ..combat.cards import _SPECS as _CARD_SPECS
 
     # Priority order of card IDs to upgrade
     upgrade_priority = [
@@ -153,7 +153,10 @@ def _best_upgrade_target(character: Character) -> str | None:
     # Collect unupgraded cards in deck
     unupgraded = {c for c in character.deck if not c.endswith("+")}
     # Also filter to cards that have upgrade bonuses defined
-    upgradeable = {c for c in unupgraded if c in UPGRADE_BONUSES}
+    upgradeable = {
+        c for c in unupgraded
+        if c in _CARD_SPECS and _CARD_SPECS[c].upgrade
+    }
 
     for card_id in upgrade_priority:
         if card_id in upgradeable:

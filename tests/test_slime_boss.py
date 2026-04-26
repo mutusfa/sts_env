@@ -209,7 +209,7 @@ class TestSlimedCard:
 
     def test_slimed_can_be_played(self):
         spec = get_spec("Slimed")
-        assert spec.cost >= 0
+        assert spec.playable is True
 
 
 class TestSlimeBossEncounter:

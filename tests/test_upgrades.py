@@ -3,7 +3,7 @@
 import pytest
 from sts_env.combat import Combat
 from sts_env.combat.card import Card
-from sts_env.combat.cards import UPGRADE_BONUSES, _ub, play_card, get_spec
+from sts_env.combat.cards import play_card, get_spec
 from sts_env.combat.engine import IRONCLAD_STARTER
 
 
@@ -11,40 +11,40 @@ def _make_combat_with_card(card_id: str, upgraded: int = 0) -> Combat:
     """Create a combat with a specific card in hand."""
     combat = Combat(deck=list(IRONCLAD_STARTER), enemies=["JawWorm"], seed=42)
     combat.reset()
-    # Place our test card at hand index 0
     test_card = Card(card_id, upgraded=upgraded)
     combat._state.piles.hand.insert(0, test_card)
     return combat
 
 
-class TestUpgradeBonuses:
-    """Test the UPGRADE_BONUSES data and _ub helper."""
+class TestCardSpecUpgrades:
+    """Test that CardSpec.upgrade contains the expected deltas."""
 
-    def test_ub_returns_zero_for_base(self):
-        assert _ub("Strike", 0, "damage") == 0
-
-    def test_ub_returns_bonus_for_upgraded(self):
-        assert _ub("Strike", 1, "damage") == 3
-
-    def test_ub_returns_zero_for_unknown_key(self):
-        assert _ub("Strike", 1, "unknown") == 0
-
-    def test_ub_returns_zero_for_unknown_card(self):
-        assert _ub("NonExistent", 1, "damage") == 0
-
-    def test_all_starter_cards_have_upgrade(self):
+    def test_starter_cards_have_upgrades(self):
         for card_id in ["Strike", "Defend", "Bash"]:
-            assert card_id in UPGRADE_BONUSES
+            assert get_spec(card_id).upgrade, f"{card_id} should have upgrade bonuses"
 
-    def test_feed_upgrade(self):
-        assert UPGRADE_BONUSES["Feed"]["damage"] == 5
-        assert UPGRADE_BONUSES["Feed"]["max_hp"] == 1
+    def test_strike_upgrade_delta(self):
+        assert get_spec("Strike").upgrade.get("attack", 0) == 3
+
+    def test_defend_upgrade_delta(self):
+        assert get_spec("Defend").upgrade.get("block", 0) == 3
+
+    def test_bash_upgrade_deltas(self):
+        spec = get_spec("Bash")
+        assert spec.upgrade.get("attack", 0) == 2
+        assert spec.upgrade.get("vulnerable", 0) == 1
+
+    def test_feed_upgrade_delta(self):
+        assert get_spec("Feed").upgrade.get("attack", 0) == 5
 
     def test_entrench_cost_reduction(self):
-        assert UPGRADE_BONUSES["Entrench"]["cost"] == -1
+        assert get_spec("Entrench").upgrade.get("cost", 0) == -1
 
     def test_pummel_extra_hit(self):
-        assert UPGRADE_BONUSES["Pummel"]["hits"] == 1
+        assert get_spec("Pummel").upgrade.get("hits", 0) == 1
+
+    def test_corruption_cost_reduction(self):
+        assert get_spec("Corruption").upgrade.get("cost", 0) == -1
 
 
 class TestUpgradedDamage:
@@ -56,7 +56,6 @@ class TestUpgradedDamage:
         old_hp = enemy.hp
         combat._state.energy = 3
         play_card(combat._state, 0, 0)
-        # Base Strike = 6, upgrade +3 = 9
         assert enemy.hp == old_hp - 9
 
     def test_base_strike_deals_6(self):
@@ -99,16 +98,14 @@ class TestUpgradedCost:
     def test_upgraded_entrench_costs_1(self):
         spec = get_spec("Entrench")
         assert spec.cost == 2
-        bonus_cost = UPGRADE_BONUSES["Entrench"].get("cost", 0)
-        assert bonus_cost == -1
-        assert spec.cost + bonus_cost == 1
+        assert spec.upgrade.get("cost", 0) == -1
+        assert spec.cost + spec.upgrade.get("cost", 0) == 1
 
     def test_upgraded_corruption_costs_2(self):
         spec = get_spec("Corruption")
         assert spec.cost == 3
-        bonus_cost = UPGRADE_BONUSES["Corruption"].get("cost", 0)
-        assert bonus_cost == -1
-        assert spec.cost + bonus_cost == 2
+        assert spec.upgrade.get("cost", 0) == -1
+        assert spec.cost + spec.upgrade.get("cost", 0) == 2
 
 
 class TestUpgradedDraw:

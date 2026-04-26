@@ -58,10 +58,8 @@ class Piles:
                 drawn.append(card)
         return drawn
 
-    def place_on_top(self, card: str | Card) -> None:
+    def place_on_top(self, card: Card) -> None:
         """Insert a card at the top of the draw pile (index 0)."""
-        if isinstance(card, str):
-            card = Card(card)
         self.draw.insert(0, card)
 
     def play_card(self, hand_index: int) -> Card:
@@ -74,10 +72,8 @@ class Piles:
     def move_to_exhaust(self, card: Card) -> None:
         self.exhaust.append(card)
 
-    def add_to_discard(self, card: str | Card) -> None:
+    def add_to_discard(self, card: Card) -> None:
         """Add a card directly to the discard pile (e.g. Anger's copy)."""
-        if isinstance(card, str):
-            card = Card(card)
         self.discard.append(card)
 
     def discard_hand(self, rng: RNG) -> None:  # noqa: ARG002 (rng reserved for future on-discard effects)

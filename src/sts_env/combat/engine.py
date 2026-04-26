@@ -253,8 +253,14 @@ class Combat:
 
         for hi, card in enumerate(state.piles.hand):
             spec = _get_card_spec(card.card_id)
-            effective_cost = card.cost_override if card.cost_override is not None else spec.cost
-            if effective_cost < 0 or effective_cost > state.energy:
+            if not spec.playable:
+                continue
+            effective_cost = (
+                card.cost_override
+                if card.cost_override is not None
+                else spec.cost + (spec.upgrade.get("cost", 0) if card.upgraded else 0)
+            )
+            if effective_cost > state.energy:
                 continue
             if entangled and spec.card_type in (CardType.SKILL, CardType.POWER):
                 continue
@@ -596,9 +602,9 @@ class Combat:
         if intent.status_card_count:
             for _ in range(intent.status_card_count):
                 if intent.status_to_draw:
-                    state.piles.place_on_top(intent.status_card_id)
+                    state.piles.place_on_top(Card(intent.status_card_id))
                 else:
-                    state.piles.add_to_discard(intent.status_card_id)
+                    state.piles.add_to_discard(Card(intent.status_card_id))
 
         # Energy loss applied at start of player's next turn (e.g. Gremlin Nob Bellow)
         if intent.energy_loss > 0:
