@@ -59,6 +59,8 @@ class CardSpec:
     target: TargetType
     exhausts: bool = False
     playable: bool = True       # False for curses/statuses (AscendersBane, Dazed)
+    ethereal: bool = False      # auto-exhaust at end of turn if still in hand
+    x_cost: bool = False        # spends all remaining energy (Whirlwind)
 
     # Declarative effects — all default to 0 / no-op
     attack: int = 0             # damage per hit (single target or all if ALL_ENEMIES)
@@ -95,6 +97,8 @@ def register(
     target: TargetType,
     exhausts: bool = False,
     playable: bool = True,
+    ethereal: bool = False,
+    x_cost: bool = False,
     attack: int = 0,
     hits: int = 1,
     block: int = 0,
@@ -119,6 +123,8 @@ def register(
         target=target,
         exhausts=exhausts,
         playable=playable,
+        ethereal=ethereal,
+        x_cost=x_cost,
         attack=attack,
         hits=hits,
         block=block,
@@ -139,7 +145,7 @@ def register(
 
 
 def get_spec(card_id: str) -> CardSpec:
-    base = card_id[:-1] if card_id.endswith("+") else card_id
+    base = card_id.rstrip("+")
     return _SPECS[base]
 
 
@@ -148,6 +154,9 @@ def _apply_spec(
     spec: CardSpec,
     target_index: int,
     upgraded: int,
+    *,
+    x_energy: int = 0,
+    upgrade_count: int = 0,
 ) -> None:
     """Execute declarative effects in a fixed, deterministic order.
 
@@ -168,6 +177,9 @@ def _apply_spec(
     if spec.attack:
         dmg = spec.attack + u.get("attack", 0)
         hits = spec.hits + u.get("hits", 0)
+        # X-cost cards: hits = energy spent (Whirlwind)
+        if spec.x_cost:
+            hits = x_energy
         if spec.target == TargetType.ALL_ENEMIES:
             for enemy in state.enemies:
                 if enemy.hp > 0 and enemy.name != "Empty":
@@ -232,19 +244,31 @@ def play_card(state: "CombatState", hand_index: int, target_index: int) -> None:
         raw_id = raw.card_id
         cost_override = raw.cost_override
 
-    upgraded = 1 if raw_id.endswith("+") else 0
-    card_id = raw_id[:-1] if upgraded else raw_id
+    upgrade_count = len(raw_id) - len(raw_id.rstrip("+"))
+    card_id = raw_id.rstrip("+")
 
     spec = _SPECS[card_id]
 
     if not spec.playable:
         raise ValueError(f"Card {card_id!r} is unplayable.")
 
-    effective_cost = (
-        cost_override
-        if cost_override is not None
-        else spec.cost + (spec.upgrade.get("cost", 0) if upgraded else 0)
-    )
+    upgraded = 1 if upgrade_count > 0 else 0
+
+    # Cost calculation
+    if spec.x_cost:
+        if cost_override is not None:
+            effective_cost = cost_override
+        else:
+            effective_cost = state.energy
+    elif state.player_powers.corruption and spec.card_type == CardType.SKILL:
+        effective_cost = cost_override if cost_override is not None else 0
+    else:
+        effective_cost = (
+            cost_override
+            if cost_override is not None
+            else spec.cost + (spec.upgrade.get("cost", 0) if upgraded else 0)
+        )
+
     if effective_cost > state.energy:
         raise ValueError(
             f"Not enough energy to play {card_id!r}: "
@@ -258,11 +282,11 @@ def play_card(state: "CombatState", hand_index: int, target_index: int) -> None:
     state.energy -= effective_cost
     played_card = state.piles.play_card(hand_index)
 
-    _apply_spec(state, spec, target_index, upgraded)
+    _apply_spec(state, spec, target_index, upgraded, x_energy=effective_cost if spec.x_cost else 0, upgrade_count=upgrade_count)
     if spec.custom is not None:
-        spec.custom(state, hand_index, target_index, upgraded)
+        spec.custom(state, hand_index, target_index, upgrade_count)
 
-    if spec.exhausts:
+    if spec.exhausts or (state.player_powers.corruption and spec.card_type == CardType.SKILL):
         state.piles.move_to_exhaust(played_card)
     else:
         state.piles.move_to_discard(played_card)
@@ -279,6 +303,23 @@ def _anger_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> N
 def _havoc_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> None:
     if state.piles.draw:
         top_card = state.piles.draw.pop(0)
+        top_spec = _SPECS.get(top_card.card_id.rstrip("+"))
+        if top_spec and top_spec.playable:
+            # Resolve the top card's effects
+            alive = [e for e in state.enemies if e.hp > 0 and e.name != "Empty"]
+            if top_spec.target == TargetType.SINGLE_ENEMY:
+                ti = 0  # pick first alive enemy
+                for idx, e in enumerate(state.enemies):
+                    if e.alive and e.name != "Empty":
+                        ti = idx
+                        break
+            else:
+                ti = 0
+            up = 1 if top_card.upgraded else 0
+            _apply_spec(state, top_spec, ti, up)
+            if top_spec.custom is not None:
+                top_spec.custom(state, -1, ti, up)
+        # Havoc exhausts the top card regardless
         state.piles.move_to_exhaust(top_card)
 
 
@@ -292,8 +333,12 @@ def _sword_boomerang_custom(state: "CombatState", _hi: int, _ti: int, upgraded: 
 
 
 def _wild_strike_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> None:
-    # Real StS adds a Wound to the draw pile; simplified: add to discard
-    state.piles.add_to_discard(Card("WildStrike"))
+    state.piles.shuffle_into_draw(Card("Wound"), state.rng)
+
+
+def _power_through_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> None:
+    state.piles.add_to_hand(Card("Wound"))
+    state.piles.add_to_hand(Card("Wound"))
 
 
 def _dropkick_custom(state: "CombatState", _hi: int, ti: int, _upgraded: int) -> None:
@@ -324,6 +369,96 @@ def _limit_break_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int
     state.player_powers.strength *= 2
 
 
+def _rampage_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
+    # Rampage: 8 dmg + accumulated bonus. Bonus grows each time it's played.
+    bonus = 5 + (3 if upgraded else 0)
+    enemy = state.enemies[_ti]
+    from .powers import calc_damage, apply_damage
+    raw = calc_damage(state.rampage_extra, state.player_powers, enemy.powers)
+    nb, nhp = apply_damage(raw, enemy.block, enemy.hp)
+    enemy.block = nb
+    enemy.hp = nhp
+    state.rampage_extra += bonus
+
+
+def _second_wind_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
+    block_per = 5 + (2 if upgraded else 0)
+    # Exhaust all non-Attack cards in hand
+    to_exhaust = []
+    for card in state.piles.hand:
+        spec = _SPECS.get(card.card_id.rstrip("+"))
+        if spec and spec.card_type != CardType.ATTACK:
+            to_exhaust.append(card)
+    count = len(to_exhaust)
+    for card in to_exhaust:
+        state.piles.hand.remove(card)
+        state.piles.move_to_exhaust(card)
+    state.player_block += block_per * count
+
+
+def _searing_blow_custom(state: "CombatState", _hi: int, _ti: int, upgrade_count: int) -> None:
+    # Base damage 12 is handled declaratively. Custom adds the scaling bonus.
+    # Total damage = 12 + n*(n+1)/2 where n = upgrade level.
+    if upgrade_count > 0:
+        bonus = upgrade_count * (upgrade_count + 1) // 2
+        enemy = state.enemies[_ti]
+        from .powers import calc_damage, apply_damage
+        raw = calc_damage(bonus, state.player_powers, enemy.powers)
+        nb, nhp = apply_damage(raw, enemy.block, enemy.hp)
+        enemy.block = nb
+        enemy.hp = nhp
+
+
+def _burning_pact_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
+    draw_n = 2 + (1 if upgraded else 0)
+    state.pending_choice_extra = draw_n
+    if state.piles.hand:
+        state.pending_choices = list(state.piles.hand)
+        state.pending_choice_kind = "burningpact"
+    else:
+        # Empty hand: draw immediately
+        state.piles.draw_cards(draw_n, state.rng)
+
+
+def _headbutt_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> None:
+    if state.piles.discard:
+        state.pending_choices = list(state.piles.discard)
+        state.pending_choice_kind = "headbutt"
+
+
+def _armaments_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
+    if upgraded:
+        # Upgraded Armaments: upgrade all upgradable cards in hand automatically
+        for card in state.piles.hand:
+            spec = _SPECS.get(card.card_id.rstrip("+"))
+            if spec and spec.card_type not in (CardType.STATUS, CardType.CURSE):
+                if spec.card_id == "SearingBlow" or not card.upgraded:
+                    card.card_id = card.card_id.rstrip("+") + "+" * (card.card_id.count("+") + 1)
+    else:
+        # Base Armaments: present upgradable cards as choices
+        choices = []
+        for card in state.piles.hand:
+            spec = _SPECS.get(card.card_id.rstrip("+"))
+            if spec and spec.card_type not in (CardType.STATUS, CardType.CURSE):
+                if spec.card_id == "SearingBlow" or not card.upgraded:
+                    choices.append(card)
+        if choices:
+            state.pending_choices = choices
+            state.pending_choice_kind = "armaments"
+
+
+def _dual_wield_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
+    choices = []
+    for card in state.piles.hand:
+        spec = _SPECS.get(card.card_id.rstrip("+"))
+        if spec and spec.card_type in (CardType.ATTACK, CardType.POWER):
+            choices.append(card)
+    if choices:
+        state.pending_choices = choices
+        state.pending_choice_kind = "dualwield"
+        state.pending_choice_extra = 1 + (1 if upgraded else 0)
+
+
 # ---------------------------------------------------------------------------
 # Card registry
 # ---------------------------------------------------------------------------
@@ -348,7 +483,8 @@ register("AscendersBane", cost=0, card_type=C, target=NO, playable=False)
 
 # --- Status ---
 register("Slimed", cost=1, card_type=ST, target=NO, exhausts=True)
-register("Dazed",  cost=0, card_type=ST, target=NO, exhausts=True, playable=False)
+register("Dazed",  cost=0, card_type=ST, target=NO, ethereal=True, playable=False)
+register("Wound",  cost=1, card_type=ST, target=NO, playable=False)
 
 # --- Common Attacks ---
 register("Anger",         cost=0, card_type=A, target=SE, attack=6,
@@ -358,7 +494,7 @@ register("Cleave",        cost=1, card_type=A, target=AE, attack=8,
 register("Clothesline",   cost=2, card_type=A, target=SE, attack=12, vulnerable=2,
          upgrade={"attack": 2, "vulnerable": 1})
 register("Headbutt",      cost=1, card_type=A, target=SE, attack=9,
-         upgrade={"attack": 3})
+         upgrade={"attack": 3}, custom=_headbutt_custom)
 register("IronWave",      cost=1, card_type=A, target=SE, attack=5, block=5,
          upgrade={"attack": 2, "block": 2})
 register("PommelStrike",  cost=1, card_type=A, target=SE, attack=9, draw=1,
@@ -376,7 +512,7 @@ register("SwordBoomerang", cost=1, card_type=A, target=AE,
 
 # --- Common Skills ---
 register("Armaments",  cost=1, card_type=S, target=NO, block=5,
-         upgrade={"block": 3})
+         upgrade={"block": 3}, custom=_armaments_custom)
 register("Flex",       cost=0, card_type=S, target=NO,
          self_strength=2, self_strength_eot_loss=2,
          upgrade={"self_strength": 2, "self_strength_eot_loss": 2})
@@ -388,47 +524,48 @@ register("WarCry",     cost=0, card_type=S, target=NO, exhausts=True, draw=1,
          upgrade={"draw": 1})
 
 # --- Uncommon Attacks ---
-register("Carnage",        cost=2, card_type=A, target=SE, exhausts=True, attack=20,
+register("Carnage",        cost=2, card_type=A, target=SE, ethereal=True, attack=20,
          upgrade={"attack": 8})
 register("Dropkick",       cost=1, card_type=A, target=SE, attack=5,
          upgrade={"attack": 3}, custom=_dropkick_custom)
 register("Pummel",         cost=1, card_type=A, target=SE, exhausts=True,
          attack=2, hits=4, upgrade={"hits": 1})
-register("Rampage",        cost=2, card_type=A, target=SE, attack=18,
-         upgrade={"attack": 10})
+register("Rampage",        cost=2, card_type=A, target=SE, attack=8,
+         upgrade={}, custom=_rampage_custom)
 register("RecklessCharge", cost=1, card_type=A, target=SE, attack=7,
          upgrade={"attack": 4}, custom=_reckless_charge_custom)
 register("SearingBlow",    cost=2, card_type=A, target=SE, attack=12,
-         upgrade={"attack": 3})
+         custom=_searing_blow_custom)
 register("SeverSoul",      cost=2, card_type=A, target=SE, exhausts=True, attack=16,
          upgrade={"attack": 6})
 register("Uppercut",       cost=2, card_type=A, target=SE, attack=13, vulnerable=1, weak=1,
          upgrade={"attack": 3, "vulnerable": 1, "weak": 1})
-register("Whirlwind",      cost=1, card_type=A, target=AE, attack=5,
+register("Whirlwind",      cost=-1, card_type=A, target=AE, attack=5, x_cost=True,
          upgrade={"attack": 3})
 
 # --- Uncommon Skills ---
 register("Bloodletting", cost=0, card_type=S, target=NO, hp_loss=3, energy=2,
          upgrade={"energy": 1})
-register("BurningPact",  cost=1, card_type=S, target=NO, draw=2,
-         upgrade={"draw": 1})
+register("BurningPact",  cost=1, card_type=S, target=NO,
+         custom=_burning_pact_custom)
 register("Disarm",       cost=1, card_type=S, target=SE, exhausts=True,
          enemy_strength=-2, upgrade={"enemy_strength": -1})
-register("DualWield",    cost=1, card_type=S, target=NO)
+register("DualWield",    cost=1, card_type=S, target=NO, custom=_dual_wield_custom)
 register("Entrench",     cost=2, card_type=S, target=NO, upgrade={"cost": -1},
          custom=_entrench_custom)
 register("FlameBarrier", cost=2, card_type=S, target=NO, block=12,
          upgrade={"block": 4})
-register("GhostArmor",   cost=1, card_type=S, target=NO, exhausts=True, block=10,
+register("GhostArmor",   cost=1, card_type=S, target=NO, ethereal=True, block=10,
          upgrade={"block": 3})
 register("PowerThrough", cost=1, card_type=S, target=NO, block=15,
-         upgrade={"block": 5})
-register("Rage",         cost=0, card_type=S, target=NO)
-register("SecondWind",   cost=1, card_type=S, target=NO, block=5,
-         upgrade={"block": 3})
+         upgrade={"block": 5}, custom=_power_through_custom)
+register("Rage",         cost=0, card_type=S, target=NO,
+         custom=lambda s, _h, _t, u: setattr(s.player_powers, 'rage_block', 3 + (2 if u else 0)))
+register("SecondWind",   cost=1, card_type=S, target=NO,
+         custom=_second_wind_custom)
 register("SeeingRed",    cost=1, card_type=S, target=NO, exhausts=True, energy=2,
          upgrade={"energy": 1})
-register("Sentinel",     cost=1, card_type=S, target=NO, block=12,
+register("Sentinel",     cost=1, card_type=S, target=NO, ethereal=True, block=5,
          upgrade={"block": 3})
 register("ShockWave",    cost=2, card_type=S, target=AE, exhausts=True,
          vulnerable=3, weak=3, upgrade={"vulnerable": 1, "weak": 1})
@@ -438,7 +575,8 @@ register("BattleTrance", cost=0, card_type=S, target=NO, draw=3,
          upgrade={"draw": 1})
 
 # --- Uncommon Powers ---
-register("FeelNoPain",  cost=1, card_type=P, target=NO)
+register("FeelNoPain",  cost=1, card_type=P, target=NO,
+         custom=lambda s, _h, _t, u: setattr(s.player_powers, 'feel_no_pain', s.player_powers.feel_no_pain + 3 + (1 if u else 0)))
 register("Inflame",     cost=1, card_type=P, target=NO, self_strength=2,
          upgrade={"self_strength": 1})
 register("Metallicize", cost=1, card_type=P, target=NO, metallicize=3,
@@ -456,16 +594,22 @@ register("Impervious", cost=2, card_type=S, target=NO, exhausts=True, block=30,
 register("Offering",   cost=0, card_type=S, target=NO, exhausts=True,
          hp_loss=6, energy=2, draw=3,
          upgrade={"hp_loss": -4, "energy": 1, "draw": 2})
-register("Berserk",    cost=0, card_type=S, target=NO, energy=2, self_vulnerable=1,
-         upgrade={"energy": 1})
+register("Berserk",    cost=0, card_type=S, target=NO, self_vulnerable=2,
+         upgrade={},
+         custom=lambda s, _h, _t, u: setattr(s.player_powers, 'berserk_energy', s.player_powers.berserk_energy + 1 + (1 if u else 0)))
 
 # --- Rare Powers ---
-register("Brutality",   cost=0, card_type=P, target=NO)
-register("Corruption",  cost=3, card_type=P, target=NO, upgrade={"cost": -1})
-register("DarkEmbrace", cost=2, card_type=P, target=NO)
-register("DemonForm",   cost=3, card_type=P, target=NO, self_strength=2,
-         upgrade={"self_strength": 1})
-register("DoubleTap",   cost=1, card_type=P, target=NO)
-register("Juggernaut",  cost=2, card_type=P, target=NO)
+register("Brutality",   cost=0, card_type=P, target=NO,
+         custom=lambda s, _h, _t, _u: setattr(s.player_powers, 'brutality', 1))
+register("Corruption",  cost=3, card_type=P, target=NO, upgrade={"cost": -1},
+         custom=lambda s, _h, _t, _u: setattr(s.player_powers, 'corruption', True))
+register("DarkEmbrace", cost=2, card_type=P, target=NO,
+         custom=lambda s, _h, _t, _u: setattr(s.player_powers, 'dark_embrace', s.player_powers.dark_embrace + 1))
+register("DemonForm",   cost=3, card_type=P, target=NO,
+         custom=lambda s, _h, _t, u: setattr(s.player_powers, 'demon_form', 2 + (1 if u else 0)))
+register("DoubleTap",   cost=1, card_type=P, target=NO,
+         custom=lambda s, _h, _t, u: setattr(s.player_powers, 'double_tap', 1 + (1 if u else 0)))
+register("Juggernaut",  cost=2, card_type=P, target=NO,
+         custom=lambda s, _h, _t, u: setattr(s.player_powers, 'juggernaut', 5 + (2 if u else 0)))
 register("LimitBreak",  cost=1, card_type=P, target=NO, exhausts=True,
          custom=_limit_break_custom)

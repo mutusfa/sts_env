@@ -47,6 +47,40 @@ _ENERGY_PER_TURN = 3
 _CARDS_PER_DRAW = 5
 
 
+# ---------------------------------------------------------------------------
+# Trigger helpers — centralised hooks fired by engine at the right moments
+# ---------------------------------------------------------------------------
+
+def _on_card_exhausted(state: "CombatState", card: Card) -> None:
+    """Fire all effects triggered by exhausting a card."""
+    from .cards import get_spec as _gs
+    spec = _gs(card.card_id)
+    # Sentinel: gain energy if this card is exhausted
+    if spec.card_id == "Sentinel":
+        upgraded = 1 if card.upgraded else 0
+        gain = 2 + (1 if upgraded else 0)
+        state.energy += gain
+    # Dark Embrace: draw per card exhausted
+    if state.player_powers.dark_embrace > 0:
+        state.piles.draw_cards(state.player_powers.dark_embrace, state.rng)
+    # Feel No Pain: gain block per card exhausted
+    if state.player_powers.feel_no_pain > 0:
+        state.player_block += state.player_powers.feel_no_pain
+
+
+def _on_block_gained(state: "CombatState", amount: int) -> None:
+    """Fire effects triggered by the player gaining block (Juggernaut)."""
+    if state.player_powers.juggernaut > 0 and amount > 0:
+        alive = [e for e in state.enemies if e.alive and e.name != "Empty"]
+        if alive:
+            target = alive[state.rng.randint(0, len(alive) - 1)]
+            from .powers import calc_damage, apply_damage
+            raw = calc_damage(state.player_powers.juggernaut, state.player_powers, target.powers)
+            nb, nhp = apply_damage(raw, target.block, target.hp)
+            target.block = nb
+            target.hp = nhp
+
+
 # Large slime → medium slime spawned on split
 # Value is either a single name (both slots get the same) or a tuple of two
 # names (slot i gets the first, slot i+1 gets the second).
@@ -177,13 +211,26 @@ class Combat:
         if action.action_type == ActionType.PLAY_CARD:
             card = state.piles.hand[action.hand_index]
             card_spec = _get_card_spec(card.card_id)
+            block_before = state.player_block
             _play_card(state, action.hand_index, action.target_index)
+            block_gained = state.player_block - block_before
+            # Juggernaut: deal damage when block is gained
+            if block_gained > 0:
+                _on_block_gained(state, block_gained)
             # Gremlin Nob skill-punish: if a Skill was played, enemies with
             # skill_played_str gain that much strength
             if card_spec.card_type == CardType.SKILL:
                 for enemy in state.enemies:
                     if enemy.alive and enemy.skill_played_str > 0:
                         enemy.powers.strength += enemy.skill_played_str
+            # Rage: gain block per Attack played this turn
+            if card_spec.card_type == CardType.ATTACK and state.player_powers.rage_block > 0:
+                block_gain = state.player_powers.rage_block
+                state.player_block += block_gain
+                _on_block_gained(state, block_gain)
+            # Triggered exhaust effects (Dark Embrace, Feel No Pain, Sentinel)
+            if card_spec.exhausts or (state.player_powers.corruption and card_spec.card_type == CardType.SKILL):
+                _on_card_exhausted(state, card)
 
         elif action.action_type == ActionType.END_TURN:
             self._resolve_end_of_player_turn()
@@ -195,12 +242,39 @@ class Combat:
             state.potions.pop(action.potion_index)
 
         elif action.action_type == ActionType.CHOOSE_CARD:
-            card = state.potion_choices.pop(action.choice_index)
-            state.piles.hand.append(card)
-            state.potion_choices.clear()
+            card = state.pending_choices.pop(action.choice_index)
+            kind = state.pending_choice_kind
+            extra = state.pending_choice_extra
+            state.pending_choices.clear()
+            state.pending_choice_kind = ""
+            state.pending_choice_extra = 0
+            if kind == "potion":
+                state.piles.hand.append(card)
+            elif kind == "headbutt":
+                # Remove from discard, place on top of draw
+                if card in state.piles.discard:
+                    state.piles.discard.remove(card)
+                state.piles.place_on_top(card)
+            elif kind == "armaments":
+                card.card_id = card.card_id.rstrip("+") + "+" * (card.card_id.count("+") + 1)
+            elif kind == "dualwield":
+                for _ in range(extra):
+                    state.piles.add_to_hand(Card(card.card_id))
+            elif kind == "burningpact":
+                if card in state.piles.hand:
+                    state.piles.hand.remove(card)
+                state.piles.move_to_exhaust(card)
+                _on_card_exhausted(state, card)
+                state.piles.draw_cards(extra, state.rng)
 
         elif action.action_type == ActionType.SKIP_CHOICE:
-            state.potion_choices.clear()
+            kind = state.pending_choice_kind
+            extra = state.pending_choice_extra
+            state.pending_choices.clear()
+            state.pending_choice_kind = ""
+            state.pending_choice_extra = 0
+            if kind == "burningpact":
+                state.piles.draw_cards(extra, state.rng)
 
         self._damage_taken = self._player_start_hp - state.player_hp
         self._max_hp_gained = state.player_max_hp - self._player_max_hp
@@ -231,9 +305,9 @@ class Combat:
         state = self._state
 
         # If potion choices are pending, ONLY CHOOSE_CARD / SKIP_CHOICE are valid
-        if state.potion_choices:
+        if state.pending_choices:
             actions: list[Action] = []
-            for i in range(len(state.potion_choices)):
+            for i in range(len(state.pending_choices)):
                 actions.append(Action.choose_card(i))
             actions.append(Action.skip_choice())
             return actions
@@ -249,11 +323,18 @@ class Combat:
             spec = _get_card_spec(card.card_id)
             if not spec.playable:
                 continue
-            effective_cost = (
-                card.cost_override
-                if card.cost_override is not None
-                else spec.cost + (spec.upgrade.get("cost", 0) if card.upgraded else 0)
-            )
+            # Corruption: skills cost 0
+            if state.player_powers.corruption and spec.card_type == CardType.SKILL:
+                effective_cost = card.cost_override if card.cost_override is not None else 0
+            elif spec.x_cost:
+                # X-cost cards cost all remaining energy (playable if energy > 0)
+                effective_cost = card.cost_override if card.cost_override is not None else state.energy
+            else:
+                effective_cost = (
+                    card.cost_override
+                    if card.cost_override is not None
+                    else spec.cost + (spec.upgrade.get("cost", 0) if card.upgraded else 0)
+                )
             if effective_cost > state.energy:
                 continue
             if entangled and spec.card_type in (CardType.SKILL, CardType.POWER):
@@ -364,7 +445,8 @@ class Combat:
             potions=list(state.potions),
             max_potion_slots=state.max_potion_slots,
             max_hp_gained=self._max_hp_gained,
-            potion_choices=list(state.potion_choices),
+            pending_choices=list(state.pending_choices),
+            pending_choice_kind=state.pending_choice_kind,
         )
 
     def _resolve_end_of_player_turn(self) -> None:
@@ -383,9 +465,24 @@ class Combat:
             state.player_powers.dexterity -= state.player_powers.dexterity_loss_eot
             state.player_powers.dexterity_loss_eot = 0
 
+        # Reset per-turn triggered power counters
+        state.player_powers.rage_block = 0
+        state.player_powers.double_tap = 0
+
         # Clear ephemeral cost overrides before discarding
         for card in state.piles.hand:
             card.clear_cost_override()
+
+        # Ethereal: cards with ethereal=True that are still in hand are exhausted
+        ethereal_in_hand = []
+        for card in state.piles.hand:
+            spec = _get_card_spec(card.card_id)
+            if spec.ethereal:
+                ethereal_in_hand.append(card)
+        for card in ethereal_in_hand:
+            state.piles.hand.remove(card)
+            state.piles.move_to_exhaust(card)
+            _on_card_exhausted(state, card)
 
         # Discard hand
         state.piles.discard_hand(state.rng)
@@ -493,20 +590,6 @@ class Combat:
         state.turn += 1
         self._intents = new_intents
 
-        # Exhaust Dazed status cards from discard pile (added by enemies like Sentries).
-        # StS behavior: Dazed exhausts at end of turn rather than staying in discard.
-        # This must happen after enemies act (they add Dazed) and before the next draw.
-        dazed_in_discard = [c for c in state.piles.discard if c.card_id == "Dazed"]
-        for c in dazed_in_discard:
-            state.piles.discard.remove(c)
-            state.piles.exhaust.append(c)
-
-        # Also exhaust any Dazed still in hand (shouldn't normally happen but be safe)
-        dazed_in_hand = [c for c in state.piles.hand if c.card_id == "Dazed"]
-        for c in dazed_in_hand:
-            state.piles.hand.remove(c)
-            state.piles.exhaust.append(c)
-
         # Start next player turn
         state.player_block = 0
         state.energy = _ENERGY_PER_TURN
@@ -515,6 +598,19 @@ class Combat:
             state.energy -= state.energy_loss_next_turn
             state.energy = max(0, state.energy)
             state.energy_loss_next_turn = 0
+
+        # Start-of-turn triggered powers
+        # Demon Form: gain strength
+        if state.player_powers.demon_form > 0:
+            state.player_powers.strength += state.player_powers.demon_form
+        # Brutality: lose 1 HP, draw 1
+        if state.player_powers.brutality > 0:
+            state.player_hp = max(0, state.player_hp - 1)
+            state.piles.draw_cards(1, state.rng)
+        # Berserk: gain energy
+        if state.player_powers.berserk_energy > 0:
+            state.energy += state.player_powers.berserk_energy
+
         state.piles.draw_cards(_CARDS_PER_DRAW, state.rng)
 
     def _resolve_split(self, enemy: EnemyState, idx: int) -> None:

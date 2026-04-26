@@ -44,6 +44,17 @@ class Powers:
     asleep: bool = False         # enemy: sleeping (Lagavulin); does nothing until attacked
     enemy_metallicize: int = 0   # enemy: gain this much block at end of each enemy turn (Lagavulin sleeping)
 
+    # Triggered power stacks (player only)
+    dark_embrace: int = 0        # draw this many cards whenever any card is exhausted
+    feel_no_pain: int = 0        # gain this much block whenever any card is exhausted
+    juggernaut: int = 0          # deal this much damage to a random enemy whenever you gain block
+    brutality: int = 0           # start of turn: lose 1 HP, draw 1
+    demon_form: int = 0          # start of turn: gain this much strength
+    berserk_energy: int = 0      # start of turn: gain this much energy
+    corruption: bool = False     # skills cost 0 and are exhausted when played
+    double_tap: int = 0          # next N attacks this turn are played twice
+    rage_block: int = 0          # gain this much block per Attack played this turn
+
     def tick_start_of_turn(self) -> None:
         """Decrement duration-based statuses."""
         if self.vulnerable > 0:

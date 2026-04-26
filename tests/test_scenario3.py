@@ -397,7 +397,7 @@ class TestCardPotions:
         return obs
 
     def _choose_card(self, combat, choice_index=0):
-        """Pick a card from potion_choices via CHOOSE_CARD."""
+        """Pick a card from pending_choices via CHOOSE_CARD."""
         actions = combat.valid_actions()
         choose = [a for a in actions if a.action_type == ActionType.CHOOSE_CARD and a.choice_index == choice_index]
         assert choose, f"No CHOOSE_CARD action with index {choice_index}"
@@ -408,9 +408,9 @@ class TestCardPotions:
         """AttackPotion presents 3 Attack card choices after USE_POTION."""
         combat = self._make_combat_with_potion("AttackPotion")
         obs = self._use_potion(combat)
-        # Should have potion_choices with 3 cards
-        assert len(obs.potion_choices) == 3, f"Expected 3 choices, got {len(obs.potion_choices)}"
-        for c in obs.potion_choices:
+        # Should have pending_choices with 3 cards
+        assert len(obs.pending_choices) == 3, f"Expected 3 choices, got {len(obs.pending_choices)}"
+        for c in obs.pending_choices:
             assert c.cost_override == 0
             assert get_spec(c.card_id).card_type == CardType.ATTACK
 
@@ -418,8 +418,8 @@ class TestCardPotions:
         """SkillPotion presents 3 Skill card choices after USE_POTION."""
         combat = self._make_combat_with_potion("SkillPotion")
         obs = self._use_potion(combat)
-        assert len(obs.potion_choices) == 3
-        for c in obs.potion_choices:
+        assert len(obs.pending_choices) == 3
+        for c in obs.pending_choices:
             assert c.cost_override == 0
             assert get_spec(c.card_id).card_type == CardType.SKILL
 
@@ -427,8 +427,8 @@ class TestCardPotions:
         """PowerPotion presents 3 Power card choices after USE_POTION."""
         combat = self._make_combat_with_potion("PowerPotion")
         obs = self._use_potion(combat)
-        assert len(obs.potion_choices) == 3
-        for c in obs.potion_choices:
+        assert len(obs.pending_choices) == 3
+        for c in obs.pending_choices:
             assert c.cost_override == 0
             assert get_spec(c.card_id).card_type == CardType.POWER
 
@@ -437,21 +437,21 @@ class TestCardPotions:
         combat = self._make_combat_with_potion("AttackPotion")
         obs = self._use_potion(combat)
         hand_before = len(obs.hand)
-        chosen_card = obs.potion_choices[1]
+        chosen_card = obs.pending_choices[1]
         obs2 = self._choose_card(combat, choice_index=1)
         # Hand should have one more card
         assert len(obs2.hand) == hand_before + 1
         # The added card should be the chosen one
         assert obs2.hand[-1].card_id == chosen_card.card_id
         assert obs2.hand[-1].cost_override == 0
-        # potion_choices should be cleared
-        assert len(obs2.potion_choices) == 0
+        # pending_choices should be cleared
+        assert len(obs2.pending_choices) == 0
 
     def test_choices_are_distinct(self):
         """The 3 presented cards should be distinct (no duplicates)."""
         combat = self._make_combat_with_potion("AttackPotion")
         obs = self._use_potion(combat)
-        ids = [c.card_id for c in obs.potion_choices]
+        ids = [c.card_id for c in obs.pending_choices]
         assert len(set(ids)) == len(ids), f"Duplicate choices: {ids}"
 
     def test_skip_choice_wastes_potion(self):
@@ -465,11 +465,11 @@ class TestCardPotions:
         obs2, _, _ = combat.step(skip[0])
         # Hand size unchanged
         assert len(obs2.hand) == hand_before
-        # potion_choices cleared
-        assert len(obs2.potion_choices) == 0
+        # pending_choices cleared
+        assert len(obs2.pending_choices) == 0
 
     def test_only_choose_actions_while_pending(self):
-        """While potion_choices are pending, only CHOOSE_CARD/SKIP_CHOICE are valid."""
+        """While pending_choices are pending, only CHOOSE_CARD/SKIP_CHOICE are valid."""
         combat = self._make_combat_with_potion("AttackPotion")
         obs = self._use_potion(combat)
         actions = combat.valid_actions()

@@ -178,7 +178,8 @@ def _attack_potion(state: "CombatState", _ti: int) -> None:
     pool = _get_playable_cards_by_type(CardType.ATTACK)
     k = min(3, len(pool))
     choices = state.rng.sample(pool, k)
-    state.potion_choices = [Card(cid, cost_override=0) for cid in choices]
+    state.pending_choices = [Card(cid, cost_override=0) for cid in choices]
+    state.pending_choice_kind = "potion"
 
 
 @potion("SkillPotion", TargetType.NONE)
@@ -187,7 +188,8 @@ def _skill_potion(state: "CombatState", _ti: int) -> None:
     pool = _get_playable_cards_by_type(CardType.SKILL)
     k = min(3, len(pool))
     choices = state.rng.sample(pool, k)
-    state.potion_choices = [Card(cid, cost_override=0) for cid in choices]
+    state.pending_choices = [Card(cid, cost_override=0) for cid in choices]
+    state.pending_choice_kind = "potion"
 
 
 @potion("PowerPotion", TargetType.NONE)
@@ -196,4 +198,5 @@ def _power_potion(state: "CombatState", _ti: int) -> None:
     pool = _get_playable_cards_by_type(CardType.POWER)
     k = min(3, len(pool))
     choices = state.rng.sample(pool, k)
-    state.potion_choices = [Card(cid, cost_override=0) for cid in choices]
+    state.pending_choices = [Card(cid, cost_override=0) for cid in choices]
+    state.pending_choice_kind = "potion"

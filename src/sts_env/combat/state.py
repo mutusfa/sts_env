@@ -49,7 +49,10 @@ class CombatState:
     potions: list[str] = field(default_factory=list)
     max_potion_slots: int = 3
     energy_loss_next_turn: int = 0  # accumulated energy loss (e.g. Gremlin Nob Bellow)
-    potion_choices: list[Card] = field(default_factory=list)
+    pending_choices: list[Card] = field(default_factory=list)
+    pending_choice_kind: str = ""   # "potion" | "headbutt" | "armaments" | "dualwield" | "burningpact"
+    pending_choice_extra: int = 0   # generic int payload per choice kind (e.g. draw count for burningpact)
+    rampage_extra: int = 0         # accumulated Rampage bonus this combat
 
 
 # ---------------------------------------------------------------------------
@@ -134,4 +137,5 @@ class Observation:
     potions: list[str]
     max_potion_slots: int
     max_hp_gained: int = 0  # max HP gained this combat (e.g. Feed), exposed for strategic valuation
-    potion_choices: list[Card] = ()
+    pending_choices: list[Card] = ()
+    pending_choice_kind: str = ""

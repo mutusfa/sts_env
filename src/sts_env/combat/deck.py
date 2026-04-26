@@ -76,6 +76,15 @@ class Piles:
         """Add a card directly to the discard pile (e.g. Anger's copy)."""
         self.discard.append(card)
 
+    def add_to_hand(self, card: Card) -> None:
+        """Add a card directly to hand (e.g. PowerThrough's Wounds)."""
+        self.hand.append(card)
+
+    def shuffle_into_draw(self, card: Card, rng: RNG) -> None:
+        """Insert a card at a random position in the draw pile (e.g. WildStrike's Wound)."""
+        pos = rng.randint(0, len(self.draw))
+        self.draw.insert(pos, card)
+
     def discard_hand(self, rng: RNG) -> None:  # noqa: ARG002 (rng reserved for future on-discard effects)
         """Move all cards from hand to discard at end of player turn."""
         self.discard.extend(self.hand)

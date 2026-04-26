@@ -146,6 +146,7 @@ class TestUpgradedDraw:
     def test_upgraded_burning_pact_draws_3(self):
         combat = _make_combat_with_card("BurningPact", upgraded=1)
         combat._state.energy = 3
-        hand_size_before = len(combat._state.piles.hand)
         play_card(combat._state, 0, 0)
-        assert len(combat._state.piles.hand) >= hand_size_before + 1  # draws 3, loses 1
+        # BurningPact now presents choices (exhaust 1 card from hand, then draw)
+        assert combat._state.pending_choice_kind == "burningpact"
+        assert combat._state.pending_choice_extra == 3  # draws 3 upgraded
