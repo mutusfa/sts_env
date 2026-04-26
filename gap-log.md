@@ -168,3 +168,40 @@ Status: **Complete** (user-driven)
 4. [LOW] Builder uses private attribute mutation for potions/max_hp on Combat
 5. [LOW] Encounter ID string matching is fragile (labels must match exactly)
 6. [LOW] _pick_path greedy walk doesn't look ahead past immediate branch
+
+---
+
+## Iteration 5 — Full Act 1: Events, Shops, Treasures, Boss Relics
+Status: **Complete**
+
+**Goal:** Complete all remaining Act 1 room types so the entire adventure system is functional.
+
+### Gaps Resolved
+- ✓ [MEDIUM] **Events**: 7 Act 1 events (Big Fish, Golden Idol, The Cleric, Dead Adventurer, Golden Wing, Liars Game, Scrap Ooze) with choice-based outcomes (gold, HP, card upgrade, card removal, relics, max HP)
+- ✓ [MEDIUM] **Shops**: Full shop system — 5 cards (3 common + 1 uncommon + 1 rare), 3 potions, 1 relic, card removal service. Gold economy with StS-accurate pricing (50/75/150 for cards, 75 for removal)
+- ✓ [MEDIUM] **Treasure rooms**: 20-30 gold + 25% relic drop chance from common relic pool
+- ✓ [MEDIUM] **Boss relic registry**: RedSkull, CentennialPuzzle, JuzuBracelet, Orichalcum, CeramicFish registered with specs
+- ✓ [MEDIUM] **Orichalcum run-layer effect**: +4 HP heal after combat (simplified from combat-internal block gain)
+- ✓ [HIGH] **Dispatch wiring**: `_run_act1_map` now handles all 6 room types (Monster, Elite, Rest, Event, Shop, Treasure, Boss). No more no-ops.
+- ✓ [HIGH] **Auto-shop AI**: heuristic shopping (remove worst card → buy best affordable card → buy potion if slot free)
+- ✓ [HIGH] **Event choice hook**: strategy agents can implement `pick_event_choice(event, character)` for smarter event decisions
+
+### New Files
+- `src/sts_env/run/events.py` — Event registry, 7 events with `EventSpec`/`EventChoice` dataclasses, `random_act1_event()`, `resolve_event()`
+- `src/sts_env/run/shop.py` — Shop system with `ShopInventory`/`ShopResult`, `generate_shop()`, `buy_card()`, `buy_potion()`, `buy_relic()`, `remove_worst_card()`
+- `src/sts_env/run/treasure.py` — Treasure room with `open_treasure()`, `TreasureResult`
+- `tests/test_events.py` — 28 tests
+- `tests/test_shop.py` — 31 tests
+- `tests/test_treasure.py` — 13 tests
+
+### Test Results
+- **sts_env**: 658 passed, 3 skipped ✅
+- **sts_agent**: 67 passed, 9 skipped ✅
+- Total: **725 tests passing**
+
+### Remaining Gaps (post-Act 1)
+1. [MEDIUM] Oracle tests need `slaythespire` module (external dependency)
+2. [LOW] RedSkull/CentennialPuzzle/JuzuBracelet/CeramicFish need combat-engine hooks (currently specs only)
+3. [LOW] Encounter ID string matching is fragile (labels must match exactly)
+4. [LOW] _pick_path greedy walk doesn't look ahead past immediate branch
+5. [LOW] Shop relic and treasure relic pools may overlap with boss rewards

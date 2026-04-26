@@ -62,3 +62,26 @@ _register(
     RelicSpec("BurningBlood"),
     on_combat_end=_burning_blood_on_combat_end,
 )
+
+# ---------------------------------------------------------------------------
+# Boss relics (registered as specs; combat-internal effects TBD)
+# ---------------------------------------------------------------------------
+
+# RedSkull: +3 Strength while HP <= 50% (combat-internal, needs engine hook)
+_register(RelicSpec("RedSkull"))
+
+# CentennialPuzzle: draw 1 card first time you're attacked each combat (combat-internal)
+_register(RelicSpec("CentennialPuzzle"))
+
+# JuzuBracelet: normal enemies no longer attack (combat-internal — simplifies encounters)
+_register(RelicSpec("JuzuBracelet"))
+
+# Orichalcum: if you end turn with 0 block, gain 6 block (combat-internal)
+_register(RelicSpec("Orichalcum"))
+
+# CeramicFish: gain 9 gold whenever you add a card to your deck
+def _ceramic_fish_on_card_add(run_state: "RunState") -> None:
+    run_state.gold += 9
+
+# Register with a future hook — for now just register the spec
+_register(RelicSpec("CeramicFish"))
