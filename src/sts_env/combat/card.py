@@ -31,7 +31,9 @@ class Card:
 
     def to_key(self) -> tuple:
         """Fully-qualified hashable key for transposition tables."""
-        return (self.card_id, self.cost_override)
+        # Use a sortable sentinel for None (must be comparable with int)
+        co = self.cost_override if self.cost_override is not None else -1
+        return (self.card_id, co)
 
     @property
     def upgraded(self) -> bool:
