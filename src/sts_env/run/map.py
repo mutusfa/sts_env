@@ -112,6 +112,17 @@ def generate_act1_map(seed: int) -> StSMap:
     nodes: dict[int, list[MapNode]] = {}
 
     # --- Assign room types ---
+    # StS1 Act 1 approximate room weights (mid-floors):
+    #   MONSTER 35%, ELITE 15%, REST 12%, EVENT 15%, SHOP 8%, TREASURE 15%
+    _ROOM_WEIGHTS = [
+        (0.35, RoomType.MONSTER),
+        (0.50, RoomType.ELITE),
+        (0.62, RoomType.REST),
+        (0.77, RoomType.EVENT),
+        (0.85, RoomType.SHOP),
+        (1.00, RoomType.TREASURE),
+    ]
+
     for floor in range(15):
         floor_nodes: list[MapNode] = []
         for x in range(3):
@@ -123,12 +134,11 @@ def generate_act1_map(seed: int) -> StSMap:
                 rt = RoomType.BOSS
             else:
                 roll = rng.random()
-                if roll < 0.20:
-                    rt = RoomType.REST
-                elif roll < 0.40:
-                    rt = RoomType.ELITE
-                else:
-                    rt = RoomType.MONSTER
+                rt = RoomType.MONSTER  # default fallback
+                for threshold, room_type in _ROOM_WEIGHTS:
+                    if roll < threshold:
+                        rt = room_type
+                        break
             floor_nodes.append(MapNode(floor, x, rt))
         nodes[floor] = floor_nodes
 
@@ -200,7 +210,7 @@ _ACT1_STRONG_ENCOUNTERS = [
 _ACT1_STRONG_WEIGHTS = [1.0, 1.0, 1.0, 1.5, 1.5, 2.0, 2.0, 2.0, 2.0, 2.0]
 _ACT1_STRONG_TOTAL = sum(_ACT1_STRONG_WEIGHTS)
 
-_ACT1_BOSS_ENCOUNTERS = ["slime_boss"]
+_ACT1_BOSS_ENCOUNTERS = ["slime_boss", "guardian", "hexaghost"]
 
 
 def get_encounter_for_room(room_type: RoomType, rng: RNG) -> str | None:

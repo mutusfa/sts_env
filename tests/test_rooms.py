@@ -80,10 +80,10 @@ class TestEncounterSelection:
         enc = get_encounter_for_room(RoomType.ELITE, rng)
         assert enc is not None
 
-    def test_boss_returns_slime_boss(self):
+    def test_boss_returns_act1_boss(self):
         rng = RNG(42)
         enc = get_encounter_for_room(RoomType.BOSS, rng)
-        assert enc == "slime_boss"
+        assert enc in ["slime_boss", "guardian", "hexaghost"]
 
     def test_rest_returns_none(self):
         rng = RNG(42)

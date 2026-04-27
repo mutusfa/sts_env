@@ -85,30 +85,54 @@ def pick_rest_choice(
     -------
     RestResult with the chosen action.
     """
+    from . import relics as relic_mod
+
+    can_heal = relic_mod.can_rest(character.relics)
+    can_up = relic_mod.can_upgrade(character.relics)
+
     if strategy == "always_heal":
+        if can_heal:
+            healed = rest_heal(character)
+            return RestResult(choice=RestChoice.REST, hp_healed=healed)
+        # Can't rest — try upgrade instead
+        if can_up:
+            card = _best_upgrade_target(character)
+            if card is not None:
+                rest_upgrade(character, card)
+                return RestResult(choice=RestChoice.UPGRADE, card_upgraded=card)
+        # Neither option available — forced rest (shouldn't happen)
         healed = rest_heal(character)
         return RestResult(choice=RestChoice.REST, hp_healed=healed)
 
     if strategy == "always_upgrade":
-        card = _best_upgrade_target(character)
-        if card is not None:
-            rest_upgrade(character, card)
-            return RestResult(choice=RestChoice.UPGRADE, card_upgraded=card)
-        # No upgrade targets — fall through to heal
+        if can_up:
+            card = _best_upgrade_target(character)
+            if card is not None:
+                rest_upgrade(character, card)
+                return RestResult(choice=RestChoice.UPGRADE, card_upgraded=card)
+        # No upgrade targets or can't upgrade — fall through to heal
+        if can_heal:
+            healed = rest_heal(character)
+            return RestResult(choice=RestChoice.REST, hp_healed=healed)
         healed = rest_heal(character)
         return RestResult(choice=RestChoice.REST, hp_healed=healed)
 
     # Default: "heal_if_hurt"
     hp_ratio = character.player_hp / character.player_max_hp
-    if hp_ratio < 0.70:
+    if hp_ratio < 0.70 and can_heal:
         healed = rest_heal(character)
         return RestResult(choice=RestChoice.REST, hp_healed=healed)
     else:
-        card = _best_upgrade_target(character)
-        if card is not None:
-            rest_upgrade(character, card)
-            return RestResult(choice=RestChoice.UPGRADE, card_upgraded=card)
-        # Nothing to upgrade — heal instead
+        if can_up:
+            card = _best_upgrade_target(character)
+            if card is not None:
+                rest_upgrade(character, card)
+                return RestResult(choice=RestChoice.UPGRADE, card_upgraded=card)
+        # Nothing to upgrade or can't upgrade — heal instead
+        if can_heal:
+            healed = rest_heal(character)
+            return RestResult(choice=RestChoice.REST, hp_healed=healed)
+        # Fallback
         healed = rest_heal(character)
         return RestResult(choice=RestChoice.REST, hp_healed=healed)
 

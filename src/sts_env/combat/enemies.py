@@ -1001,3 +1001,70 @@ def _slime_boss_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  #
 
 
 register_enemy(_SLIME_BOSS, _slime_boss_intent)
+
+
+# ---------------------------------------------------------------------------
+# Hexaghost (Act 1 Boss)
+# ---------------------------------------------------------------------------
+# HP 250.  Fixed 6-turn cycle:
+#   Turn 0: Activate  — BUFF (telegraphs Divider)
+#   Turn 1: Divider   — ATTACK 6×6 (6 damage, 6 hits)
+#   Turn 2: Sear       — ATTACK 6×2 + add 1 Burn to discard
+#   Turn 3: Inflate    — BUFF (+2 Strength)
+#   Turn 4: Sear       — ATTACK 6×2 + add 1 Burn to discard
+#   Turn 5: Inferno    — ATTACK 2×6 + add 3 Burn to discard
+# Then repeats from Activate.
+# Source: MonsterSpecific.cpp line ~2391 (ascension 0)
+
+_HEXAGHOST = EnemySpec("Hexaghost", hp_min=250, hp_max=250)
+
+_HG_ACTIVATE = Intent(IntentType.BUFF)
+_HG_DIVIDER  = Intent(IntentType.ATTACK, damage=6, hits=6)
+_HG_SEAR     = Intent(IntentType.ATTACK_DEBUFF, damage=6, hits=2,
+                       status_card_id="Burn", status_card_count=1)
+_HG_INFLATE  = Intent(IntentType.BUFF, strength_gain=2)
+_HG_INFERNO  = Intent(IntentType.ATTACK_DEBUFF, damage=2, hits=6,
+                       status_card_id="Burn", status_card_count=3)
+
+_HG_CYCLE = [_HG_ACTIVATE, _HG_DIVIDER, _HG_SEAR, _HG_INFLATE, _HG_SEAR, _HG_INFERNO]
+_HG_NAMES = ["Activate", "Divider", "Sear", "Inflate", "Sear", "Inferno"]
+
+
+def _hexaghost_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
+    idx = turn % len(_HG_CYCLE)
+    enemy.move_history.append(_HG_NAMES[idx])
+    return _HG_CYCLE[idx]
+
+
+register_enemy(_HEXAGHOST, _hexaghost_intent)
+
+
+# ---------------------------------------------------------------------------
+# Guardian — Act 1 boss
+# ---------------------------------------------------------------------------
+# HP: 240 (fixed)
+# Attack-stance cycle (repeats):
+#   Charging Up  — DEFEND (gains 9 block)
+#   Fierce Strike — ATTACK 32 damage
+#   Vent Steam   — DEBUFF (2 Weak + 2 Vulnerable to player)
+#   Whirlwind    — ATTACK 5×4 (5 damage, 4 hits)
+# Source: MonsterSpecific.cpp (ascension 0)
+
+_GUARDIAN = EnemySpec("Guardian", hp_min=240, hp_max=240)
+
+_GU_CHARGING = Intent(IntentType.DEFEND, block_gain=9)
+_GU_FIERCE = Intent(IntentType.ATTACK, damage=32, hits=1)
+_GU_VENT = Intent(IntentType.DEBUFF, applies_weak=2, applies_vulnerable=2)
+_GU_WHIRLWIND = Intent(IntentType.ATTACK, damage=5, hits=4)
+
+_GU_CYCLE = [_GU_CHARGING, _GU_FIERCE, _GU_VENT, _GU_WHIRLWIND]
+
+
+def _guardian_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
+    idx = turn % len(_GU_CYCLE)
+    names = ["ChargingUp", "FierceStrike", "VentSteam", "Whirlwind"]
+    enemy.move_history.append(names[idx])
+    return _GU_CYCLE[idx]
+
+
+register_enemy(_GUARDIAN, _guardian_intent)

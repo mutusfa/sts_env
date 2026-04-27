@@ -205,3 +205,38 @@ Status: **Complete**
 3. [LOW] Encounter ID string matching is fragile (labels must match exactly)
 4. [LOW] _pick_path greedy walk doesn't look ahead past immediate branch
 5. [LOW] Shop relic and treasure relic pools may overlap with boss rewards
+
+---
+
+## Iteration 6 — Complete Act 1 Environment
+Status: **In Progress**
+**Goal:** Fill all remaining gaps for a complete, faithful Act 1 experience (environment only — agent improvements deferred).
+
+### Gaps Identified
+1. [CRITICAL] Only 1 of 3 Act 1 bosses — missing Guardian and Hexaghost. Map always picks Slime Boss. **→ DONE ✅**
+2. [CRITICAL] No Neow blessing — the starting choice (max HP, random relic, remove a card, etc.) is entirely absent. **→ DONE ✅**
+3. [HIGH] No elite relic reward — elites should drop a random common/uncommon relic. Currently only card + gold + potion. **→ DONE ✅**
+4. [HIGH] Potion sync bug — consumed potions not synced from combat back to run state (FIXED: committed to both repos). **→ DONE ✅**
+5. [HIGH] Card.to_key() TypeError — None cost_override not sortable with int (FIXED: committed to sts_env). **→ DONE ✅**
+6. [MEDIUM] Boss relic effects are mostly stubs — only BurningBlood and Orichalcum have mechanical effects. **→ DONE ✅** (CoffeeDripper, FusionHammer wired; combat-internal ones RedSkull/CentennialPuzzle/JuzuBracelet remain combat-engine hooks)
+7. [MEDIUM] No relic pool tracking — shop/treasure/elite/boss relic rewards can overlap (no "already owned" check). **→ DONE ✅** (Unified pool in rewards.py, neow.py imports from it)
+8. [MEDIUM] Map room distribution should follow StS weighted probabilities. **→ DONE ✅** (MONSTER 35%, ELITE 15%, REST 12%, EVENT 15%, SHOP 8%, TREASURE 15%)
+9. [LOW] Oracle tests need `slaythespire` module (external dependency).
+10. [LOW] Encounter ID string matching is fragile (labels must match exactly).
+11. [LOW] Shop relic and treasure relic pools may overlap with boss rewards.
+
+### Changes Made
+- `src/sts_env/combat/enemies.py`: Added Guardian (240 HP, charging/defensive stance cycle) and Hexaghost (250 HP, divider+activation loop) enemy specs
+- `src/sts_env/combat/encounters.py`: Added `guardian()` and `hexaghost()` combat builder functions, updated boss encounter list
+- `src/sts_env/run/neow.py`: New file — Neow blessing system with 4 choices (MAX_HP, RANDOM_RELIC, REMOVE_CARD, RANDOM_CARD)
+- `src/sts_env/run/rewards.py`: Added `roll_elite_relic()` with duplicate avoidance via owned relics
+- `src/sts_env/run/relics.py`: Added CoffeeDripper (blocks rest), FusionHammer (blocks upgrade), BustedCrown, TinyHouse, RingOfSerpents specs; added `can_rest()` and `can_upgrade()` helpers
+- `src/sts_env/run/rooms.py`: `pick_rest_choice()` now respects CoffeeDripper/FusionHammer restrictions
+- `src/sts_env/run/map.py`: Updated room type distribution to StS-weighted probabilities with EVENT/SHOP/TREASURE rooms
+- `src/sts_env/run/neow.py`: Imports `COMMON_RELICS` from rewards.py (single source of truth for relic pool)
+- `tests/test_neow.py`: 15 new Neow tests
+- `tests/test_rewards.py`: New test file for elite relic rewards
+- `tests/test_map.py`, `tests/test_rooms.py`: Updated for 3-boss pool and all room types
+
+### Test Results
+- **sts_env**: 691 passed, 3 skipped ✅

@@ -169,3 +169,30 @@ def roll_potion_reward(rng: "RNG") -> str | None:
     if rng.random() < _POTION_DROP_RATE:
         return rng.choice(_ALL_POTIONS)
     return None
+
+
+# ---------------------------------------------------------------------------
+# Relic rewards (elite drops)
+# ---------------------------------------------------------------------------
+
+COMMON_RELICS: list[str] = [
+    "RedSkull", "CentennialPuzzle", "JuzuBracelet", "Orichalcum", "CeramicFish",
+]
+
+UNCOMMON_RELICS: list[str] = [
+    # Stub — can add more later
+]
+
+ALL_RELICS = COMMON_RELICS + UNCOMMON_RELICS
+
+
+def roll_elite_relic(rng: "RNG", owned: list[str] | None = None) -> str | None:
+    """Return a relic ID from the common/uncommon pool, avoiding duplicates.
+
+    Returns None if all relics are already owned.
+    """
+    owned_set = set(owned) if owned else set()
+    available = [r for r in ALL_RELICS if r not in owned_set]
+    if not available:
+        return None
+    return rng.choice(available)

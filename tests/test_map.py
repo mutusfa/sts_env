@@ -84,7 +84,8 @@ class TestRoomTypeConstraints:
                         )
 
     def test_valid_room_types_only(self, sample_map: StSMap):
-        valid = {RoomType.MONSTER, RoomType.ELITE, RoomType.REST, RoomType.BOSS}
+        valid = {RoomType.MONSTER, RoomType.ELITE, RoomType.REST, RoomType.BOSS,
+                 RoomType.EVENT, RoomType.SHOP, RoomType.TREASURE}
         for f in range(15):
             for node in sample_map.nodes[f]:
                 assert node.room_type in valid
@@ -210,7 +211,7 @@ class TestEncounterSelection:
     def test_boss_returns_boss_encounter(self):
         rng = RNG(42)
         encounter = get_encounter_for_room(RoomType.BOSS, rng)
-        assert encounter in ["slime_boss"]
+        assert encounter in ["slime_boss", "guardian", "hexaghost"]
 
     def test_encounter_determinism(self):
         for _ in range(20):

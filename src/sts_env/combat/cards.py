@@ -7,7 +7,7 @@ callable for effects that don't fit the declarative shape.
 Cards registered:
   Starter:  Strike x5, Defend x4, Bash x1
   Curse:    AscendersBane (unplayable)
-  Status:   Slimed, Dazed
+  Status:   Slimed, Dazed, Burn
   Common:   Anger, Armaments, Cleave, Clothesline, Flex, Havoc, Headbutt,
             IronWave, PommelStrike, ShrugItOff, SwordBoomerang, ThunderClap,
             TrueStrike, TwinStrike, WarCry, WildStrike
@@ -544,6 +544,7 @@ register("AscendersBane", cost=0, card_type=C, target=NO, playable=False)
 register("Slimed", cost=1, card_type=ST, target=NO, exhausts=True)
 register("Dazed",  cost=0, card_type=ST, target=NO, ethereal=True, playable=False)
 register("Wound",  cost=1, card_type=ST, target=NO, playable=False)
+register("Burn",   cost=1, card_type=ST, target=NO, playable=False, exhausts=True)
 
 # --- Common Attacks ---
 register("Anger",         cost=0, card_type=A, target=SE, attack=6,

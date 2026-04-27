@@ -260,6 +260,24 @@ def slime_boss(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int 
 
 
 # ---------------------------------------------------------------------------
+# Guardian — Act 1 boss encounter
+# ---------------------------------------------------------------------------
+
+def guardian(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
+    """Guardian boss: 240 HP, cycles ChargingUp / FierceStrike / VentSteam / Whirlwind."""
+    return Combat(deck, ["Guardian"], seed, player_hp)
+
+
+# ---------------------------------------------------------------------------
+# Hexaghost — Act 1 boss encounter
+# ---------------------------------------------------------------------------
+
+def hexaghost(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
+    """Hexaghost boss: 250 HP, 6-turn cycle (Activate/Divider/Sear/Inflate/Sear/Inferno)."""
+    return Combat(deck, ["Hexaghost"], seed, player_hp)
+
+
+# ---------------------------------------------------------------------------
 # Act 1 pool-selection helpers
 # ---------------------------------------------------------------------------
 # Source: MonsterEncounters.h MonsterEncounterPool namespace

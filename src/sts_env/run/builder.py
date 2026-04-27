@@ -149,4 +149,6 @@ _ENCOUNTER_FACTORY_MAP: dict[str, object] = {
     "spike_slime_m": enc.spike_slime_m,
     # Boss encounters
     "slime_boss": enc.slime_boss,
+    "guardian": enc.guardian,
+    "hexaghost": enc.hexaghost,
 }

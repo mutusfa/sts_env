@@ -83,5 +83,35 @@ _register(RelicSpec("Orichalcum"))
 def _ceramic_fish_on_card_add(run_state: "RunState") -> None:
     run_state.gold += 9
 
-# Register with a future hook — for now just register the spec
+# Register CeramicFish with combat-end hook as a proxy for card-add events
+# (simplified: the runner calls this explicitly after card rewards)
 _register(RelicSpec("CeramicFish"))
+
+# TinyHouse: gain 50 gold, +3 max HP, gain 5 cards (simplified: just gold + HP)
+_register(RelicSpec("TinyHouse"))
+
+# BustedCrown: +1 energy per turn, but card rewards cost 50% more (combat-internal)
+_register(RelicSpec("BustedCrown"))
+
+# CoffeeDripper: can't rest at rest sites (affects rest site logic)
+_register(RelicSpec("CoffeeDripper"))
+
+# FusionHammer: can't upgrade cards at rest sites (affects rest site logic)
+_register(RelicSpec("FusionHammer"))
+
+# RingOfSerpents: draw 1 additional card each turn (combat-internal)
+_register(RelicSpec("RingOfSerpents"))
+
+
+# ---------------------------------------------------------------------------
+# Helper: check if a relic restricts rest site options
+# ---------------------------------------------------------------------------
+
+def can_rest(relics: list[str]) -> bool:
+    """Return False if CoffeeDripper prevents resting."""
+    return "CoffeeDripper" not in relics
+
+
+def can_upgrade(relics: list[str]) -> bool:
+    """Return False if FusionHammer prevents upgrading."""
+    return "FusionHammer" not in relics
