@@ -2,7 +2,7 @@
 
 import pytest
 
-from sts_env.run.map import generate_act1_map, RoomType, get_encounter_for_room
+from sts_env.run.map import generate_act1_map, RoomType, get_encounter_for_room, MAP_WIDTH, MAP_HEIGHT
 from sts_env.run.rooms import rest_heal, rest_upgrade, pick_rest_choice, RestChoice, _best_upgrade_target
 from sts_env.run.character import Character
 from sts_env.combat.rng import RNG
@@ -15,57 +15,79 @@ from sts_env.combat.rng import RNG
 class TestMapGeneration:
     def test_generates_15_floors(self):
         m = generate_act1_map(42)
-        assert len(m.nodes) == 15
+        assert len(m.nodes) == MAP_HEIGHT
 
-    def test_floor0_all_monster(self):
+    def test_7_columns_per_floor(self):
+        m = generate_act1_map(42)
+        for f in range(MAP_HEIGHT):
+            assert len(m.nodes[f]) == MAP_WIDTH
+
+    def test_floor0_reachable_are_monster(self):
         m = generate_act1_map(42)
         for node in m.nodes[0]:
-            assert node.room_type == RoomType.MONSTER
+            if node.edges:
+                assert node.room_type == RoomType.MONSTER
 
-    def test_floor7_all_rest(self):
+    def test_floor8_reachable_are_treasure(self):
         m = generate_act1_map(42)
-        for node in m.nodes[7]:
-            assert node.room_type == RoomType.REST
+        for node in m.nodes[8]:
+            if node.edges:
+                assert node.room_type == RoomType.TREASURE
 
-    def test_floor14_all_boss(self):
+    def test_floor14_reachable_are_rest(self):
         m = generate_act1_map(42)
         for node in m.nodes[14]:
-            assert node.room_type == RoomType.BOSS
+            if node.edges:
+                assert node.room_type == RoomType.REST
 
-    def test_each_node_has_edges_except_boss(self):
-        m = generate_act1_map(42)
-        for floor in range(14):
-            for node in m.nodes[floor]:
-                assert len(node.edges) >= 1, f"Node at floor {floor} x={node.x} has no edges"
-
-    def test_boss_nodes_have_no_edges(self):
+    def test_floor14_has_no_edges(self):
+        """Floor 14 is the last floor — no outgoing edges."""
         m = generate_act1_map(42)
         for node in m.nodes[14]:
             assert len(node.edges) == 0
 
-    def test_all_paths_reach_boss(self):
+    def test_reachable_non_boss_have_edges(self):
+        """Nodes that are reachable (on a path) on floors 0-13 have edges."""
+        m = generate_act1_map(42)
+        # Find all nodes on actual paths
+        paths = m.all_paths()
+        assert len(paths) > 0
+        nodes_on_paths = set()
+        for path in paths:
+            for floor, x in path:
+                nodes_on_paths.add((floor, x))
+        for floor, x in nodes_on_paths:
+            if floor < 14:
+                node = m.get_node(floor, x)
+                assert node is not None
+                assert len(node.edges) >= 1, (
+                    f"Reachable node ({floor},{x}) has no edges"
+                )
+
+    def test_all_paths_reach_floor14(self):
         m = generate_act1_map(42)
         paths = m.all_paths()
         assert len(paths) > 0
         for path in paths:
-            assert path[-1][0] == 14  # Last floor is boss
+            assert path[-1][0] == 14
 
     def test_deterministic(self):
         m1 = generate_act1_map(42)
         m2 = generate_act1_map(42)
-        for floor in range(15):
-            for i in range(3):
+        for floor in range(MAP_HEIGHT):
+            for i in range(MAP_WIDTH):
                 n1 = m1.get_node(floor, i)
                 n2 = m2.get_node(floor, i)
                 if n1 and n2:
                     assert n1.room_type == n2.room_type
+                    assert n1.edges == n2.edges
 
     def test_string_repr(self):
         m = generate_act1_map(42)
         s = str(m)
-        assert "B" in s  # Boss
         assert "R" in s  # Rest
         assert "M" in s  # Monster
+        assert "T" in s  # Treasure
 
 
 class TestEncounterSelection:
