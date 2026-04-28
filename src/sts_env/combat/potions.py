@@ -97,7 +97,7 @@ def _explosive_potion(state: "CombatState", _ti: int) -> None:
 def _block_potion(state: "CombatState", _ti: int) -> None:
     """Gain 12 block (flat, not affected by Frail or Dexterity)."""
     from .engine import gain_player_block
-    gain_player_block(state, 12)
+    gain_player_block(state, 12, source="potion")
 
 
 @potion("EnergyPotion", TargetType.NONE)
@@ -115,15 +115,17 @@ def _strength_potion(state: "CombatState", _ti: int) -> None:
 @potion("SteroidPotion", TargetType.NONE)
 def _steroid_potion(state: "CombatState", _ti: int) -> None:
     """Gain 5 Strength; lose 5 Strength at end of turn."""
+    from .powers import DebuffKind, apply_debuff
     state.player_powers.strength += 5
-    state.player_powers.strength_loss_eot += 5
+    apply_debuff(state, state.player_powers, DebuffKind.STRENGTH_DOWN_EOT, 5)
 
 
 @potion("FlexPotion", TargetType.NONE)
 def _flex_potion(state: "CombatState", _ti: int) -> None:
     """Gain 5 Strength; lose 5 Strength at end of turn (identical to Steroid in combat)."""
+    from .powers import DebuffKind, apply_debuff
     state.player_powers.strength += 5
-    state.player_powers.strength_loss_eot += 5
+    apply_debuff(state, state.player_powers, DebuffKind.STRENGTH_DOWN_EOT, 5)
 
 
 @potion("DexterityPotion", TargetType.NONE)
@@ -134,9 +136,10 @@ def _dexterity_potion(state: "CombatState", _ti: int) -> None:
 
 @potion("SpeedPotion", TargetType.NONE)
 def _speed_potion(state: "CombatState", _ti: int) -> None:
-    """Gain 5 Dexterity; lose 5 Dexterity at end of turn."""
+    """Gain 5 Dexterity; lose 5 Dexterity at end of turn (blocked by Artifact at queue time)."""
+    from .powers import DebuffKind, apply_debuff
     state.player_powers.dexterity += 5
-    state.player_powers.dexterity_loss_eot += 5
+    apply_debuff(state, state.player_powers, DebuffKind.DEXTERITY_DOWN_EOT, 5)
 
 
 @potion("SwiftPotion", TargetType.NONE)
@@ -190,7 +193,7 @@ def _make_potion_choice(state: "CombatState", card_type: CardType) -> None:
             if spec.card_type == card_type and spec.cost >= 0]
     k = min(3, len(pool))
     choices = state.rng.sample(pool, k)
-    cards = [Card(cid, cost_override=0) for cid in choices]
+    cards = [Card(cid, cost_override=0, cost_override_duration="turn") for cid in choices]
 
     def on_choose(s: "CombatState", card: Card) -> None:
         # Card already has cost_override set; just emit CARD_CREATED for listeners

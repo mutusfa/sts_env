@@ -14,6 +14,9 @@ class Card:
     cost_override: int | None = (
         None  # None = use spec cost; set by potion-generated cards
     )
+    cost_override_duration: str | None = (
+        None  # "turn" = cleared at EOT, "combat" = persists; None = no override
+    )
     exhausts_override: bool | None = None  # None = use spec exhausts
     corrupted: bool = False  # True if Corruption power has modified this card
     _spec: CardSpec | None = None
@@ -49,6 +52,7 @@ class Card:
             return (
                 self.card_id == other.card_id
                 and self.cost_override == other.cost_override
+                and self.cost_override_duration == other.cost_override_duration
                 and self.exhausts_override == other.exhausts_override
                 and self.corrupted == other.corrupted
             )
@@ -67,7 +71,8 @@ class Card:
         # Use sortable sentinels for None (must be comparable with int/bool)
         co = self.cost_override if self.cost_override is not None else -1
         eo = self.exhausts_override if self.exhausts_override is not None else -1
-        return (self.card_id, co, eo, self.corrupted)
+        cd = self.cost_override_duration or ""
+        return (self.card_id, co, cd, eo, self.corrupted)
 
     @property
     def upgraded(self) -> bool:
@@ -78,10 +83,12 @@ class Card:
         return self.card_id.rstrip("+")
 
     def clear_cost_override(self) -> None:
-        """Reset cost override (called at end of turn for potion-generated cards).
+        """Reset cost override at end of turn.
 
-        Corruption-stamped cards (corrupted=True) are not affected, as their
-        cost_override=0 is permanent for the duration of the power.
+        Only clears overrides with duration="turn". Duration="combat"
+        overrides persist until combat ends. Corruption-stamped cards
+        (corrupted=True) are handled via duration="combat" set at stamp time.
         """
-        if not self.corrupted:
+        if self.cost_override_duration == "turn":
             self.cost_override = None
+            self.cost_override_duration = None

@@ -17,10 +17,65 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from enum import Enum, auto
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .state import CombatState, EnemyState
+
+
+class DebuffKind(Enum):
+    VULNERABLE = auto()
+    WEAK = auto()
+    STRENGTH_DOWN = auto()            # permanent (Disarm)
+    STRENGTH_DOWN_EOT = auto()        # deferred EOT (Flex, Steroid Potion)
+    STRENGTH_DOWN_THIS_TURN = auto()  # temporary (Dark Shackles)
+    DEXTERITY_DOWN = auto()           # immediate (future enemy debuffs)
+    DEXTERITY_DOWN_EOT = auto()       # deferred EOT (Speed potion)
+    SELF_VULNERABLE = auto()          # applied to player (Berserk)
+
+
+def apply_debuff(
+    state: "CombatState",
+    target_powers: Powers,
+    kind: DebuffKind,
+    stacks: int,
+    *,
+    target_index: int | None = None,
+) -> bool:
+    """Apply a debuff, respecting Artifact. Returns True if the debuff landed."""
+    if stacks <= 0:
+        return False
+
+    # Artifact check: any combatant with artifact stacks blocks the debuff
+    if target_powers.artifact > 0:
+        target_powers.artifact -= 1
+        return False
+
+    if kind == DebuffKind.VULNERABLE:
+        target_powers.vulnerable += stacks
+    elif kind == DebuffKind.WEAK:
+        target_powers.weak += stacks
+    elif kind == DebuffKind.STRENGTH_DOWN:
+        target_powers.strength -= stacks
+    elif kind == DebuffKind.STRENGTH_DOWN_EOT:
+        target_powers.strength_loss_eot += stacks
+    elif kind == DebuffKind.STRENGTH_DOWN_THIS_TURN:
+        target_powers.strength_loss_this_turn += stacks
+        target_powers.strength -= stacks
+    elif kind == DebuffKind.DEXTERITY_DOWN:
+        target_powers.dexterity -= stacks
+    elif kind == DebuffKind.DEXTERITY_DOWN_EOT:
+        target_powers.dexterity_loss_eot += stacks
+    elif kind == DebuffKind.SELF_VULNERABLE:
+        target_powers.vulnerable += stacks
+
+    # Emit DEBUFF_APPLIED for any subscribed listeners (Sadistic Nature, etc.)
+    if target_index is not None:
+        from .events import Event, emit as _emit
+        _emit(state, Event.DEBUFF_APPLIED, target_index, kind=kind, stacks=stacks)
+
+    return True
 
 
 @dataclass(slots=True)
@@ -41,6 +96,7 @@ class Powers:
     metallicize: int = 0         # player: gain this much block at end of each player turn
     strength_loss_eot: int = 0   # player: lose this much strength at end of turn (Steroid/Flex)
     dexterity_loss_eot: int = 0  # player: lose this much dexterity at end of turn (Speed)
+    strength_loss_this_turn: int = 0  # enemy: lose this much strength until end of turn (Dark Shackles)
     asleep: bool = False         # enemy: sleeping (Lagavulin); does nothing until attacked
     enemy_metallicize: int = 0   # enemy: gain this much block at end of each enemy turn (Lagavulin sleeping)
 
@@ -54,6 +110,15 @@ class Powers:
     corruption: bool = False     # skills cost 0 and are exhausted when played
     double_tap: int = 0          # next N attacks this turn are played twice
     rage_block: int = 0          # gain this much block per Attack played this turn
+    artifact: int = 0            # block N debuffs (decremented per debuff blocked)
+    no_card_block_turns: int = 0 # cannot gain block from cards for N turns
+    panache_counter: int = 0     # cards played counter for Panache trigger
+    panache_damage: int = 0      # damage dealt per Panache trigger
+    magnetism: int = 0           # start of turn: add random colorless to hand
+    sadistic_nature: int = 0     # deal damage whenever a debuff is applied to an enemy
+    bomb_fuses: list[tuple[int, int]] = field(default_factory=list)  # (turns_left, damage)
+    mayhem: int = 0              # start of turn: play top card of draw pile
+    cards_played_this_turn: int = 0  # counter for Panache etc.
     _red_skull_active: bool = False  # internal: RedSkull relic tracking
 
     def tick_start_of_turn(self) -> None:
@@ -84,7 +149,7 @@ def calc_damage(
     target_powers: Powers,
 ) -> int:
     """Return the raw damage value before block is applied."""
-    dmg = base + attacker_powers.strength
+    dmg = base + attacker_powers.strength - attacker_powers.strength_loss_this_turn
     if attacker_powers.weak > 0:
         dmg = math.floor(dmg * 0.75)
     if target_powers.vulnerable > 0:

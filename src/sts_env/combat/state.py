@@ -31,6 +31,7 @@ class EnemyState:
     pending_split: bool = False  # set when HP crosses <=50% for large slimes
     is_escaping: bool = False    # Looter/Mugger: fled combat; counts as dead for win condition
     skill_played_str: int = 0    # Gremlin Nob: gain this much strength when player plays a Skill
+    gold_stolen: int = 0         # Looter/Mugger: gold stolen via Mug; refunded on kill
 
     @property
     def alive(self) -> bool:
@@ -54,6 +55,7 @@ class CombatState:
     energy_loss_next_turn: int = 0  # accumulated energy loss (e.g. Gremlin Nob Bellow)
     pending_stack: list[Frame] = field(default_factory=list)
     rampage_extra: int = 0         # accumulated Rampage bonus this combat
+    gold: int = 0                  # actual gold available during combat (initialized from Character)
     subscribers: dict[Event, dict[Owner, list[str]]] = field(
         default_factory=lambda: defaultdict(lambda: defaultdict(list))
     )

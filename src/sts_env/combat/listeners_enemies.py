@@ -89,6 +89,16 @@ def _spore_cloud(state: CombatState, owner: Owner, payload: dict) -> None:
         enemy.powers.spore_cloud = 0
 
 
+@listener(Event.DEATH, "refund_stolen_gold", subscriptions=[])
+def _refund_stolen_gold(state: CombatState, owner: Owner, payload: dict) -> None:
+    if not isinstance(owner, int):
+        return
+    enemy = state.enemies[owner]
+    if enemy.gold_stolen > 0:
+        state.gold += enemy.gold_stolen
+        enemy.gold_stolen = 0
+
+
 # ---------------------------------------------------------------------------
 # CARD_PLAYED handlers (owner = "player" for Gremlin Nob)
 # ---------------------------------------------------------------------------
@@ -116,4 +126,8 @@ ENEMY_CONDITION_SUBSCRIPTIONS: list[tuple[str, Event, str, str | None]] = [
     ("vulnerable", Event.TURN_START, "tick_vulnerable", None),
     ("weak", Event.TURN_START, "tick_weak", None),
     ("frail", Event.TURN_START, "tick_frail", None),
+    # Always reset per-turn strength loss for enemies
+    ("strength_loss_this_turn", Event.TURN_END, "reset_strength_loss_this_turn", None),
+    # Refund stolen gold when Looter/Mugger is killed
+    ("gold_stolen", Event.DEATH, "refund_stolen_gold", None),
 ]

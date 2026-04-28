@@ -238,10 +238,12 @@ class TestLiarsGame:
 # ---------------------------------------------------------------------------
 
 class TestScrapOoze:
-    def test_card_choice_crashes_without_colorless_specs(self, char, rng):
-        """colorless_pool() is empty until colorless cards are registered."""
-        with pytest.raises(IndexError):
-            resolve_event("Scrap Ooze", 0, char, rng)
+    def test_card_choice_adds_colorless_card(self, char, rng):
+        """colorless_pool() now has cards — Scrap Ooze grants one."""
+        old_deck_len = len(char.deck)
+        result = resolve_event("Scrap Ooze", 0, char, rng)
+        assert len(char.deck) == old_deck_len + 1
+        assert "Obtained" in result
 
     def test_pay_choice_enough_gold(self, char, rng):
         char.gold = 20

@@ -40,6 +40,7 @@ class Event(Enum):
     BLOCK_GAINED = auto()
     HP_LOSS = auto()
     DEATH = auto()
+    DEBUFF_APPLIED = auto()
 
 
 # event -> {listener_name: handler}

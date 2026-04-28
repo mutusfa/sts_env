@@ -13,8 +13,10 @@ Enemy turn structure:
   3. Resolve current intent (apply damage/block/buffs to player and enemy).
   4. Pick next intent for the upcoming player turn display.
 """
-
 from __future__ import annotations
+
+import copy
+from enum import Enum, auto
 
 import copy
 from collections import Counter
@@ -89,14 +91,15 @@ def damage_player(state: CombatState, raw_dmg: int) -> None:
         emit(state, Event.HP_LOSS, "player", hp_before=hp_before)
 
 
-def gain_player_block(state: CombatState, amount: int) -> None:
+def gain_player_block(state: CombatState, amount: int, *, source: str = "card") -> None:
     """Add block to the player and emit BLOCK_GAINED.
 
-    This centralizes block gain logic so that all block gains (cards, powers,
-    potions) consistently emit the BLOCK_GAINED event for listeners like
-    Juggernaut.
+    *source* is "card", "power", or "potion". When source=="card" and
+    ``no_card_block_turns > 0``, block is denied.
     """
     if amount <= 0:
+        return
+    if source == "card" and state.player_powers.no_card_block_turns > 0:
         return
     state.player_block += amount
     emit(state, Event.BLOCK_GAINED, "player", amount=amount)
@@ -142,6 +145,7 @@ class Combat:
         potions: list[str] | None = None,
         max_potion_slots: int = 3,
         relics: frozenset[str] | None = None,
+        gold: int = 99,
     ) -> None:
         potions = list(potions) if potions else []
         if len(potions) > max_potion_slots:
@@ -156,6 +160,7 @@ class Combat:
         self._starting_potions = potions
         self._max_potion_slots = max_potion_slots
         self._starting_relics = relics if relics is not None else frozenset()
+        self._starting_gold = gold
         self._state: CombatState | None = None
         self._damage_taken: int = 0
         self._max_hp_gained: int = 0
@@ -195,6 +200,7 @@ class Combat:
             potions=list(self._starting_potions),
             max_potion_slots=self._max_potion_slots,
             relics=self._starting_relics,
+            gold=self._starting_gold,
         )
         self._damage_taken = 0
         self._max_hp_gained = 0
@@ -219,12 +225,15 @@ class Combat:
         always_subscribe_player = (
             "metallicize", "demon_form", "brutality", "berserk_energy",
             "strength_loss_eot", "dexterity_loss_eot",
+            "no_card_block_turns", "magnetism", "mayhem",
         )
         for attr, subs in POWER_SUBSCRIPTIONS.items():
             if attr in always_subscribe_player:
                 for event, handler_name in subs:
                     subscribe(self._state, event, handler_name, "player")
-            elif attr not in ("vulnerable", "weak", "frail", "entangled", "ritual"):
+            elif attr not in ("vulnerable", "weak", "frail", "entangled", "ritual",
+                              "strength_loss_this_turn", "sadistic_nature",
+                              "panache_damage", "bomb_fuses"):
                 val = getattr(self._state.player_powers, attr, 0)
                 if val:
                     for event, handler_name in subs:
@@ -320,6 +329,13 @@ class Combat:
     def max_hp_gained(self) -> int:
         """Max HP gained during this combat (e.g. from Feed killing an enemy)."""
         return self._max_hp_gained
+
+    @property
+    def gold(self) -> int:
+        """Gold remaining after this combat. Read after combat ends to reconcile with Character."""
+        if self._state is None:
+            return self._starting_gold
+        return self._state.gold
 
     def valid_actions(self) -> list[Action]:
         """Return all legal actions for the current state.
@@ -688,6 +704,12 @@ class Combat:
                 damage_player(state, raw)
                 if state.player_hp <= 0:
                     return
+
+        # Gold steal (Looter/Mugger Mug)
+        if intent.gold_steal > 0:
+            steal = min(intent.gold_steal, state.gold)
+            state.gold -= steal
+            enemy.gold_stolen += steal
 
         if intent.intent_type in (IntentType.DEFEND, IntentType.ATTACK_DEFEND):
             enemy.block += intent.block_gain

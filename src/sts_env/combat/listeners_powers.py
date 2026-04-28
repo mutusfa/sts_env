@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from .cards import CardType
+from .cards import CardType, TargetType
 from .events import Event, listener
 
 if TYPE_CHECKING:
@@ -61,7 +61,7 @@ def _rage(state: CombatState, owner: Owner, payload: dict) -> None:
         return
     if powers.rage_block <= 0:
         return
-    gain_player_block(state, powers.rage_block)
+    gain_player_block(state, powers.rage_block, source="card")
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +91,7 @@ def _feel_no_pain(state: CombatState, owner: Owner, payload: dict) -> None:
     from .engine import gain_player_block
     if state.player_powers.feel_no_pain <= 0:
         return
-    gain_player_block(state, state.player_powers.feel_no_pain)
+    gain_player_block(state, state.player_powers.feel_no_pain, source="power")
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +164,7 @@ def _metallicize(state: CombatState, owner: Owner, payload: dict) -> None:
     if powers is None or powers.metallicize <= 0:
         return
     if owner == "player":
-        gain_player_block(state, powers.metallicize)
+        gain_player_block(state, powers.metallicize, source="power")
 
 
 @listener(Event.TURN_END, "strength_loss", subscriptions=[(POWER_SUBSCRIPTIONS, "strength_loss_eot")])
@@ -196,6 +196,121 @@ def _ritual(state: CombatState, owner: Owner, payload: dict) -> None:
         powers.strength += powers.ritual
 
 
+@listener(Event.TURN_END, "bomb_fuse_tick", subscriptions=[(POWER_SUBSCRIPTIONS, "bomb_fuses")])
+def _bomb_fuse_tick(state: CombatState, owner: Owner, payload: dict) -> None:
+    if owner != "player":
+        return
+    fuses = state.player_powers.bomb_fuses
+    if not fuses:
+        return
+    from .powers import apply_damage
+    remaining = []
+    for turns_left, dmg in fuses:
+        turns_left -= 1
+        if turns_left <= 0:
+            for ei, enemy in enumerate(state.enemies):
+                if enemy.hp > 0 and enemy.name != "Empty":
+                    nb, nhp = apply_damage(dmg, enemy.block, enemy.hp)
+                    enemy.block = nb
+                    enemy.hp = nhp
+        else:
+            remaining.append((turns_left, dmg))
+    state.player_powers.bomb_fuses = remaining
+
+
+@listener(Event.TURN_END, "tick_no_card_block", subscriptions=[(POWER_SUBSCRIPTIONS, "no_card_block_turns")])
+def _tick_no_card_block(state: CombatState, owner: Owner, payload: dict) -> None:
+    if owner == "player" and state.player_powers.no_card_block_turns > 0:
+        state.player_powers.no_card_block_turns -= 1
+
+
+@listener(Event.TURN_END, "reset_panache_counter", subscriptions=[(POWER_SUBSCRIPTIONS, "panache_damage")])
+def _reset_panache_counter(state: CombatState, owner: Owner, payload: dict) -> None:
+    if owner == "player":
+        state.player_powers.cards_played_this_turn = 0
+
+
+@listener(Event.TURN_END, "reset_strength_loss_this_turn", subscriptions=[])
+def _reset_strength_loss_this_turn(state: CombatState, owner: Owner, payload: dict) -> None:
+    """Restore per-turn enemy strength loss at end of enemy turn."""
+    if isinstance(owner, int) and 0 <= owner < len(state.enemies):
+        enemy = state.enemies[owner]
+        if enemy.powers.strength_loss_this_turn > 0:
+            enemy.powers.strength += enemy.powers.strength_loss_this_turn
+            enemy.powers.strength_loss_this_turn = 0
+
+
+@listener(Event.TURN_START, "magnetism", subscriptions=[(POWER_SUBSCRIPTIONS, "magnetism")])
+def _magnetism(state: CombatState, owner: Owner, payload: dict) -> None:
+    if owner != "player" or state.player_powers.magnetism <= 0:
+        return
+    from .card_pools import colorless_pool
+    pool_cards = colorless_pool()
+    if not pool_cards:
+        return
+    card_id = state.rng.choice(pool_cards)
+    from .card import Card
+    state.piles.spawn_to_hand(Card(card_id), state)
+    from .events import emit as _emit
+    _emit(state, Event.CARD_CREATED, "player", card=state.piles.hand[-1])
+
+
+@listener(Event.TURN_START, "mayhem", subscriptions=[(POWER_SUBSCRIPTIONS, "mayhem")])
+def _mayhem(state: CombatState, owner: Owner, payload: dict) -> None:
+    if owner != "player" or state.player_powers.mayhem <= 0:
+        return
+    # Play the top card of the draw pile automatically
+    if not state.piles.draw:
+        if not state.piles.discard:
+            return
+        state.piles.shuffle_draw_from_discard(state.rng)
+    if not state.piles.draw:
+        return
+    from .cards import get_spec, _apply_spec, _SPECS, CardType
+    from .card import Card
+    top_card = state.piles.draw.pop(0)
+    top_spec = get_spec(top_card.card_id.rstrip("+"))
+    if not top_spec.playable:
+        state.piles.move_to_discard(top_card)
+        return
+    if top_spec.target == TargetType.SINGLE_ENEMY:
+        alive = [e for e in state.enemies if e.hp > 0 and e.name != "Empty"]
+        if alive:
+            ti = state.enemies.index(alive[state.rng.randint(0, len(alive) - 1)])
+        else:
+            ti = 0
+    else:
+        ti = 0
+    up = 1 if top_card.upgraded else 0
+    _apply_spec(state, top_spec, ti, up)
+    if top_spec.custom is not None:
+        top_spec.custom(state, -1, ti, up)
+    if top_spec.exhausts:
+        state.piles.move_to_exhaust(top_card)
+    else:
+        state.piles.move_to_discard(top_card)
+    from .events import Event, emit as _emit
+    _emit(state, Event.CARD_PLAYED, "player", card=top_card)
+    if top_spec.exhausts:
+        _emit(state, Event.CARD_EXHAUSTED, "player", card=top_card)
+
+
+@listener(Event.CARD_PLAYED, "panache", subscriptions=[(POWER_SUBSCRIPTIONS, "panache_damage")])
+def _panache(state: CombatState, owner: Owner, payload: dict) -> None:
+    if state.player_powers.panache_damage <= 0:
+        return
+    state.player_powers.cards_played_this_turn += 1
+    if state.player_powers.cards_played_this_turn % 5 == 0:
+        from .powers import calc_damage, apply_damage
+        dmg = state.player_powers.panache_damage
+        for ei, enemy in enumerate(state.enemies):
+            if enemy.hp > 0 and enemy.name != "Empty":
+                raw = calc_damage(dmg, state.player_powers, enemy.powers)
+                nb, nhp = apply_damage(raw, enemy.block, enemy.hp)
+                enemy.block = nb
+                enemy.hp = nhp
+
+
 # ---------------------------------------------------------------------------
 # CARD_CREATED handlers
 # ---------------------------------------------------------------------------
@@ -214,8 +329,27 @@ def _corruption_stamp_skill(state: CombatState, owner: Owner, payload: dict) -> 
         return
     # Corruption trumps all other cost modifiers
     card.cost_override = 0
+    card.cost_override_duration = "combat"
     card.exhausts_override = True
     card.corrupted = True
+
+
+# ---------------------------------------------------------------------------
+# DEBUFF_APPLIED handlers
+# ---------------------------------------------------------------------------
+
+@listener(Event.DEBUFF_APPLIED, "sadistic_nature", subscriptions=[(POWER_SUBSCRIPTIONS, "sadistic_nature")])
+def _sadistic_nature(state: CombatState, owner: Owner, payload: dict) -> None:
+    if state.player_powers.sadistic_nature <= 0:
+        return
+    if not isinstance(owner, int):
+        return
+    from .powers import calc_damage, apply_damage
+    enemy = state.enemies[owner]
+    dmg = calc_damage(state.player_powers.sadistic_nature, state.player_powers, enemy.powers)
+    nb, nhp = apply_damage(dmg, enemy.block, enemy.hp)
+    enemy.block = nb
+    enemy.hp = nhp
 
 
 # ---------------------------------------------------------------------------

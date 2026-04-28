@@ -96,7 +96,9 @@ class CardSpec:
     metallicize: int = 0        # player metallicize stacks
     energy: int = 0             # energy gained
     draw: int = 0               # cards drawn
+    heal: int = 0               # player HP healed (clamped to max)
     hp_loss: int = 0            # player HP lost
+    innate: bool = False        # always drawn in opening hand
 
     # Per-field upgrade deltas (keys must match field names above, plus "cost")
     upgrade: dict[str, int] = field(default_factory=dict, hash=False, compare=False)
@@ -134,7 +136,9 @@ def register(
     metallicize: int = 0,
     energy: int = 0,
     draw: int = 0,
+    heal: int = 0,
     hp_loss: int = 0,
+    innate: bool = False,
     upgrade: dict[str, int] | None = None,
     custom: CardHandler | None = None,
 ) -> None:
@@ -162,7 +166,9 @@ def register(
         metallicize=metallicize,
         energy=energy,
         draw=draw,
+        heal=heal,
         hp_loss=hp_loss,
+        innate=innate,
         upgrade=upgrade or {},
         custom=custom,
     )
@@ -189,7 +195,7 @@ def _apply_spec(
 ) -> None:
     """Execute declarative effects in a fixed, deterministic order.
 
-    Order: hp_loss → energy → attack → debuffs → block → self-buffs → draw
+    Order: hp_loss → heal → energy → attack → debuffs → block → self-buffs → draw
     """
     u = spec.upgrade if upgraded else {}
 
@@ -197,6 +203,11 @@ def _apply_spec(
     if spec.hp_loss:
         loss = spec.hp_loss + u.get("hp_loss", 0)
         state.player_hp = max(0, state.player_hp - loss)
+
+    # 1b. Player heal (clamped to max HP)
+    if spec.heal:
+        heal_amt = spec.heal + u.get("heal", 0)
+        state.player_hp = min(state.player_max_hp, state.player_hp + heal_amt)
 
     # 2. Energy gain
     if spec.energy:
@@ -224,17 +235,24 @@ def _apply_spec(
     weak = spec.weak + u.get("weak", 0)
     estr = spec.enemy_strength + u.get("enemy_strength", 0)
     if vuln or weak or estr:
+        from .powers import DebuffKind, apply_debuff
         if spec.target == TargetType.ALL_ENEMIES:
-            for enemy in state.enemies:
+            for ei, enemy in enumerate(state.enemies):
                 if enemy.hp > 0 and enemy.name != "Empty":
-                    enemy.powers.vulnerable += vuln
-                    enemy.powers.weak += weak
-                    enemy.powers.strength += estr
+                    if vuln:
+                        apply_debuff(state, enemy.powers, DebuffKind.VULNERABLE, vuln, target_index=ei)
+                    if weak:
+                        apply_debuff(state, enemy.powers, DebuffKind.WEAK, weak, target_index=ei)
+                    if estr:
+                        apply_debuff(state, enemy.powers, DebuffKind.STRENGTH_DOWN, estr, target_index=ei)
         else:
             enemy = state.enemies[target_index]
-            enemy.powers.vulnerable += vuln
-            enemy.powers.weak += weak
-            enemy.powers.strength += estr
+            if vuln:
+                apply_debuff(state, enemy.powers, DebuffKind.VULNERABLE, vuln, target_index=target_index)
+            if weak:
+                apply_debuff(state, enemy.powers, DebuffKind.WEAK, weak, target_index=target_index)
+            if estr:
+                apply_debuff(state, enemy.powers, DebuffKind.STRENGTH_DOWN, estr, target_index=target_index)
 
     # 5. Player block
     if spec.block:
@@ -248,15 +266,18 @@ def _apply_spec(
     # 6. Player self-buffs
     if spec.self_strength or spec.self_strength_eot_loss:
         state.player_powers.strength += spec.self_strength + u.get("self_strength", 0)
-        state.player_powers.strength_loss_eot += (
-            spec.self_strength_eot_loss + u.get("self_strength_eot_loss", 0)
-        )
+        from .powers import DebuffKind, apply_debuff
+        eot_loss = spec.self_strength_eot_loss + u.get("self_strength_eot_loss", 0)
+        if eot_loss > 0:
+            apply_debuff(state, state.player_powers, DebuffKind.STRENGTH_DOWN_EOT, eot_loss)
 
     if spec.self_dexterity:
         state.player_powers.dexterity += spec.self_dexterity + u.get("self_dexterity", 0)
 
     if spec.self_vulnerable:
-        state.player_powers.vulnerable += spec.self_vulnerable + u.get("self_vulnerable", 0)
+        from .powers import DebuffKind, apply_debuff
+        apply_debuff(state, state.player_powers, DebuffKind.SELF_VULNERABLE,
+                     spec.self_vulnerable + u.get("self_vulnerable", 0))
 
     if spec.metallicize:
         state.player_powers.metallicize += spec.metallicize + u.get("metallicize", 0)
@@ -302,9 +323,13 @@ def play_card(state: "CombatState", hand_index: int, target_index: int) -> None:
     played_card = state.piles.play_card(hand_index)
 
     upgraded = 1 if upgrade_count > 0 else 0
-    _apply_spec(state, spec, target_index, upgraded, x_energy=effective_cost if spec.x_cost else 0, upgrade_count=upgrade_count)
+    x_energy = effective_cost if spec.x_cost else 0
+    _apply_spec(state, spec, target_index, upgraded, x_energy=x_energy, upgrade_count=upgrade_count)
     if spec.custom is not None:
-        spec.custom(state, hand_index, target_index, upgrade_count)
+        if spec.x_cost:
+            spec.custom(state, hand_index, target_index, upgrade_count, x_energy)
+        else:
+            spec.custom(state, hand_index, target_index, upgrade_count)
 
     if played_card.effective_exhausts():
         state.piles.move_to_exhaust(played_card)
@@ -706,6 +731,7 @@ def _corruption_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int)
     for card in all_cards:
         if card.spec.card_type == CardType.SKILL:
             card.cost_override = 0
+            card.cost_override_duration = "combat"
             card.exhausts_override = True
             card.corrupted = True
     # Subscribe to stamp future skill spawns
@@ -723,3 +749,416 @@ register("Juggernaut",  cost=2, card_type=P, target=NO, color=R, rarity=RA,
          custom=lambda s, _h, _t, u: setattr(s.player_powers, 'juggernaut', 5 + (2 if u else 0)))
 register("LimitBreak",  cost=1, card_type=P, target=NO, color=R, rarity=RA, exhausts=True,
          custom=_limit_break_custom)
+
+
+# ---------------------------------------------------------------------------
+# Colorless card custom handlers
+# ---------------------------------------------------------------------------
+
+def _blind_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
+    from .powers import DebuffKind, apply_debuff
+    weak_amt = 2 + (1 if upgraded else 0)
+    for ei, enemy in enumerate(state.enemies):
+        if enemy.hp > 0 and enemy.name != "Empty":
+            apply_debuff(state, enemy.powers, DebuffKind.WEAK, weak_amt, target_index=ei)
+
+
+def _deep_breath_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
+    if state.piles.discard:
+        state.piles.shuffle_draw_from_discard(state.rng)
+    draw_n = 1 + (1 if upgraded else 0)
+    state.piles.draw_cards(draw_n, state.rng)
+
+
+def _impatience_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
+    has_attack = any(c.spec.card_type == CardType.ATTACK for c in state.piles.hand)
+    if not has_attack:
+        draw_n = 2 + (1 if upgraded else 0)
+        state.piles.draw_cards(draw_n, state.rng)
+
+
+def _jack_of_all_trades_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
+    from .card_pools import colorless_pool
+    pool_cards = colorless_pool()
+    if not pool_cards:
+        return
+    n = 1 + (1 if upgraded else 0)
+    for _ in range(n):
+        card_id = state.rng.choice(pool_cards)
+        c = Card(card_id)
+        state.piles.spawn_to_hand(c, state)
+        from .events import emit as _emit, Event
+        _emit(state, Event.CARD_CREATED, "player", card=c)
+
+
+def _madness_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> None:
+    playable = [c for c in state.piles.hand if c.spec.playable]
+    if playable:
+        card = state.rng.choice(playable)
+        card.cost_override = 0
+        card.cost_override_duration = "combat"
+
+
+def _hand_of_greed_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
+    enemy = state.enemies[_ti]
+    if enemy.hp <= 0:
+        state.gold += 20 + (4 if upgraded else 0)
+
+
+def _violence_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
+    n = 2 + (1 if upgraded else 0)
+    attacks_in_draw = [c for c in state.piles.draw if c.spec.card_type == CardType.ATTACK]
+    for _ in range(min(n, len(attacks_in_draw))):
+        if not attacks_in_draw:
+            break
+        card = state.rng.choice(attacks_in_draw)
+        state.piles.draw.remove(card)
+        state.piles.hand.append(card)
+        attacks_in_draw.remove(card)
+
+
+def _apotheosis_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> None:
+    all_cards = (
+        list(state.piles.draw) + list(state.piles.hand) +
+        list(state.piles.discard) + list(state.piles.exhaust)
+    )
+    for card in all_cards:
+        spec = card.spec
+        if spec.card_type not in (CardType.STATUS, CardType.CURSE):
+            if not card.upgraded:
+                card.card_id = card.card_id.rstrip("+") + "+"
+
+
+def _discovery_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
+    from .card_pools import colorless_pool
+    pool_cards = colorless_pool()
+    if not pool_cards:
+        return
+    n = 3 + (1 if upgraded else 0)
+    choices = []
+    for _ in range(n):
+        card_id = state.rng.choice(pool_cards)
+        c = Card(card_id, cost_override=0, cost_override_duration="turn")
+        choices.append(c)
+
+    def on_choose(s: "CombatState", card: Card) -> None:
+        s.piles.spawn_to_hand(card, s)
+        from .events import emit as _emit, Event
+        _emit(s, Event.CARD_CREATED, "player", card=card)
+
+    state.pending_stack.append(
+        ChoiceFrame(choices=choices, kind="discovery", on_choose=on_choose)
+    )
+
+
+def _forethought_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
+    upgradable = [c for c in state.piles.hand if c.spec.card_type not in (CardType.STATUS, CardType.CURSE)]
+    if not upgradable:
+        return
+
+    def on_choose(s: "CombatState", card: Card) -> None:
+        if card in s.piles.hand:
+            s.piles.hand.remove(card)
+        card.cost_override = 0
+        card.cost_override_duration = "turn"
+        s.piles.place_on_top(card)
+
+    state.pending_stack.append(
+        ChoiceFrame(choices=upgradable, kind="forethought", on_choose=on_choose)
+    )
+
+
+def _purity_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
+    max_exhaust = 3 + (3 if upgraded else 0)
+    exhaustable = [c for c in state.piles.hand]
+    if not exhaustable:
+        return
+
+    def on_choose(s: "CombatState", card: Card) -> None:
+        if card in s.piles.hand:
+            s.piles.hand.remove(card)
+        s.piles.move_to_exhaust(card)
+        from .events import Event, emit as _emit
+        _emit(s, Event.CARD_EXHAUSTED, "player", card=card)
+        # Allow choosing more if limit not reached
+        remaining = [c for c in s.piles.hand if c in exhaustable]
+        if remaining and max_exhaust > 1:
+            pass  # simplified: one-shot for now
+
+    state.pending_stack.append(
+        ChoiceFrame(choices=exhaustable, kind="purity", on_choose=on_choose)
+    )
+
+
+def _secret_technique_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> None:
+    skills_in_draw = [c for c in state.piles.draw if c.spec.card_type == CardType.SKILL]
+    if not skills_in_draw:
+        return
+
+    def on_choose(s: "CombatState", card: Card) -> None:
+        if card in s.piles.draw:
+            s.piles.draw.remove(card)
+        s.piles.hand.append(card)
+
+    state.pending_stack.append(
+        ChoiceFrame(choices=skills_in_draw, kind="secrettechnique", on_choose=on_choose)
+    )
+
+
+def _secret_weapon_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> None:
+    attacks_in_draw = [c for c in state.piles.draw if c.spec.card_type == CardType.ATTACK]
+    if not attacks_in_draw:
+        return
+
+    def on_choose(s: "CombatState", card: Card) -> None:
+        if card in s.piles.draw:
+            s.piles.draw.remove(card)
+        s.piles.hand.append(card)
+
+    state.pending_stack.append(
+        ChoiceFrame(choices=attacks_in_draw, kind="secretweapon", on_choose=on_choose)
+    )
+
+
+def _thinking_ahead_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
+    draw_n = 2 + (1 if upgraded else 0)
+    state.piles.draw_cards(draw_n, state.rng)
+    hand_cards = list(state.piles.hand)
+    if not hand_cards:
+        return
+
+    def on_choose(s: "CombatState", card: Card) -> None:
+        if card in s.piles.hand:
+            s.piles.hand.remove(card)
+        s.piles.place_on_top(card)
+
+    state.pending_stack.append(
+        ChoiceFrame(choices=hand_cards, kind="thinkingahead", on_choose=on_choose)
+    )
+
+
+def _dark_shackles_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
+    from .powers import DebuffKind, apply_debuff
+    strength_loss = 9 + (3 if upgraded else 0)
+    enemy = state.enemies[_ti]
+    apply_debuff(state, enemy.powers, DebuffKind.STRENGTH_DOWN_THIS_TURN, strength_loss, target_index=_ti)
+
+
+def _enlightenment_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> None:
+    for card in state.piles.hand:
+        if card.spec.cost > 0 and card.cost_override is None:
+            card.cost_override = 0
+            card.cost_override_duration = "turn"
+
+
+def _panacea_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
+    state.player_powers.artifact += 1 + (1 if upgraded else 0)
+
+
+def _panic_button_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
+    state.player_powers.no_card_block_turns += 2 + (1 if upgraded else 0)
+    state.energy += 2
+
+
+def _mind_blast_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> None:
+    from .powers import calc_damage, apply_damage
+    dmg = len(state.piles.draw)
+    enemy = state.enemies[_ti]
+    raw = calc_damage(dmg, state.player_powers, enemy.powers)
+    nb, nhp = apply_damage(raw, enemy.block, enemy.hp)
+    enemy.block = nb
+    enemy.hp = nhp
+
+
+def _chrysalis_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
+    from .card_pools import pool, colorless_pool
+    from .cards import CardColor
+    all_skills = pool(CardColor.RED, Rarity.UNCOMMON) + pool(CardColor.RED, Rarity.RARE)
+    if not all_skills:
+        return
+    n = 3 + (1 if upgraded else 0)
+    for _ in range(n):
+        card_id = state.rng.choice(all_skills)
+        c = Card(card_id, cost_override=0, cost_override_duration="combat")
+        state.piles.spawn_shuffled_into_draw(c, state, state.rng)
+        from .events import emit as _emit, Event
+        _emit(state, Event.CARD_CREATED, "player", card=c)
+
+
+def _metamorphosis_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
+    from .card_pools import pool
+    from .cards import CardColor
+    all_attacks = pool(CardColor.RED, Rarity.COMMON) + pool(CardColor.RED, Rarity.UNCOMMON) + pool(CardColor.RED, Rarity.RARE)
+    if not all_attacks:
+        return
+    n = 3 + (1 if upgraded else 0)
+    for _ in range(n):
+        card_id = state.rng.choice(all_attacks)
+        c = Card(card_id, cost_override=0, cost_override_duration="combat")
+        state.piles.spawn_shuffled_into_draw(c, state, state.rng)
+        from .events import emit as _emit, Event
+        _emit(state, Event.CARD_CREATED, "player", card=c)
+
+
+def _transmutation_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int, x_energy: int = 0) -> None:
+    from .card_pools import colorless_pool
+    pool_cards = colorless_pool()
+    if not pool_cards:
+        return
+    n = x_energy
+    for _ in range(n):
+        card_id = state.rng.choice(pool_cards)
+        c = Card(card_id, cost_override=0, cost_override_duration="turn")
+        state.piles.spawn_to_hand(c, state)
+        from .events import emit as _emit, Event
+        _emit(state, Event.CARD_CREATED, "player", card=c)
+
+
+# ---------------------------------------------------------------------------
+# Colorless card registrations
+# ---------------------------------------------------------------------------
+
+# --- Colorless Uncommon ---
+
+# Bandage Up: Heal 4(6) HP, Exhaust
+register("BandageUp", cost=0, card_type=S, target=NO, color=CL, rarity=U, exhausts=True,
+         heal=4, upgrade={"heal": 2})
+
+# Blind: Apply 2(3) Weak to ALL enemies
+register("Blind", cost=0, card_type=S, target=AE, color=CL, rarity=U,
+         custom=_blind_custom)
+
+# Dark Shackles: Enemy loses 9(12) Strength this turn
+register("DarkShackles", cost=0, card_type=S, target=SE, color=CL, rarity=U, exhausts=True,
+         custom=_dark_shackles_custom)
+
+# Deep Breath: Shuffle your discard pile into your draw pile. Draw 1(2)
+register("DeepBreath", cost=0, card_type=S, target=NO, color=CL, rarity=U,
+         custom=_deep_breath_custom)
+
+# Discovery: Choose 1 of 3(4) random colorless cards. Costs 0 this turn. Exhaust.
+register("Discovery", cost=1, card_type=S, target=NO, color=CL, rarity=U, exhausts=True,
+         custom=_discovery_custom, upgrade={"cost": -1})
+
+# Enlightenment: Reduce the cost of cards in your hand to 0 this turn
+register("Enlightenment", cost=1, card_type=S, target=NO, color=CL, rarity=U,
+         custom=_enlightenment_custom, upgrade={"cost": -1})
+
+# Finesse: Gain 2(4) Block. Draw 1 card
+register("Finesse", cost=0, card_type=S, target=NO, color=CL, rarity=U,
+         block=2, draw=1, upgrade={"block": 2})
+
+# Flash of Steel: Deal 3(6) damage. Draw 1 card
+register("FlashOfSteel", cost=0, card_type=A, target=SE, color=CL, rarity=U,
+         attack=3, draw=1, upgrade={"attack": 3})
+
+# Forethought: Place a card from your hand on top of your draw pile. It costs 0 this turn
+register("Forethought", cost=0, card_type=S, target=NO, color=CL, rarity=U,
+         custom=_forethought_custom)
+
+# Good Instincts: Gain 6(9) Block
+register("GoodInstincts", cost=0, card_type=S, target=NO, color=CL, rarity=U,
+         block=6, upgrade={"block": 3})
+
+# Impatience: If you have no Attacks in your hand, draw 2(3) cards
+register("Impatience", cost=0, card_type=S, target=NO, color=CL, rarity=U,
+         custom=_impatience_custom)
+
+# Jack of All Trades: Add 1(2) random colorless cards to your hand. Exhaust
+register("JackOfAllTrades", cost=0, card_type=S, target=NO, color=CL, rarity=U, exhausts=True,
+         custom=_jack_of_all_trades_custom)
+
+# Madness: A random card in your hand costs 0 for the rest of this combat
+register("Madness", cost=0, card_type=S, target=NO, color=CL, rarity=U, exhausts=True,
+         custom=_madness_custom)
+
+# Panacea: Gain 1(2) Artifact. Exhaust
+register("Panacea", cost=0, card_type=S, target=NO, color=CL, rarity=U, exhausts=True,
+         custom=_panacea_custom)
+
+# Panic Button: Gain 2(3) Energy. You cannot gain Block from cards this turn or next turn. Exhaust
+register("PanicButton", cost=0, card_type=S, target=NO, color=CL, rarity=U, exhausts=True,
+         custom=_panic_button_custom)
+
+# Purity: Exhaust up to 3(6) cards from your hand
+register("Purity", cost=0, card_type=S, target=NO, color=CL, rarity=U, exhausts=True,
+         custom=_purity_custom)
+
+# Swift Strike: Deal 7(10) damage
+register("SwiftStrike", cost=0, card_type=A, target=SE, color=CL, rarity=U,
+         attack=7, upgrade={"attack": 3})
+
+# Trip: Apply 2(3) Vulnerable
+register("Trip", cost=0, card_type=S, target=SE, color=CL, rarity=U,
+         vulnerable=2, upgrade={"vulnerable": 1})
+
+
+# --- Colorless Rare ---
+
+# Apotheosis: Upgrade ALL of your cards for the rest of the combat. Exhaust.
+register("Apotheosis", cost=1, card_type=S, target=NO, color=CL, rarity=RA, exhausts=True,
+         custom=_apotheosis_custom, upgrade={"cost": -1})
+
+# Chrysalis: Shuffle 3(4) random Skills into your draw pile. They cost 0 this combat. Exhaust.
+register("Chrysalis", cost=1, card_type=S, target=NO, color=CL, rarity=RA, exhausts=True,
+         custom=_chrysalis_custom, upgrade={"cost": -1})
+
+# Dramatic Entrance: Innate. Deal 8(12) damage to ALL enemies. Exhaust.
+register("DramaticEntrance", cost=0, card_type=A, target=AE, color=CL, rarity=RA, exhausts=True,
+         innate=True, attack=8, upgrade={"attack": 4})
+
+# Hand of Greed: Deal 20(25) damage. If Fatal, gain 20(24) Gold
+register("HandOfGreed", cost=2, card_type=A, target=SE, color=CL, rarity=RA,
+         attack=20, upgrade={"attack": 5}, custom=_hand_of_greed_custom)
+
+# Magnetism: At the start of each turn, add a random colorless card to your hand
+register("Magnetism", cost=1, card_type=P, target=NO, color=CL, rarity=RA,
+         custom=lambda s, _h, _t, u: setattr(s.player_powers, 'magnetism', 1))
+
+# Master of Strategy: Draw 3(4) cards. Exhaust.
+register("MasterOfStrategy", cost=0, card_type=S, target=NO, color=CL, rarity=RA, exhausts=True,
+         draw=3, upgrade={"draw": 1})
+
+# Mayhem: At the start of each turn, play the top card of your draw pile
+register("Mayhem", cost=1, card_type=P, target=NO, color=CL, rarity=RA,
+         custom=lambda s, _h, _t, u: setattr(s.player_powers, 'mayhem', 1))
+
+# Metamorphosis: Shuffle 3(4) random Attacks into your draw pile. They cost 0 this combat. Exhaust.
+register("Metamorphosis", cost=1, card_type=S, target=NO, color=CL, rarity=RA, exhausts=True,
+         custom=_metamorphosis_custom, upgrade={"cost": -1})
+
+# Mind Blast: Innate. Deal damage equal to the number of cards in your draw pile
+register("MindBlast", cost=2, card_type=A, target=SE, color=CL, rarity=RA, innate=True,
+         custom=_mind_blast_custom, upgrade={"cost": -1})
+
+# Panache: Every 5th card you play each turn deals 10(14) damage to ALL enemies
+register("Panache", cost=0, card_type=P, target=NO, color=CL, rarity=RA,
+         custom=lambda s, _h, _t, u: setattr(s.player_powers, 'panache_damage', 10 + (4 if u else 0)))
+
+# Sadistic Nature: Whenever an enemy receives a debuff, deal 5(7) damage to it
+register("SadisticNature", cost=0, card_type=P, target=NO, color=CL, rarity=RA,
+         custom=lambda s, _h, _t, u: setattr(s.player_powers, 'sadistic_nature', 5 + (2 if u else 0)))
+
+# Secret Technique: Choose a Skill from your draw pile and place it into your hand. Exhaust.
+register("SecretTechnique", cost=0, card_type=S, target=NO, color=CL, rarity=RA, exhausts=True,
+         custom=_secret_technique_custom)
+
+# Secret Weapon: Choose an Attack from your draw pile and place it into your hand. Exhaust.
+register("SecretWeapon", cost=0, card_type=S, target=NO, color=CL, rarity=RA, exhausts=True,
+         custom=_secret_weapon_custom)
+
+# The Bomb: At the end of 3 turns, deal 40(50) damage to ALL enemies
+register("TheBomb", cost=2, card_type=S, target=NO, color=CL, rarity=RA,
+         custom=lambda s, _h, _t, u: s.player_powers.bomb_fuses.append((3, 40 + (10 if u else 0))))
+
+# Thinking Ahead: Draw 2(3) cards. Place a card from your hand on top of your draw pile. Exhaust.
+register("ThinkingAhead", cost=1, card_type=S, target=NO, color=CL, rarity=RA, exhausts=True,
+         custom=_thinking_ahead_custom, upgrade={"cost": -1})
+
+# Transmutation: Add X random colorless cards to your hand that cost 0 this turn. Exhaust.
+register("Transmutation", cost=-1, card_type=S, target=NO, color=CL, rarity=RA, x_cost=True, exhausts=True,
+         custom=_transmutation_custom)
+
+# Violence: Put 2(3) random Attacks from your draw pile into your hand. Exhaust.
+register("Violence", cost=0, card_type=S, target=NO, color=CL, rarity=RA, exhausts=True,
+         custom=_violence_custom)

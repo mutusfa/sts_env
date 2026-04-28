@@ -58,6 +58,8 @@ class Intent:
     status_to_draw: bool = False
     # Energy loss applied to the player at the start of their next turn
     energy_loss: int = 0
+    # Gold stolen from the player (Looter/Mugger Mug); refunded if enemy is killed
+    gold_steal: int = 0
 
 
 @dataclass(frozen=True)
@@ -798,7 +800,7 @@ register_enemy(_FUNGI_BEAST, _fungi_beast_intent, _fungi_beast_pre_battle)
 
 _LOOTER = EnemySpec("Looter", hp_min=44, hp_max=48)
 
-_LO_MUG        = Intent(IntentType.ATTACK, damage=10, hits=1)
+_LO_MUG        = Intent(IntentType.ATTACK, damage=10, hits=1, gold_steal=15)
 _LO_SMOKE_BOMB = Intent(IntentType.DEFEND, block_gain=6)
 _LO_LUNGE      = Intent(IntentType.ATTACK, damage=12, hits=1)
 _LO_ESCAPE     = Intent(IntentType.ESCAPE)
@@ -835,7 +837,7 @@ register_enemy(_LOOTER, _looter_intent)
 
 _MUGGER = EnemySpec("Mugger", hp_min=48, hp_max=52)
 
-_MU_MUG        = Intent(IntentType.ATTACK, damage=10, hits=1)
+_MU_MUG        = Intent(IntentType.ATTACK, damage=10, hits=1, gold_steal=20)
 _MU_SMOKE_BOMB = Intent(IntentType.DEFEND, block_gain=11)
 _MU_LUNGE      = Intent(IntentType.ATTACK, damage=16, hits=1)
 _MU_ESCAPE     = Intent(IntentType.ESCAPE)

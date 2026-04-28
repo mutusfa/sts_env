@@ -5,7 +5,7 @@ and card-removal transactions.  Pricing mirrors StS Act 1 values.
 
 Shop stock mirrors StS:
   - 5 cards: 3 character-color (1 common + 1 uncommon + 1 rare)
-              + 2 colorless (1 common + 1 uncommon)
+              + 2 colorless (1 uncommon + 1 rare)
   - 3 potions drawn from common/uncommon pools
   - 1 relic from the shop relic pool
 """
@@ -104,7 +104,7 @@ def generate_shop(rng: RNG, character: Character) -> ShopInventory:
     """Generate a random shop inventory.
 
     Stock:
-      - 5 cards: 3 character-color (1C/1U/1R) + 2 colorless (1C/1U)
+      - 5 cards: 3 character-color (1C/1U/1R) + 2 colorless (1U/1R)
       - 3 potions drawn from common/uncommon pools
       - 1 relic from the shop relic pool
     """
@@ -128,15 +128,15 @@ def generate_shop(rng: RNG, character: Character) -> ShopInventory:
     if char_rares:
         cards.append((rng.choice(char_rares), CARD_PRICES["rare"]))
 
-    # 1 colorless common card
-    cl_commons = colorless_pool(Rarity.COMMON)
-    if cl_commons:
-        cards.append((rng.choice(cl_commons), CARD_PRICES["common"]))
-
     # 1 colorless uncommon card
     cl_uncommons = colorless_pool(Rarity.UNCOMMON)
     if cl_uncommons:
         cards.append((rng.choice(cl_uncommons), CARD_PRICES["uncommon"]))
+
+    # 1 colorless rare card
+    cl_rares = colorless_pool(Rarity.RARE)
+    if cl_rares:
+        cards.append((rng.choice(cl_rares), CARD_PRICES["rare"]))
 
     # --- Potions -------------------------------------------------------------
     potions: list[tuple[str | None, int]] = []
