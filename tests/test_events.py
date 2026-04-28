@@ -46,6 +46,10 @@ class TestRegistry:
             "Golden Wing",
             "Liars Game",
             "Scrap Ooze",
+            "Shining Light",
+            "Bonfire",
+            "Wing Statue",
+            "Wheel of Change",
         ]:
             spec = get_event(eid)
             assert spec.event_id == eid
@@ -66,6 +70,10 @@ class TestRegistry:
             "Golden Wing",
             "Liars Game",
             "Scrap Ooze",
+            "Shining Light",
+            "Bonfire",
+            "Wing Statue",
+            "Wheel of Change",
         ]
 
 
