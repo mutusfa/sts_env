@@ -96,8 +96,8 @@ def _spore_cloud(state: CombatState, owner: Owner, payload: dict) -> None:
 @listener(Event.CARD_PLAYED, "gremlin_nob_skill", subscriptions=[(ENEMY_SUBSCRIPTIONS, "GremlinNob")])
 def _gremlin_nob_skill(state: CombatState, owner: Owner, payload: dict) -> None:
     from .cards import CardType
-    card_spec = payload.get("card_spec")
-    if card_spec is None or card_spec.card_type != CardType.SKILL:
+    card = payload.get("card")
+    if card is None or card.spec.card_type != CardType.SKILL:
         return
     for enemy in state.enemies:
         if enemy.alive and enemy.skill_played_str > 0:

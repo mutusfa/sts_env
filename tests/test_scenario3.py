@@ -40,7 +40,12 @@ class TestGremlinNob:
         # Turn 1: find a Skill card in hand
         nob_str_before = obs.enemies[0].powers["strength"]
         for i, card in enumerate(obs.hand):
-            spec = get_spec(card.card_id)
+            # Handle both dict (new format) and Card (legacy)
+            if isinstance(card, dict):
+                card_id = card["card_id"]
+            else:
+                card_id = card.card_id
+            spec = get_spec(card_id)
             if spec.card_type == CardType.SKILL and spec.cost <= obs.energy:
                 obs, _, _ = combat.step(Action.play_card(i, 0))
                 break
@@ -58,8 +63,13 @@ class TestGremlinNob:
         # Find an Attack card that's not Bash (Bash applies vulnerable which triggers Angry)
         nob_str_before = obs.enemies[0].powers["strength"]
         for i, card in enumerate(obs.hand):
-            spec = get_spec(card.card_id)
-            if spec.card_type == CardType.ATTACK and spec.cost <= obs.energy and card.card_id != "Bash":
+            # Handle both dict (new format) and Card (legacy)
+            if isinstance(card, dict):
+                card_id = card["card_id"]
+            else:
+                card_id = card.card_id
+            spec = get_spec(card_id)
+            if spec.card_type == CardType.ATTACK and spec.cost <= obs.energy and card_id != "Bash":
                 obs, _, _ = combat.step(Action.play_card(i, 0))
                 break
         nob_str_after = obs.enemies[0].powers["strength"]
@@ -88,7 +98,7 @@ class TestLagavulin:
         combat = Combat(deck=IRONCLAD_STARTER, enemies=["Lagavulin"], seed=42)
         obs = combat.reset()
         # Play Strike to wake Lagavulin
-        strike_idx = next(i for i, c in enumerate(obs.hand) if c.card_id == "Strike")
+        strike_idx = next(i for i, c in enumerate(obs.hand) if (c["card_id"] if isinstance(c, dict) else c.card_id) == "Strike")
         obs, _, _ = combat.step(Action.play_card(strike_idx, 0))
         # End turn — Lagavulin should attack (not stay asleep)
         hp_before = obs.player_hp
@@ -116,7 +126,7 @@ class TestLagavulin:
         combat = Combat(deck=IRONCLAD_STARTER, enemies=["Lagavulin"], seed=42)
         obs = combat.reset()
         # Wake Lagavulin
-        strike_idx = next(i for i, c in enumerate(obs.hand) if c.card_id == "Strike")
+        strike_idx = next(i for i, c in enumerate(obs.hand) if (c["card_id"] if isinstance(c, dict) else c.card_id) == "Strike")
         obs, _, _ = combat.step(Action.play_card(strike_idx, 0))
         # Play through several turns to reach Siphon Soul in the cycle
         for _ in range(6):
@@ -442,8 +452,16 @@ class TestCardPotions:
         # Hand should have one more card
         assert len(obs2.hand) == hand_before + 1
         # The added card should be the chosen one
-        assert obs2.hand[-1].card_id == chosen_card.card_id
-        assert obs2.hand[-1].cost_override == 0
+        # Handle both dict (new format) and Card (legacy) for hand
+        added_card = obs2.hand[-1]
+        added_card_id = added_card["card_id"] if isinstance(added_card, dict) else added_card.card_id
+        assert added_card_id == chosen_card.card_id
+        if isinstance(added_card, dict):
+            # New format: cost should be 0 (from potion)
+            assert added_card["cost"] == 0
+        else:
+            # Legacy format
+            assert added_card.cost_override == 0
         # pending_choices should be cleared
         assert len(obs2.pending_choices) == 0
 
@@ -481,10 +499,19 @@ class TestCardPotions:
         combat = self._make_combat_with_potion("AttackPotion", seed=0)
         obs = self._use_potion(combat)
         obs2 = self._choose_card(combat, choice_index=0)
-        free_cards = [c for c in obs2.hand if c.cost_override == 0]
-        assert len(free_cards) == 1
-        # Find the index of the free card
-        idx = obs2.hand.index(free_cards[0])
+        # In new format, free cards show cost=0 in the dict
+        # Find the index of the card with cost=0
+        idx = None
+        for i, c in enumerate(obs2.hand):
+            if isinstance(c, dict):
+                if c["cost"] == 0:
+                    idx = i
+                    break
+            else:
+                if c.cost_override == 0:
+                    idx = i
+                    break
+        assert idx is not None, "Should have found a free card"
         # Play it — should not deduct energy for its cost
         energy_before = obs2.energy
         obs3, _, _ = combat.step(Action.play_card(

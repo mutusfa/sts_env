@@ -192,7 +192,10 @@ def _make_potion_choice(state: "CombatState", card_type: CardType) -> None:
     cards = [Card(cid, cost_override=0) for cid in choices]
 
     def on_choose(s: "CombatState", card: Card) -> None:
+        # Card already has cost_override set; just emit CARD_CREATED for listeners
+        from .events import emit, Event
         s.piles.hand.append(card)
+        emit(s, Event.CARD_CREATED, "player", card=card)
 
     state.pending_stack.append(
         ChoiceFrame(choices=cards, kind="potion", on_choose=on_choose)

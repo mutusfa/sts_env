@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
+from .cards import CardType
 from .events import Event, listener
 
 if TYPE_CHECKING:
@@ -54,8 +55,8 @@ def _juggernaut(state: CombatState, owner: Owner, payload: dict) -> None:
 def _rage(state: CombatState, owner: Owner, payload: dict) -> None:
     from .cards import CardType
     powers = state.player_powers
-    card_spec = payload.get("card_spec")
-    if card_spec is None or card_spec.card_type != CardType.ATTACK:
+    card = payload.get("card")
+    if card is None or card.spec.card_type != CardType.ATTACK:
         return
     if powers.rage_block <= 0:
         return
@@ -74,9 +75,7 @@ def _sentinel(state: CombatState, owner: Owner, payload: dict) -> None:
     card = payload.get("card")
     if card is None:
         return
-    from .cards import get_spec
-    spec = get_spec(card.card_id)
-    if spec.card_id != "Sentinel":
+    if card.spec.card_id != "Sentinel":
         return
     gain = 2 + (1 if card.upgraded else 0)
     state.energy += gain
@@ -195,6 +194,28 @@ def _ritual(state: CombatState, owner: Owner, payload: dict) -> None:
         powers.ritual_just_applied = False
     elif powers.ritual > 0:
         powers.strength += powers.ritual
+
+
+# ---------------------------------------------------------------------------
+# CARD_CREATED handlers
+# ---------------------------------------------------------------------------
+
+@listener(Event.CARD_CREATED, "corruption_stamp_skill", subscriptions=[])
+def _corruption_stamp_skill(state: CombatState, owner: Owner, payload: dict) -> None:
+    """Stamp newly created skills with Corruption's effects (cost=0, exhausts)."""
+    from .cards import CardType
+    if not state.player_powers.corruption:
+        return
+    card = payload.get("card")
+    if card is None:
+        return
+    # Corruption only affects skills
+    if card.spec.card_type != CardType.SKILL:
+        return
+    # Corruption trumps all other cost modifiers
+    card.cost_override = 0
+    card.exhausts_override = True
+    card.corrupted = True
 
 
 # ---------------------------------------------------------------------------

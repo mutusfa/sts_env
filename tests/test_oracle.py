@@ -77,7 +77,13 @@ def _find_card_our(obs, name: str, exclude: int = -1) -> int | None:
     for i, card in enumerate(obs.hand):
         if i == exclude:
             continue
-        card_id = card.card_id if hasattr(card, "card_id") else card
+        # Handle both dict (new format) and Card/string (legacy)
+        if isinstance(card, dict):
+            card_id = card.get("card_id", "")
+        elif hasattr(card, "card_id"):
+            card_id = card.card_id
+        else:
+            card_id = str(card)
         if name.lower() in card_id.lower():
             return i
     return None

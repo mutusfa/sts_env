@@ -89,3 +89,53 @@ class Piles:
         """Move all cards from hand to discard at end of player turn."""
         self.discard.extend(self.hand)
         self.hand.clear()
+
+    # ------------------------------------------------------------------
+    # Card spawning (new cards entering combat)
+    # ------------------------------------------------------------------
+
+    def spawn_to_discard(self, card: Card, state: "CombatState") -> None:
+        """Create and place a card in the discard pile, emitting CARD_CREATED.
+
+        Use for cards that are newly created during combat (e.g. status cards
+        from enemy intents, potion effects, etc.). The event allows power
+        listeners like Corruption to modify the card before it enters play.
+        """
+        self.discard.append(card)
+        from .events import emit, Event
+        emit(state, Event.CARD_CREATED, "player", card=card)
+
+    def spawn_to_hand(self, card: Card, state: "CombatState") -> None:
+        """Create and place a card in hand, emitting CARD_CREATED.
+
+        Use for cards that are newly created during combat and should be
+        immediately available to the player (e.g. card rewards, some potion
+        effects). The event allows power listeners like Corruption to modify
+        the card before it enters play.
+        """
+        self.hand.append(card)
+        from .events import emit, Event
+        emit(state, Event.CARD_CREATED, "player", card=card)
+
+    def spawn_on_top_of_draw(self, card: Card, state: "CombatState") -> None:
+        """Create and place a card on top of the draw pile, emitting CARD_CREATED.
+
+        Use for cards that should be drawn next turn (e.g. card rewards). The
+        event allows power listeners like Corruption to modify the card before
+        it enters play.
+        """
+        self.draw.insert(0, card)
+        from .events import emit, Event
+        emit(state, Event.CARD_CREATED, "player", card=card)
+
+    def spawn_shuffled_into_draw(self, card: Card, state: "CombatState", rng: RNG) -> None:
+        """Create and shuffle a card into the draw pile, emitting CARD_CREATED.
+
+        Use for cards that should be placed randomly in the draw pile (e.g.
+        WildStrike's Wound). The event allows power listeners like Corruption
+        to modify the card before it enters play.
+        """
+        pos = rng.randint(0, len(self.draw))
+        self.draw.insert(pos, card)
+        from .events import emit, Event
+        emit(state, Event.CARD_CREATED, "player", card=card)

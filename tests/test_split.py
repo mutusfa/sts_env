@@ -97,9 +97,10 @@ def test_slimed_played_goes_to_exhaust():
         seed=3,  # seed=3 draws Slimed in the opening hand
     )
     obs = combat.reset()
-    assert "Slimed" in obs.hand, "Slimed should be in opening hand for seed=3"
+    # hand is now list of dicts
+    slimed_idx = next(i for i, c in enumerate(obs.hand) if c["card_id"] == "Slimed")
+    assert slimed_idx is not None, "Slimed should be in opening hand for seed=3"
 
-    slimed_idx = obs.hand.index("Slimed")
     obs2, _, _ = combat.step(Action.play_card(slimed_idx))
     assert obs2.exhaust_pile.get("Slimed", 0) == 1, "Slimed should be exhausted"
     assert obs2.discard_pile.get("Slimed", 0) == 0, "Slimed should not be in discard"
@@ -112,10 +113,9 @@ def test_slimed_consumes_energy():
         seed=3,  # seed=3 draws Slimed in the opening hand
     )
     obs = combat.reset()
-    assert "Slimed" in obs.hand
+    slimed_idx = next(i for i, c in enumerate(obs.hand) if c["card_id"] == "Slimed")
 
     energy_before = obs.energy
-    slimed_idx = obs.hand.index("Slimed")
     obs2, _, _ = combat.step(Action.play_card(slimed_idx))
     assert obs2.energy == energy_before - 1
 
@@ -128,7 +128,9 @@ def test_slimed_in_valid_actions_when_energy_available():
         seed=0,
     )
     obs = combat.reset()
-    assert "Slimed" in obs.hand
+    # Check that Slimed is in hand
+    slimed_idx = next((i for i, c in enumerate(obs.hand) if c["card_id"] == "Slimed"), None)
+    assert slimed_idx is not None
     actions = combat.valid_actions()
     play_actions = [a for a in actions if a.action_type.name == "PLAY_CARD"]
     slimed_indices = [i for i, c in enumerate(obs.hand) if c == "Slimed"]

@@ -96,7 +96,7 @@ class TestSlimeBossIntentCycle:
         total_slimed = (
             obs.discard_pile.get("Slimed", 0)
             + obs.draw_pile.get("Slimed", 0)
-            + sum(1 for c in obs.hand if c.card_id == "Slimed")
+            + sum(1 for c in obs.hand if (c["card_id"] if isinstance(c, dict) else c.card_id) == "Slimed")
             + obs.exhaust_pile.get("Slimed", 0)
         )
         assert total_slimed == 6, f"Expected 6 Slimed total, got {total_slimed}"
@@ -128,7 +128,9 @@ class TestSlimeBossSplit:
                 if action.hand_index >= len(obs.hand):
                     continue
                 card = obs.hand[action.hand_index]
-                spec = get_spec(card.card_id)
+                # Handle both dict (new format) and Card (legacy)
+                card_id = card["card_id"] if isinstance(card, dict) else card.card_id
+                spec = get_spec(card_id)
                 if spec.card_type == CardType.ATTACK and spec.cost <= obs.energy:
                     obs, _, _ = combat.step(action)
                     if obs.enemies[0].name != "SlimeBoss":
@@ -170,7 +172,9 @@ class TestSlimeBossSplit:
                 if action.hand_index >= len(obs.hand):
                     continue
                 card = obs.hand[action.hand_index]
-                spec = get_spec(card.card_id)
+                # Handle both dict (new format) and Card (legacy)
+                card_id = card["card_id"] if isinstance(card, dict) else card.card_id
+                spec = get_spec(card_id)
                 if spec.card_type == CardType.ATTACK and spec.cost <= obs.energy:
                     obs, _, _ = combat.step(action)
                     if obs.enemies[0].name != "SlimeBoss":

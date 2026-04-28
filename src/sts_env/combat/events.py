@@ -36,6 +36,7 @@ class Event(Enum):
     TURN_END = auto()
     CARD_PLAYED = auto()
     CARD_EXHAUSTED = auto()
+    CARD_CREATED = auto()
     BLOCK_GAINED = auto()
     HP_LOSS = auto()
     DEATH = auto()

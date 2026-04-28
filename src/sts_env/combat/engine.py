@@ -19,7 +19,7 @@ from __future__ import annotations
 import copy
 from collections import Counter
 
-from .cards import get_spec as _get_card_spec, play_card as _play_card, CardType, TargetType
+from .cards import play_card as _play_card, CardType, TargetType
 from .enemies import (
     Intent,
     IntentType,
@@ -267,20 +267,19 @@ class Combat:
 
         if action.action_type == ActionType.PLAY_CARD:
             card = state.piles.hand[action.hand_index]
-            card_spec = _get_card_spec(card.card_id)
             block_before = state.player_block
             _play_card(state, action.hand_index, action.target_index)
             block_gained = state.player_block - block_before
 
             # Emit CARD_PLAYED for subscribed listeners (Rage, Gremlin Nob)
-            emit(state, Event.CARD_PLAYED, "player", card=card, card_spec=card_spec)
+            emit(state, Event.CARD_PLAYED, "player", card=card)
 
             # Emit BLOCK_GAINED if block was gained (Juggernaut)
             if block_gained > 0:
                 emit(state, Event.BLOCK_GAINED, "player", amount=block_gained)
 
             # Triggered exhaust effects (Dark Embrace, Feel No Pain, Sentinel)
-            if card_spec.exhausts or (state.player_powers.corruption and card_spec.card_type == CardType.SKILL):
+            if card.effective_exhausts():
                 emit(state, Event.CARD_EXHAUSTED, "player", card=card)
             _drain_stack(state)
 
@@ -352,21 +351,14 @@ class Combat:
         actions: list[Action] = []
 
         for hi, card in enumerate(state.piles.hand):
-            spec = _get_card_spec(card.card_id)
+            spec = card.spec
             if not spec.playable:
                 continue
-            # Corruption: skills cost 0
-            if state.player_powers.corruption and spec.card_type == CardType.SKILL:
-                effective_cost = card.cost_override if card.cost_override is not None else 0
-            elif spec.x_cost:
-                # X-cost cards cost all remaining energy (playable if energy > 0)
+            # X-cost cards cost all remaining energy (playable if energy >= 0)
+            if spec.x_cost:
                 effective_cost = card.cost_override if card.cost_override is not None else state.energy
             else:
-                effective_cost = (
-                    card.cost_override
-                    if card.cost_override is not None
-                    else spec.cost + (spec.upgrade.get("cost", 0) if card.upgraded else 0)
-                )
+                effective_cost = card.effective_cost()
             if effective_cost > state.energy:
                 continue
             if entangled and spec.card_type in (CardType.SKILL, CardType.POWER):
@@ -455,6 +447,17 @@ class Combat:
                 )
             )
 
+        # Precompute hand observation with effective values
+        hand_obs = []
+        for card in state.piles.hand:
+            hand_obs.append({
+                "card_id": card.card_id,
+                "cost": card.effective_cost(),
+                "exhausts": card.effective_exhausts(),
+                "corrupted": card.corrupted,
+                "upgraded": card.upgraded,
+            })
+
         return Observation(
             player_hp=state.player_hp,
             player_max_hp=state.player_max_hp,
@@ -468,9 +471,10 @@ class Combat:
                 "metallicize": state.player_powers.metallicize,
                 "strength_loss_eot": state.player_powers.strength_loss_eot,
                 "dexterity_loss_eot": state.player_powers.dexterity_loss_eot,
+                "corruption": state.player_powers.corruption,
             },
             energy=state.energy,
-            hand=list(state.piles.hand),
+            hand=hand_obs,
             draw_pile=dict(Counter(c.card_id for c in state.piles.draw)),
             discard_pile=dict(Counter(c.card_id for c in state.piles.discard)),
             exhaust_pile=dict(Counter(c.card_id for c in state.piles.exhaust)),
@@ -511,8 +515,7 @@ class Combat:
         # Ethereal: cards with ethereal=True that are still in hand are exhausted
         ethereal_in_hand = []
         for card in state.piles.hand:
-            spec = _get_card_spec(card.card_id)
-            if spec.ethereal:
+            if card.spec.ethereal:
                 ethereal_in_hand.append(card)
         for card in ethereal_in_hand:
             state.piles.hand.remove(card)
@@ -715,9 +718,9 @@ class Combat:
         if intent.status_card_count:
             for _ in range(intent.status_card_count):
                 if intent.status_to_draw:
-                    state.piles.place_on_top(Card(intent.status_card_id))
+                    state.piles.spawn_on_top_of_draw(Card(intent.status_card_id), state)
                 else:
-                    state.piles.add_to_discard(Card(intent.status_card_id))
+                    state.piles.spawn_to_discard(Card(intent.status_card_id), state)
 
         # Energy loss applied at start of player's next turn (e.g. Gremlin Nob Bellow)
         if intent.energy_loss > 0:

@@ -22,10 +22,17 @@ def _play_to_end(combat: Combat, policy=None) -> Observation:
             # Default: play the first card in hand that costs <= energy; else end turn
             action = None
             for i, card in enumerate(obs.hand):
-                from sts_env.combat.cards import get_spec
-                spec = get_spec(card.card_id)
+                # Handle both dict (new format) and Card (legacy)
+                if isinstance(card, dict):
+                    card_id = card["card_id"]
+                    cost = card["cost"]
+                else:
+                    from sts_env.combat.cards import get_spec
+                    spec = get_spec(card.card_id)
+                    card_id = card.card_id
+                    cost = spec.cost
                 target = 0
-                if spec.playable and spec.cost <= obs.energy:
+                if cost <= obs.energy:
                     action = Action.play_card(hand_index=i, target_index=target)
                     break
             if action is None:
@@ -312,7 +319,7 @@ def test_reward_zero_when_no_damage_taken():
         seed=0,
     )
     obs = combat.reset()
-    defend_idx = obs.hand.index("Defend")
+    defend_idx = next(i for i, card in enumerate(obs.hand) if card["card_id"] == "Defend")
     _, r1, _ = combat.step(Action.play_card(defend_idx))
     _, r2, _ = combat.step(Action.end_turn())
     assert r1 == 0
@@ -448,6 +455,23 @@ def test_valid_actions_skips_unplayable_curse():
             from sts_env.combat.cards import get_spec
             card = combat._state.piles.hand[a.hand_index]
             assert card != "AscendersBane", "Curse appeared in valid_actions"
+
+
+def test_valid_actions_allows_x_cost_at_zero_energy():
+    """X-cost cards are still playable at 0 energy (they spend 0)."""
+    from sts_env.combat.cards import Card
+
+    combat = Combat(
+        deck=["Whirlwind"] * 10,
+        enemies=["Cultist"],
+        seed=0,
+    )
+    combat.reset()
+    combat._state.energy = 0
+    combat._state.piles.hand = [Card("Whirlwind")]
+
+    actions = combat.valid_actions()
+    assert Action.play_card(0, 0) in actions
 
 
 def test_valid_actions_expands_targets_per_live_enemy():

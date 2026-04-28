@@ -237,13 +237,8 @@ def _apply_spec(
 
 def play_card(state: "CombatState", hand_index: int, target_index: int) -> None:
     """Validate and execute a card play, updating state in place."""
-    raw = state.piles.hand[hand_index]
-    if isinstance(raw, str):
-        raw_id = raw
-        cost_override = None
-    else:
-        raw_id = raw.card_id
-        cost_override = raw.cost_override
+    card = state.piles.hand[hand_index]
+    raw_id = card.card_id
 
     upgrade_count = len(raw_id) - len(raw_id.rstrip("+"))
     card_id = raw_id.rstrip("+")
@@ -253,22 +248,14 @@ def play_card(state: "CombatState", hand_index: int, target_index: int) -> None:
     if not spec.playable:
         raise ValueError(f"Card {card_id!r} is unplayable.")
 
-    upgraded = 1 if upgrade_count > 0 else 0
-
     # Cost calculation
     if spec.x_cost:
-        if cost_override is not None:
-            effective_cost = cost_override
+        if card.cost_override is not None:
+            effective_cost = card.cost_override
         else:
             effective_cost = state.energy
-    elif state.player_powers.corruption and spec.card_type == CardType.SKILL:
-        effective_cost = cost_override if cost_override is not None else 0
     else:
-        effective_cost = (
-            cost_override
-            if cost_override is not None
-            else spec.cost + (spec.upgrade.get("cost", 0) if upgraded else 0)
-        )
+        effective_cost = card.effective_cost()
 
     if effective_cost > state.energy:
         raise ValueError(
@@ -283,11 +270,12 @@ def play_card(state: "CombatState", hand_index: int, target_index: int) -> None:
     state.energy -= effective_cost
     played_card = state.piles.play_card(hand_index)
 
+    upgraded = 1 if upgrade_count > 0 else 0
     _apply_spec(state, spec, target_index, upgraded, x_energy=effective_cost if spec.x_cost else 0, upgrade_count=upgrade_count)
     if spec.custom is not None:
         spec.custom(state, hand_index, target_index, upgrade_count)
 
-    if spec.exhausts or (state.player_powers.corruption and spec.card_type == CardType.SKILL):
+    if played_card.effective_exhausts():
         state.piles.move_to_exhaust(played_card)
     else:
         state.piles.move_to_discard(played_card)
@@ -298,7 +286,7 @@ def play_card(state: "CombatState", hand_index: int, target_index: int) -> None:
 # ---------------------------------------------------------------------------
 
 def _anger_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> None:
-    state.piles.add_to_discard(Card("Anger"))
+    state.piles.spawn_to_discard(Card("Anger"), state)
 
 
 def _havoc_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> None:
@@ -359,12 +347,12 @@ def _sword_boomerang_custom(state: "CombatState", _hi: int, _ti: int, upgraded: 
 
 
 def _wild_strike_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> None:
-    state.piles.shuffle_into_draw(Card("Wound"), state.rng)
+    state.piles.spawn_shuffled_into_draw(Card("Wound"), state, state.rng)
 
 
 def _power_through_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> None:
-    state.piles.add_to_hand(Card("Wound"))
-    state.piles.add_to_hand(Card("Wound"))
+    state.piles.spawn_to_hand(Card("Wound"), state)
+    state.piles.spawn_to_hand(Card("Wound"), state)
 
 
 def _dropkick_custom(state: "CombatState", _hi: int, ti: int, _upgraded: int) -> None:
@@ -384,7 +372,7 @@ def _feed_custom(state: "CombatState", _hi: int, ti: int, upgraded: int) -> None
 def _reckless_charge_custom(
     state: "CombatState", _hi: int, _ti: int, _upgraded: int
 ) -> None:
-    state.piles.place_on_top(Card("Dazed"))
+    state.piles.spawn_on_top_of_draw(Card("Dazed"), state)
 
 
 def _entrench_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> None:
@@ -511,7 +499,7 @@ def _dual_wield_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) 
 
         def on_choose(s: "CombatState", card: Card) -> None:
             for _ in range(extra):
-                s.piles.add_to_hand(Card(card.card_id))
+                s.piles.spawn_to_hand(Card(card.card_id), s)
 
         state.pending_stack.append(
             ChoiceFrame(choices=choices, kind="dualwield", on_choose=on_choose)
@@ -661,8 +649,22 @@ register("Berserk",    cost=0, card_type=S, target=NO, self_vulnerable=2,
 # --- Rare Powers ---
 register("Brutality",   cost=0, card_type=P, target=NO,
          custom=lambda s, _h, _t, _u: setattr(s.player_powers, 'brutality', 1))
+def _corruption_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> None:
+    """Apply Corruption: all skills cost 0 and are exhausted when played."""
+    state.player_powers.corruption = True
+    # Stamp all existing skills across all piles
+    from .events import subscribe, Event
+    all_cards = list(state.piles.draw) + list(state.piles.hand) + list(state.piles.discard) + list(state.piles.exhaust)
+    for card in all_cards:
+        if card.spec.card_type == CardType.SKILL:
+            card.cost_override = 0
+            card.exhausts_override = True
+            card.corrupted = True
+    # Subscribe to stamp future skill spawns
+    subscribe(state, Event.CARD_CREATED, "corruption_stamp_skill", "player")
+
 register("Corruption",  cost=3, card_type=P, target=NO, upgrade={"cost": -1},
-         custom=lambda s, _h, _t, _u: setattr(s.player_powers, 'corruption', True))
+         custom=_corruption_custom)
 register("DarkEmbrace", cost=2, card_type=P, target=NO,
          custom=lambda s, _h, _t, _u: setattr(s.player_powers, 'dark_embrace', s.player_powers.dark_embrace + 1))
 register("DemonForm",   cost=3, card_type=P, target=NO,

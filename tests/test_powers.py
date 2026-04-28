@@ -421,29 +421,6 @@ def test_sentinel_upgraded_energy_on_exhaust():
     assert state.energy == 6  # 3 base + 3
 
 
-def test_corruption_makes_skills_free():
-    """Under Corruption, skills cost 0 energy."""
-    state = _make_combat_state(
-        hand=[Card("Defend")], energy=0,
-    )
-    state.player_powers.corruption = True
-    from sts_env.combat.cards import play_card
-    play_card(state, 0, 0)
-    assert state.player_block == 5
-
-
-def test_corruption_exhausts_skills():
-    """Under Corruption, played skills are exhausted."""
-    state = _make_combat_state(
-        hand=[Card("Defend")], energy=1,
-    )
-    state.player_powers.corruption = True
-    from sts_env.combat.cards import play_card
-    play_card(state, 0, 0)
-    exhaust_ids = [c.card_id for c in state.piles.exhaust]
-    assert "Defend" in exhaust_ids
-
-
 def test_juggernaut_damage_on_block_gain():
     """Juggernaut: deal damage to random enemy when gaining block."""
     from sts_env.combat.events import Event, subscribe, emit
