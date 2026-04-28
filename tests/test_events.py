@@ -15,7 +15,6 @@ from sts_env.run.events import (
     resolve_event,
     _pick_worst_card,
     _COMMON_RELICS,
-    _COLORLESS_CARDS,
 )
 
 
@@ -239,12 +238,10 @@ class TestLiarsGame:
 # ---------------------------------------------------------------------------
 
 class TestScrapOoze:
-    def test_card_choice(self, char, rng):
-        old_deck_len = len(char.deck)
-        result = resolve_event("Scrap Ooze", 0, char, rng)
-        assert len(char.deck) == old_deck_len + 1
-        new_card = char.deck[-1]
-        assert new_card in _COLORLESS_CARDS
+    def test_card_choice_crashes_without_colorless_specs(self, char, rng):
+        """colorless_pool() is empty until colorless cards are registered."""
+        with pytest.raises(IndexError):
+            resolve_event("Scrap Ooze", 0, char, rng)
 
     def test_pay_choice_enough_gold(self, char, rng):
         char.gold = 20

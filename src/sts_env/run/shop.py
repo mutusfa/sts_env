@@ -2,6 +2,12 @@
 
 Generates shop inventory (cards, potions, relic) and handles purchase
 and card-removal transactions.  Pricing mirrors StS Act 1 values.
+
+Shop stock mirrors StS:
+  - 5 cards: 3 character-color (1 common + 1 uncommon + 1 rare)
+              + 2 colorless (1 common + 1 uncommon)
+  - 3 potions drawn from common/uncommon pools
+  - 1 relic from the shop relic pool
 """
 
 from __future__ import annotations
@@ -9,15 +15,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from ..combat.card_pools import colorless_pool, pool
+from ..combat.cards import CardColor, Rarity
 from ..combat.rng import RNG
 from .events import _pick_worst_card
-from .rewards import (
-    COMMON_POTIONS,
-    IRONCLAD_COMMON_CARDS,
-    IRONCLAD_RARE_CARDS,
-    IRONCLAD_UNCOMMON_CARDS,
-    UNCOMMON_POTIONS,
-)
+from .rewards import COMMON_POTIONS, UNCOMMON_POTIONS
 
 if TYPE_CHECKING:
     from .character import Character
@@ -102,25 +104,39 @@ def generate_shop(rng: RNG, character: Character) -> ShopInventory:
     """Generate a random shop inventory.
 
     Stock:
-      - 5 cards: 3 common + 1 uncommon + 1 rare
+      - 5 cards: 3 character-color (1C/1U/1R) + 2 colorless (1C/1U)
       - 3 potions drawn from common/uncommon pools
       - 1 relic from the shop relic pool
-    Cards already in the deck are avoided where possible (no strict
-    deduplication for v1 — duplicates may appear).
     """
+    color = character.character_class
+
     # --- Cards ---------------------------------------------------------------
     cards: list[tuple[str | None, int]] = []
 
-    # 3 common cards
-    for _ in range(3):
-        card_id = rng.choice(IRONCLAD_COMMON_CARDS)
-        cards.append((card_id, CARD_PRICES["common"]))
+    # 1 character common card
+    char_commons = pool(color, Rarity.COMMON)
+    if char_commons:
+        cards.append((rng.choice(char_commons), CARD_PRICES["common"]))
 
-    # 1 uncommon card
-    cards.append((rng.choice(IRONCLAD_UNCOMMON_CARDS), CARD_PRICES["uncommon"]))
+    # 1 character uncommon card
+    char_uncommons = pool(color, Rarity.UNCOMMON)
+    if char_uncommons:
+        cards.append((rng.choice(char_uncommons), CARD_PRICES["uncommon"]))
 
-    # 1 rare card
-    cards.append((rng.choice(IRONCLAD_RARE_CARDS), CARD_PRICES["rare"]))
+    # 1 character rare card
+    char_rares = pool(color, Rarity.RARE)
+    if char_rares:
+        cards.append((rng.choice(char_rares), CARD_PRICES["rare"]))
+
+    # 1 colorless common card
+    cl_commons = colorless_pool(Rarity.COMMON)
+    if cl_commons:
+        cards.append((rng.choice(cl_commons), CARD_PRICES["common"]))
+
+    # 1 colorless uncommon card
+    cl_uncommons = colorless_pool(Rarity.UNCOMMON)
+    if cl_uncommons:
+        cards.append((rng.choice(cl_uncommons), CARD_PRICES["uncommon"]))
 
     # --- Potions -------------------------------------------------------------
     potions: list[tuple[str | None, int]] = []
@@ -129,8 +145,8 @@ def generate_shop(rng: RNG, character: Character) -> ShopInventory:
         (UNCOMMON_POTIONS, UNCOMMON_POTION_PRICE),
     ]
     for _ in range(3):
-        pool, price = rng.choice(all_potion_pools)
-        potion_id = rng.choice(pool)
+        potion_pool, price = rng.choice(all_potion_pools)
+        potion_id = rng.choice(potion_pool)
         potions.append((potion_id, price))
 
     # --- Relic ---------------------------------------------------------------

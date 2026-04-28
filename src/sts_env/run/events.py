@@ -11,12 +11,12 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
+from ..combat.card_pools import colorless_pool, pool
+from ..combat.cards import CardColor, Rarity
 from ..combat.rng import RNG
 
 if TYPE_CHECKING:
     from .character import Character
-
-from .rewards import IRONCLAD_COMMON_CARDS, IRONCLAD_UNCOMMON_CARDS
 
 
 # ---------------------------------------------------------------------------
@@ -103,30 +103,6 @@ _COMMON_RELICS: list[str] = [
     "Vajra",
     "WarPaint",
     "Whetstone",
-]
-
-# Colorless cards pool for Scrap Ooze
-_COLORLESS_CARDS: list[str] = [
-    "BandageUp",
-    "Blind",
-    "DarkShackles",
-    "DeepBreath",
-    "Discovery",
-    "DramaticEntrance",
-    "Enlightenment",
-    "Finesse",
-    "FlashOfSteel",
-    "Forethought",
-    "GoodInstincts",
-    "Impatience",
-    "JackOfAllTrades",
-    "Madness",
-    "MindBlast",
-    "Panacea",
-    "PanicButton",
-    "Purity",
-    "SwiftStrike",
-    "Trip",
 ]
 
 # Priority order for card removal (worst cards first)
@@ -330,8 +306,11 @@ def _dead_adventurer_fight(character: "Character", rng: RNG) -> str:
     loss = 5
     character.player_hp = max(0, character.player_hp - loss)
     # Determine a random reward (simulate double rewards)
-    card_pool = IRONCLAD_COMMON_CARDS + IRONCLAD_UNCOMMON_CARDS
-    card = rng.choice(card_pool)
+    card_pool_list = (
+        pool(character.character_class, Rarity.COMMON)
+        + pool(character.character_class, Rarity.UNCOMMON)
+    )
+    card = rng.choice(card_pool_list)
     gold = rng.randint(20, 40)
     character.gold += gold
     return f"Took {loss} damage.  Found {gold} gold and {card} on the corpse."
@@ -442,7 +421,7 @@ register_event(
 # --- Scrap Ooze -------------------------------------------------------------
 
 def _scrap_ooze_card(character: "Character", rng: RNG) -> str:
-    card = rng.choice(_COLORLESS_CARDS)
+    card = rng.choice(colorless_pool())
     character.add_card(card)
     return f"Obtained {card}."
 

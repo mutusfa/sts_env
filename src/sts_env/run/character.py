@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from ..combat.cards import CardColor
+
 # Import the canonical definition from the combat engine.
 # Re-exported here for convenience (``from sts_env.run.character import IRONCLAD_STARTER``).
 from ..combat.engine import IRONCLAD_STARTER  # noqa: F401
@@ -44,6 +46,7 @@ class Character:
     gold: int = _IRONCLAD_STARTER_GOLD
     floor: int = 0
     relics: list[str] = field(default_factory=lambda: list(_IRONCLAD_STARTER_RELICS))
+    character_class: CardColor = CardColor.RED
 
     # ------------------------------------------------------------------
     # Factory methods

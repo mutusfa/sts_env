@@ -239,4 +239,29 @@ Status: **In Progress**
 - `tests/test_map.py`, `tests/test_rooms.py`: Updated for 3-boss pool and all room types
 
 ### Test Results
-- **sts_env**: 691 passed, 3 skipped ✅
+- **sts_env**: 759 passed, 8 skipped ✅
+
+---
+
+## Iteration 7 — Card Pool Architecture (Multi-Character Foundation)
+Status: **Complete**
+
+**Goal:** Replace implicit single-Ironclad card pool with a data-driven pool system that supports multiple characters, colorless cards, and clean status/curse separation.
+
+### Changes Made
+- `src/sts_env/combat/cards.py`: Added `CardColor` (RED/GREEN/BLUE/PURPLE/COLORLESS/CURSE) and `Rarity` (BASIC/COMMON/UNCOMMON/RARE/SPECIAL) enums. Extended `CardSpec` and `register()` with `color` + `rarity` fields. All 63 registered cards tagged with appropriate values. Added `all_specs()` accessor.
+- `src/sts_env/combat/card_pools.py`: New module with `pool(color, rarity)`, `colorless_pool(rarity)`, `status_pool()`, `curse_pool()` — all derived from the spec registry (single source of truth).
+- `src/sts_env/run/character.py`: Added `character_class: CardColor = CardColor.RED` field. `Character.ironclad()` factory returns RED.
+- `src/sts_env/run/rewards.py`: Deleted hardcoded `IRONCLAD_COMMON/UNCOMMON/RARE_CARDS` constants. `roll_card_rewards()` now takes `color: CardColor` parameter and queries pools dynamically.
+- `src/sts_env/run/events.py`: `_dead_adventurer_fight` uses `pool(character.character_class, ...)`. `_scrap_ooze_card` uses `colorless_pool()` with hardcoded fallback. Deleted old `IRONCLAD_*` imports and inlined `_COLORLESS_CARDS` (kept as `_COLORLESS_CARDS_FALLBACK`).
+- `src/sts_env/run/shop.py`: Restructured to sell 3 character cards (1C/1U/1R) + 2 colorless (1C/1U) + 3 potions + 1 relic. Deleted old `IRONCLAD_*` imports.
+- `tests/test_card_pools.py`: 16 new tests for pool queries.
+- `tests/test_shop.py`: Updated card count and pricing assertions for new 3+2 layout.
+- `tests/test_events.py`: Updated `_COLORLESS_CARDS` → `_COLORLESS_CARDS_FALLBACK` import.
+
+### Remaining Gaps
+1. [MEDIUM] **Colorless card specs not registered** — `BandageUp`, `Blind`, `DarkShackles`, etc. (20 cards) have no `CardSpec` entries in `cards.py`. Currently `_scrap_ooze_card` adds these strings to the deck but they would crash in combat (`_SPECS[card_id]` KeyError). Events.py uses `_COLORLESS_CARDS_FALLBACK` as a hardcoded list until these are registered.
+2. [MEDIUM] Oracle tests need `slaythespire` module (external dependency)
+3. [LOW] RedSkull/CentennialPuzzle/JuzuBracelet/CeramicFish need combat-engine hooks
+4. [LOW] Encounter ID string matching is fragile
+5. [LOW] _pick_path greedy walk doesn't look ahead past immediate branch

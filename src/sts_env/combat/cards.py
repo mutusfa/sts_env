@@ -42,6 +42,23 @@ class CardType(Enum):
     STATUS = auto()
 
 
+class CardColor(Enum):
+    RED = auto()        # Ironclad
+    GREEN = auto()      # Silent
+    BLUE = auto()       # Defect
+    PURPLE = auto()     # Watcher
+    COLORLESS = auto()
+    CURSE = auto()
+
+
+class Rarity(Enum):
+    BASIC = auto()      # Strike, Defend, Bash, AscendersBane
+    COMMON = auto()
+    UNCOMMON = auto()
+    RARE = auto()
+    SPECIAL = auto()    # status cards, event-only cards
+
+
 class TargetType(Enum):
     SINGLE_ENEMY = auto()
     ALL_ENEMIES = auto()
@@ -58,6 +75,8 @@ class CardSpec:
     cost: int
     card_type: CardType
     target: TargetType
+    color: CardColor = CardColor.RED
+    rarity: Rarity = Rarity.COMMON
     exhausts: bool = False
     playable: bool = True       # False for curses/statuses (AscendersBane, Dazed)
     ethereal: bool = False      # auto-exhaust at end of turn if still in hand
@@ -96,6 +115,8 @@ def register(
     cost: int,
     card_type: CardType,
     target: TargetType,
+    color: CardColor = CardColor.RED,
+    rarity: Rarity = Rarity.COMMON,
     exhausts: bool = False,
     playable: bool = True,
     ethereal: bool = False,
@@ -122,6 +143,8 @@ def register(
         cost=cost,
         card_type=card_type,
         target=target,
+        color=color,
+        rarity=rarity,
         exhausts=exhausts,
         playable=playable,
         ethereal=ethereal,
@@ -148,6 +171,11 @@ def register(
 def get_spec(card_id: str) -> CardSpec:
     base = card_id.rstrip("+")
     return _SPECS[base]
+
+
+def all_specs() -> dict[str, CardSpec]:
+    """Return a shallow copy of the full spec registry."""
+    return dict(_SPECS)
 
 
 def _apply_spec(
@@ -530,136 +558,144 @@ ST = CardType.STATUS
 SE = TargetType.SINGLE_ENEMY
 AE = TargetType.ALL_ENEMIES
 NO = TargetType.NONE
+R = CardColor.RED
+CL = CardColor.COLORLESS
+CU = CardColor.CURSE
+B = Rarity.BASIC
+CO = Rarity.COMMON
+U = Rarity.UNCOMMON
+RA = Rarity.RARE
+SP = Rarity.SPECIAL
 
 # --- Starter ---
-register("Strike", cost=1, card_type=A, target=SE, attack=6, upgrade={"attack": 3})
-register("Defend", cost=1, card_type=S, target=NO, block=5, upgrade={"block": 3})
-register("Bash",   cost=2, card_type=A, target=SE, attack=8, vulnerable=2,
+register("Strike", cost=1, card_type=A, target=SE, color=R, rarity=B, attack=6, upgrade={"attack": 3})
+register("Defend", cost=1, card_type=S, target=NO, color=R, rarity=B, block=5, upgrade={"block": 3})
+register("Bash",   cost=2, card_type=A, target=SE, color=R, rarity=B, attack=8, vulnerable=2,
          upgrade={"attack": 2, "vulnerable": 1})
 
 # --- Curse ---
-register("AscendersBane", cost=0, card_type=C, target=NO, playable=False)
+register("AscendersBane", cost=0, card_type=C, target=NO, color=CU, rarity=B, playable=False)
 
 # --- Status ---
-register("Slimed", cost=1, card_type=ST, target=NO, exhausts=True)
-register("Dazed",  cost=0, card_type=ST, target=NO, ethereal=True, playable=False)
-register("Wound",  cost=1, card_type=ST, target=NO, playable=False)
-register("Burn",   cost=1, card_type=ST, target=NO, playable=False, exhausts=True)
+register("Slimed", cost=1, card_type=ST, target=NO, color=CL, rarity=SP, exhausts=True)
+register("Dazed",  cost=0, card_type=ST, target=NO, color=CL, rarity=SP, ethereal=True, playable=False)
+register("Wound",  cost=1, card_type=ST, target=NO, color=CL, rarity=SP, playable=False)
+register("Burn",   cost=1, card_type=ST, target=NO, color=CL, rarity=SP, playable=False, exhausts=True)
 
 # --- Common Attacks ---
-register("Anger",         cost=0, card_type=A, target=SE, attack=6,
+register("Anger",         cost=0, card_type=A, target=SE, color=R, rarity=CO, attack=6,
          upgrade={"attack": 2}, custom=_anger_custom)
-register("Cleave",        cost=1, card_type=A, target=AE, attack=8,
+register("Cleave",        cost=1, card_type=A, target=AE, color=R, rarity=CO, attack=8,
          upgrade={"attack": 3})
-register("Clothesline",   cost=2, card_type=A, target=SE, attack=12, vulnerable=2,
+register("Clothesline",   cost=2, card_type=A, target=SE, color=R, rarity=CO, attack=12, vulnerable=2,
          upgrade={"attack": 2, "vulnerable": 1})
-register("Headbutt",      cost=1, card_type=A, target=SE, attack=9,
+register("Headbutt",      cost=1, card_type=A, target=SE, color=R, rarity=CO, attack=9,
          upgrade={"attack": 3}, custom=_headbutt_custom)
-register("IronWave",      cost=1, card_type=A, target=SE, attack=5, block=5,
+register("IronWave",      cost=1, card_type=A, target=SE, color=R, rarity=CO, attack=5, block=5,
          upgrade={"attack": 2, "block": 2})
-register("PommelStrike",  cost=1, card_type=A, target=SE, attack=9, draw=1,
+register("PommelStrike",  cost=1, card_type=A, target=SE, color=R, rarity=CO, attack=9, draw=1,
          upgrade={"attack": 1, "draw": 1})
-register("ThunderClap",   cost=1, card_type=A, target=AE, attack=7, vulnerable=1,
+register("ThunderClap",   cost=1, card_type=A, target=AE, color=R, rarity=CO, attack=7, vulnerable=1,
          upgrade={"attack": 2})
-register("TrueStrike",    cost=1, card_type=A, target=SE, attack=12,
+register("TrueStrike",    cost=1, card_type=A, target=SE, color=R, rarity=CO, attack=12,
          upgrade={"attack": 2})
-register("TwinStrike",    cost=1, card_type=A, target=SE, attack=5, hits=2,
+register("TwinStrike",    cost=1, card_type=A, target=SE, color=R, rarity=CO, attack=5, hits=2,
          upgrade={"attack": 2})
-register("WildStrike",    cost=1, card_type=A, target=SE, attack=12,
+register("WildStrike",    cost=1, card_type=A, target=SE, color=R, rarity=CO, attack=12,
          upgrade={"attack": 5}, custom=_wild_strike_custom)
-register("SwordBoomerang", cost=1, card_type=A, target=AE,
+register("SwordBoomerang", cost=1, card_type=A, target=AE, color=R, rarity=CO,
          custom=_sword_boomerang_custom)
 
 # --- Common Skills ---
-register("Armaments",  cost=1, card_type=S, target=NO, block=5,
+register("Armaments",  cost=1, card_type=S, target=NO, color=R, rarity=CO, block=5,
          upgrade={"block": 3}, custom=_armaments_custom)
-register("Flex",       cost=0, card_type=S, target=NO,
+register("Flex",       cost=0, card_type=S, target=NO, color=R, rarity=CO,
          self_strength=2, self_strength_eot_loss=2,
          upgrade={"self_strength": 2, "self_strength_eot_loss": 2})
-register("Havoc",      cost=1, card_type=S, target=NO, exhausts=True,
+register("Havoc",      cost=1, card_type=S, target=NO, color=R, rarity=CO, exhausts=True,
          custom=_havoc_custom)
-register("ShrugItOff", cost=1, card_type=S, target=NO, block=8, draw=1,
+register("ShrugItOff", cost=1, card_type=S, target=NO, color=R, rarity=CO, block=8, draw=1,
          upgrade={"block": 3, "draw": 1})
-register("WarCry",     cost=0, card_type=S, target=NO, exhausts=True, draw=1,
+register("WarCry",     cost=0, card_type=S, target=NO, color=R, rarity=CO, exhausts=True, draw=1,
          upgrade={"draw": 1})
 
 # --- Uncommon Attacks ---
-register("Carnage",        cost=2, card_type=A, target=SE, ethereal=True, attack=20,
+register("Carnage",        cost=2, card_type=A, target=SE, color=R, rarity=U, ethereal=True, attack=20,
          upgrade={"attack": 8})
-register("Dropkick",       cost=1, card_type=A, target=SE, attack=5,
+register("Dropkick",       cost=1, card_type=A, target=SE, color=R, rarity=U, attack=5,
          upgrade={"attack": 3}, custom=_dropkick_custom)
-register("Pummel",         cost=1, card_type=A, target=SE, exhausts=True,
+register("Pummel",         cost=1, card_type=A, target=SE, color=R, rarity=U, exhausts=True,
          attack=2, hits=4, upgrade={"hits": 1})
-register("Rampage",        cost=2, card_type=A, target=SE, attack=8,
+register("Rampage",        cost=2, card_type=A, target=SE, color=R, rarity=U, attack=8,
          upgrade={}, custom=_rampage_custom)
-register("RecklessCharge", cost=1, card_type=A, target=SE, attack=7,
+register("RecklessCharge", cost=1, card_type=A, target=SE, color=R, rarity=U, attack=7,
          upgrade={"attack": 4}, custom=_reckless_charge_custom)
-register("SearingBlow",    cost=2, card_type=A, target=SE, attack=12,
+register("SearingBlow",    cost=2, card_type=A, target=SE, color=R, rarity=U, attack=12,
          custom=_searing_blow_custom)
-register("SeverSoul",      cost=2, card_type=A, target=SE, exhausts=True, attack=16,
+register("SeverSoul",      cost=2, card_type=A, target=SE, color=R, rarity=U, exhausts=True, attack=16,
          upgrade={"attack": 6})
-register("Uppercut",       cost=2, card_type=A, target=SE, attack=13, vulnerable=1, weak=1,
+register("Uppercut",       cost=2, card_type=A, target=SE, color=R, rarity=U, attack=13, vulnerable=1, weak=1,
          upgrade={"attack": 3, "vulnerable": 1, "weak": 1})
-register("Whirlwind",      cost=-1, card_type=A, target=AE, attack=5, x_cost=True,
+register("Whirlwind",      cost=-1, card_type=A, target=AE, color=R, rarity=U, attack=5, x_cost=True,
          upgrade={"attack": 3})
 
 # --- Uncommon Skills ---
-register("Bloodletting", cost=0, card_type=S, target=NO, hp_loss=3, energy=2,
+register("Bloodletting", cost=0, card_type=S, target=NO, color=R, rarity=U, hp_loss=3, energy=2,
          upgrade={"energy": 1})
-register("BurningPact",  cost=1, card_type=S, target=NO,
+register("BurningPact",  cost=1, card_type=S, target=NO, color=R, rarity=U,
          custom=_burning_pact_custom)
-register("Disarm",       cost=1, card_type=S, target=SE, exhausts=True,
+register("Disarm",       cost=1, card_type=S, target=SE, color=R, rarity=U, exhausts=True,
          enemy_strength=-2, upgrade={"enemy_strength": -1})
-register("DualWield",    cost=1, card_type=S, target=NO, custom=_dual_wield_custom)
-register("Entrench",     cost=2, card_type=S, target=NO, upgrade={"cost": -1},
+register("DualWield",    cost=1, card_type=S, target=NO, color=R, rarity=U, custom=_dual_wield_custom)
+register("Entrench",     cost=2, card_type=S, target=NO, color=R, rarity=U, upgrade={"cost": -1},
          custom=_entrench_custom)
-register("FlameBarrier", cost=2, card_type=S, target=NO, block=12,
+register("FlameBarrier", cost=2, card_type=S, target=NO, color=R, rarity=U, block=12,
          upgrade={"block": 4})
-register("GhostArmor",   cost=1, card_type=S, target=NO, ethereal=True, block=10,
+register("GhostArmor",   cost=1, card_type=S, target=NO, color=R, rarity=U, ethereal=True, block=10,
          upgrade={"block": 3})
-register("PowerThrough", cost=1, card_type=S, target=NO, block=15,
+register("PowerThrough", cost=1, card_type=S, target=NO, color=R, rarity=U, block=15,
          upgrade={"block": 5}, custom=_power_through_custom)
-register("Rage",         cost=0, card_type=S, target=NO,
+register("Rage",         cost=0, card_type=S, target=NO, color=R, rarity=U,
          custom=lambda s, _h, _t, u: setattr(s.player_powers, 'rage_block', 3 + (2 if u else 0)))
-register("SecondWind",   cost=1, card_type=S, target=NO,
+register("SecondWind",   cost=1, card_type=S, target=NO, color=R, rarity=U,
          custom=_second_wind_custom)
-register("SeeingRed",    cost=1, card_type=S, target=NO, exhausts=True, energy=2,
+register("SeeingRed",    cost=1, card_type=S, target=NO, color=R, rarity=U, exhausts=True, energy=2,
          upgrade={"energy": 1})
-register("Sentinel",     cost=1, card_type=S, target=NO, ethereal=True, block=5,
+register("Sentinel",     cost=1, card_type=S, target=NO, color=R, rarity=U, ethereal=True, block=5,
          upgrade={"block": 3})
-register("ShockWave",    cost=2, card_type=S, target=AE, exhausts=True,
+register("ShockWave",    cost=2, card_type=S, target=AE, color=R, rarity=U, exhausts=True,
          vulnerable=3, weak=3, upgrade={"vulnerable": 1, "weak": 1})
-register("SpotWeakness", cost=1, card_type=S, target=SE, self_strength=3,
+register("SpotWeakness", cost=1, card_type=S, target=SE, color=R, rarity=U, self_strength=3,
          upgrade={"self_strength": 1})
-register("BattleTrance", cost=0, card_type=S, target=NO, draw=3,
+register("BattleTrance", cost=0, card_type=S, target=NO, color=R, rarity=U, draw=3,
          upgrade={"draw": 1})
 
 # --- Uncommon Powers ---
-register("FeelNoPain",  cost=1, card_type=P, target=NO,
+register("FeelNoPain",  cost=1, card_type=P, target=NO, color=R, rarity=U,
          custom=lambda s, _h, _t, u: setattr(s.player_powers, 'feel_no_pain', s.player_powers.feel_no_pain + 3 + (1 if u else 0)))
-register("Inflame",     cost=1, card_type=P, target=NO, self_strength=2,
+register("Inflame",     cost=1, card_type=P, target=NO, color=R, rarity=U, self_strength=2,
          upgrade={"self_strength": 1})
-register("Metallicize", cost=1, card_type=P, target=NO, metallicize=3,
+register("Metallicize", cost=1, card_type=P, target=NO, color=R, rarity=U, metallicize=3,
          upgrade={"metallicize": 1})
 
 # --- Rare Attacks ---
-register("Bludgeon", cost=3, card_type=A, target=SE, attack=32,
+register("Bludgeon", cost=3, card_type=A, target=SE, color=R, rarity=RA, attack=32,
          upgrade={"attack": 10})
-register("Feed",     cost=1, card_type=A, target=SE, attack=10,
+register("Feed",     cost=1, card_type=A, target=SE, color=R, rarity=RA, attack=10,
          upgrade={"attack": 5}, custom=_feed_custom)
 
 # --- Rare Skills ---
-register("Impervious", cost=2, card_type=S, target=NO, exhausts=True, block=30,
+register("Impervious", cost=2, card_type=S, target=NO, color=R, rarity=RA, exhausts=True, block=30,
          upgrade={"block": 10})
-register("Offering",   cost=0, card_type=S, target=NO, exhausts=True,
+register("Offering",   cost=0, card_type=S, target=NO, color=R, rarity=RA, exhausts=True,
          hp_loss=6, energy=2, draw=3,
          upgrade={"hp_loss": -4, "energy": 1, "draw": 2})
-register("Berserk",    cost=0, card_type=S, target=NO, self_vulnerable=2,
+register("Berserk",    cost=0, card_type=S, target=NO, color=R, rarity=RA, self_vulnerable=2,
          upgrade={},
          custom=lambda s, _h, _t, u: setattr(s.player_powers, 'berserk_energy', s.player_powers.berserk_energy + 1 + (1 if u else 0)))
 
 # --- Rare Powers ---
-register("Brutality",   cost=0, card_type=P, target=NO,
+register("Brutality",   cost=0, card_type=P, target=NO, color=R, rarity=RA,
          custom=lambda s, _h, _t, _u: setattr(s.player_powers, 'brutality', 1))
 def _corruption_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> None:
     """Apply Corruption: all skills cost 0 and are exhausted when played."""
@@ -675,15 +711,15 @@ def _corruption_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int)
     # Subscribe to stamp future skill spawns
     subscribe(state, Event.CARD_CREATED, "corruption_stamp_skill", "player")
 
-register("Corruption",  cost=3, card_type=P, target=NO, upgrade={"cost": -1},
+register("Corruption",  cost=3, card_type=P, target=NO, color=R, rarity=RA, upgrade={"cost": -1},
          custom=_corruption_custom)
-register("DarkEmbrace", cost=2, card_type=P, target=NO,
+register("DarkEmbrace", cost=2, card_type=P, target=NO, color=R, rarity=RA,
          custom=lambda s, _h, _t, _u: setattr(s.player_powers, 'dark_embrace', s.player_powers.dark_embrace + 1))
-register("DemonForm",   cost=3, card_type=P, target=NO,
+register("DemonForm",   cost=3, card_type=P, target=NO, color=R, rarity=RA,
          custom=lambda s, _h, _t, u: setattr(s.player_powers, 'demon_form', 2 + (1 if u else 0)))
-register("DoubleTap",   cost=1, card_type=P, target=NO,
+register("DoubleTap",   cost=1, card_type=P, target=NO, color=R, rarity=RA,
          custom=lambda s, _h, _t, u: setattr(s.player_powers, 'double_tap', 1 + (1 if u else 0)))
-register("Juggernaut",  cost=2, card_type=P, target=NO,
+register("Juggernaut",  cost=2, card_type=P, target=NO, color=R, rarity=RA,
          custom=lambda s, _h, _t, u: setattr(s.player_powers, 'juggernaut', 5 + (2 if u else 0)))
-register("LimitBreak",  cost=1, card_type=P, target=NO, exhausts=True,
+register("LimitBreak",  cost=1, card_type=P, target=NO, color=R, rarity=RA, exhausts=True,
          custom=_limit_break_custom)
