@@ -100,6 +100,7 @@ def _build_elite(
                 player_hp=player_hp,
                 player_max_hp=player_max_hp,
                 potions=potions,
+                is_elite=True,
             )
     raise ValueError(f"Unknown elite: {encounter_id}")
 

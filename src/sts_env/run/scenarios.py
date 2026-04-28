@@ -25,9 +25,11 @@ _ELITE_POOLS = [
     (["Sentry", "Sentry", "Sentry"], "Three Sentries"),
 ]
 
-# Boss encounter pool
+# Boss encounter pool (matches builder.py _ENCOUNTER_FACTORY_MAP keys)
 _BOSS_POOLS = [
     ("slime_boss", "Slime Boss"),
+    ("guardian", "Guardian"),
+    ("hexaghost", "Hexaghost"),
 ]
 
 
@@ -99,7 +101,7 @@ def act1_encounters(seed: int) -> list[tuple[str, str]]:
       - 3 easy hallway fights (from Act 1 weak pool)
       - 2 hard hallway fights (from Act 1 strong pool, weighted)
       - 2 elite fights (Gremlin Nob / Lagavulin / 3 Sentries)
-      - 1 boss fight (Slime Boss)
+      - 1 boss fight (Slime Boss / Guardian / Hexaghost)
 
     Order: easy, easy, hard, elite, easy, hard, elite, boss.
     This mirrors typical StS Act 1 pacing.
@@ -117,8 +119,9 @@ def act1_encounters(seed: int) -> list[tuple[str, str]]:
     # Pick 2 elites
     elite_encounters = [_pick_elite(rng)[1] for _ in range(2)]
 
-    # Boss is always Slime Boss (underscore matches builder factory map)
-    boss_encounter = "slime_boss"
+    # Boss is randomly picked from the boss pool
+    boss_idx = rng.randint(0, len(_BOSS_POOLS) - 1)
+    boss_encounter = _BOSS_POOLS[boss_idx][0]
 
     return [
         ("easy", easy_encounters[0]),
