@@ -209,20 +209,24 @@ class TestDeterminism:
 
 class TestEncounterSelection:
     def test_rest_returns_none(self):
-        rng = RNG(0)
-        assert get_encounter_for_room(RoomType.REST, rng) is None
+        from sts_env.run.encounter_queue import EncounterQueue
+        queue = EncounterQueue(RNG(0))
+        assert get_encounter_for_room(RoomType.REST, queue) is None
 
     def test_monster_returns_weak_encounter(self):
-        rng = RNG(42)
-        encounter = get_encounter_for_room(RoomType.MONSTER, rng)
+        from sts_env.run.encounter_queue import EncounterQueue
+        queue = EncounterQueue(RNG(42))
+        encounter = get_encounter_for_room(RoomType.MONSTER, queue)
         assert encounter is not None
+        # First encounter from the queue is always weak (easy pool)
         assert encounter in [
             "cultist", "jaw_worm", "two_louses", "small_slimes"
         ]
 
     def test_elite_returns_elite_encounter(self):
-        rng = RNG(42)
-        encounter = get_encounter_for_room(RoomType.ELITE, rng)
+        from sts_env.run.encounter_queue import EncounterQueue
+        queue = EncounterQueue(RNG(42))
+        encounter = get_encounter_for_room(RoomType.ELITE, queue)
         assert encounter is not None
         assert encounter in [
             "Gremlin Nob",
@@ -231,16 +235,18 @@ class TestEncounterSelection:
         ]
 
     def test_boss_returns_boss_encounter(self):
-        rng = RNG(42)
-        encounter = get_encounter_for_room(RoomType.BOSS, rng)
+        from sts_env.run.encounter_queue import EncounterQueue
+        queue = EncounterQueue(RNG(42))
+        encounter = get_encounter_for_room(RoomType.BOSS, queue)
         assert encounter in ["slime_boss", "guardian", "hexaghost"]
 
     def test_encounter_determinism(self):
+        from sts_env.run.encounter_queue import EncounterQueue
         for _ in range(20):
-            rng1 = RNG(77)
-            rng2 = RNG(77)
-            e1 = get_encounter_for_room(RoomType.MONSTER, rng1)
-            e2 = get_encounter_for_room(RoomType.MONSTER, rng2)
+            queue1 = EncounterQueue(RNG(77))
+            queue2 = EncounterQueue(RNG(77))
+            e1 = get_encounter_for_room(RoomType.MONSTER, queue1)
+            e2 = get_encounter_for_room(RoomType.MONSTER, queue2)
             assert e1 == e2
 
 

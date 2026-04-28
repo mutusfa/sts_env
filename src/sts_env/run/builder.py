@@ -30,7 +30,8 @@ def build_combat(
     Parameters
     ----------
     encounter_type:
-        "easy", "hard", "boss", or "elite".
+        "easy", "hard", "monster", "boss", or "elite".
+        "monster" is treated identically to "easy"/"hard" (hallway fight).
     encounter_id:
         String identifier from scenario3_encounters (e.g. "cultist",
         "red_slaver", "Lagavulin").

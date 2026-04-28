@@ -92,24 +92,28 @@ class TestMapGeneration:
 
 class TestEncounterSelection:
     def test_monster_returns_encounter(self):
-        rng = RNG(42)
-        enc = get_encounter_for_room(RoomType.MONSTER, rng)
+        from sts_env.run.encounter_queue import EncounterQueue
+        queue = EncounterQueue(RNG(42))
+        enc = get_encounter_for_room(RoomType.MONSTER, queue)
         assert enc is not None
         assert isinstance(enc, str)
 
     def test_elite_returns_encounter(self):
-        rng = RNG(42)
-        enc = get_encounter_for_room(RoomType.ELITE, rng)
+        from sts_env.run.encounter_queue import EncounterQueue
+        queue = EncounterQueue(RNG(42))
+        enc = get_encounter_for_room(RoomType.ELITE, queue)
         assert enc is not None
 
     def test_boss_returns_act1_boss(self):
-        rng = RNG(42)
-        enc = get_encounter_for_room(RoomType.BOSS, rng)
+        from sts_env.run.encounter_queue import EncounterQueue
+        queue = EncounterQueue(RNG(42))
+        enc = get_encounter_for_room(RoomType.BOSS, queue)
         assert enc in ["slime_boss", "guardian", "hexaghost"]
 
     def test_rest_returns_none(self):
-        rng = RNG(42)
-        enc = get_encounter_for_room(RoomType.REST, rng)
+        from sts_env.run.encounter_queue import EncounterQueue
+        queue = EncounterQueue(RNG(42))
+        enc = get_encounter_for_room(RoomType.REST, queue)
         assert enc is None
 
 

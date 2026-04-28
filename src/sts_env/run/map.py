@@ -492,55 +492,31 @@ def generate_act1_map(seed: int, ascension: int = 0) -> StSMap:
 # Encounter selection helpers
 # ---------------------------------------------------------------------------
 
-_ACT1_WEAK_ENCOUNTERS = [
-    "cultist",
-    "jaw_worm",
-    "two_louses",
-    "small_slimes",
-]
-
-_ACT1_ELITE_ENCOUNTERS = [
-    "Gremlin Nob",
-    "Lagavulin",
-    "Three Sentries",
-]
-
-_ACT1_STRONG_ENCOUNTERS = [
-    "gremlin_gang",
-    "lots_of_slimes",
-    "red_slaver",
-    "exordium_thugs",
-    "exordium_wildlife",
-    "blue_slaver",
-    "looter",
-    "large_slime",
-    "three_louse",
-    "two_fungi_beasts",
-]
-
-_ACT1_STRONG_WEIGHTS = [1.0, 1.0, 1.0, 1.5, 1.5, 2.0, 2.0, 2.0, 2.0, 2.0]
-_ACT1_STRONG_TOTAL = sum(_ACT1_STRONG_WEIGHTS)
-
-_ACT1_BOSS_ENCOUNTERS = ["slime_boss", "guardian", "hexaghost"]
-
-
-def get_encounter_for_room(room_type: RoomType, rng: RNG) -> str | None:
+def get_encounter_for_room(
+    room_type: RoomType,
+    encounter_queue: "EncounterQueue",
+) -> str | None:
     """Pick an encounter ID string for the given room type.
+
+    Uses the pre-generated encounter queue for faithful StS behaviour:
+    hallway monsters are consumed sequentially from a flat list (weak first,
+    then strong), elites from a separate queue, and the boss was pre-selected.
 
     Returns ``None`` for REST/SHOP/EVENT/TREASURE rooms (non-combat).
     """
+    from .encounter_queue import EncounterQueue  # noqa: F811
+
     if room_type == RoomType.REST:
         return None
 
     if room_type == RoomType.MONSTER:
-        idx = rng.randint(0, len(_ACT1_WEAK_ENCOUNTERS) - 1)
-        return _ACT1_WEAK_ENCOUNTERS[idx]
+        return encounter_queue.next_monster()
 
     if room_type == RoomType.ELITE:
-        return _ACT1_ELITE_ENCOUNTERS[rng.randint(0, len(_ACT1_ELITE_ENCOUNTERS) - 1)]
+        return encounter_queue.next_elite()
 
     if room_type == RoomType.BOSS:
-        return rng.choice(_ACT1_BOSS_ENCOUNTERS)
+        return encounter_queue.get_boss()
 
     # EVENT / SHOP / TREASURE — handled by runner, not encounter factory
     return None

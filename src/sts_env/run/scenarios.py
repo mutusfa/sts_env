@@ -25,12 +25,7 @@ _ELITE_POOLS = [
     (["Sentry", "Sentry", "Sentry"], "Three Sentries"),
 ]
 
-# Boss encounter pool (matches builder.py _ENCOUNTER_FACTORY_MAP keys)
-_BOSS_POOLS = [
-    ("slime_boss", "Slime Boss"),
-    ("guardian", "Guardian"),
-    ("hexaghost", "Hexaghost"),
-]
+# Boss encounter pool is now managed by EncounterQueue (encounter_queue.py)
 
 
 def _pick_elite(rng: RNG) -> tuple[str | list[str], str]:
@@ -97,31 +92,29 @@ def act1_encounters(seed: int) -> list[tuple[str, str]]:
       - encounter_type: "easy" | "hard" | "elite" | "boss"
       - encounter_id: a string identifier for the encounter
 
+    Uses a pre-generated EncounterQueue for faithful encounter ordering:
+    first 3 hallway fights are weak (easy), subsequent ones are strong (hard).
+    Elites are consumed from a separate queue.
+
     Composition (8 floors):
-      - 3 easy hallway fights (from Act 1 weak pool)
-      - 2 hard hallway fights (from Act 1 strong pool, weighted)
-      - 2 elite fights (Gremlin Nob / Lagavulin / 3 Sentries)
-      - 1 boss fight (Slime Boss / Guardian / Hexaghost)
+      - 3 easy hallway fights (from the front of the monster queue)
+      - 2 hard hallway fights (further in the monster queue)
+      - 2 elite fights (from the elite queue)
+      - 1 boss fight (pre-selected)
 
     Order: easy, easy, hard, elite, easy, hard, elite, boss.
     This mirrors typical StS Act 1 pacing.
     """
+    from .encounter_queue import EncounterQueue
     rng = RNG(seed ^ 0xA7C1B020)  # separate seed for act1 composition
+    queue = EncounterQueue(rng)
 
-    weak_pool = list(_ACT1_WEAK_FACTORIES)
-
-    # Pick 3 easy encounters
-    easy_encounters = [_pick_easy(rng, weak_pool) for _ in range(3)]
-
-    # Pick 2 hard encounters
-    hard_encounters = [_pick_hard(rng) for _ in range(2)]
-
-    # Pick 2 elites
-    elite_encounters = [_pick_elite(rng)[1] for _ in range(2)]
-
-    # Boss is randomly picked from the boss pool
-    boss_idx = rng.randint(0, len(_BOSS_POOLS) - 1)
-    boss_encounter = _BOSS_POOLS[boss_idx][0]
+    # Consume encounters from the queue in a typical StS pacing order.
+    # The first 3 from the monster queue are weak, everything after is strong.
+    easy_encounters = [queue.next_monster() for _ in range(3)]
+    hard_encounters = [queue.next_monster() for _ in range(2)]
+    elite_encounters = [queue.next_elite() for _ in range(2)]
+    boss_encounter = queue.get_boss()
 
     return [
         ("easy", easy_encounters[0]),
