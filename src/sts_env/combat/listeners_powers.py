@@ -54,16 +54,14 @@ def _juggernaut(state: CombatState, owner: Owner, payload: dict) -> None:
 @listener(Event.CARD_PLAYED, "rage", subscriptions=[(POWER_SUBSCRIPTIONS, "rage_block")])
 def _rage(state: CombatState, owner: Owner, payload: dict) -> None:
     from .cards import CardType
+    from .engine import gain_player_block
     powers = state.player_powers
     card = payload.get("card")
     if card is None or card.spec.card_type != CardType.ATTACK:
         return
     if powers.rage_block <= 0:
         return
-    block_gain = powers.rage_block
-    state.player_block += block_gain
-    from .events import emit
-    emit(state, Event.BLOCK_GAINED, "player", amount=block_gain)
+    gain_player_block(state, powers.rage_block)
 
 
 # ---------------------------------------------------------------------------
@@ -90,9 +88,10 @@ def _dark_embrace(state: CombatState, owner: Owner, payload: dict) -> None:
 
 @listener(Event.CARD_EXHAUSTED, "feel_no_pain", subscriptions=[(POWER_SUBSCRIPTIONS, "feel_no_pain")])
 def _feel_no_pain(state: CombatState, owner: Owner, payload: dict) -> None:
+    from .engine import gain_player_block
     if state.player_powers.feel_no_pain <= 0:
         return
-    state.player_block += state.player_powers.feel_no_pain
+    gain_player_block(state, state.player_powers.feel_no_pain)
 
 
 # ---------------------------------------------------------------------------
@@ -160,11 +159,12 @@ def _berserk(state: CombatState, owner: Owner, payload: dict) -> None:
 
 @listener(Event.TURN_END, "metallicize", subscriptions=[(POWER_SUBSCRIPTIONS, "metallicize")])
 def _metallicize(state: CombatState, owner: Owner, payload: dict) -> None:
+    from .engine import gain_player_block
     powers = _get_powers(state, owner)
     if powers is None or powers.metallicize <= 0:
         return
     if owner == "player":
-        state.player_block += powers.metallicize
+        gain_player_block(state, powers.metallicize)
 
 
 @listener(Event.TURN_END, "strength_loss", subscriptions=[(POWER_SUBSCRIPTIONS, "strength_loss_eot")])

@@ -96,7 +96,8 @@ def _explosive_potion(state: "CombatState", _ti: int) -> None:
 @potion("BlockPotion", TargetType.NONE)
 def _block_potion(state: "CombatState", _ti: int) -> None:
     """Gain 12 block (flat, not affected by Frail or Dexterity)."""
-    state.player_block += 12
+    from .engine import gain_player_block
+    gain_player_block(state, 12)
 
 
 @potion("EnergyPotion", TargetType.NONE)

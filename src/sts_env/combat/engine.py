@@ -89,6 +89,19 @@ def damage_player(state: CombatState, raw_dmg: int) -> None:
         emit(state, Event.HP_LOSS, "player", hp_before=hp_before)
 
 
+def gain_player_block(state: CombatState, amount: int) -> None:
+    """Add block to the player and emit BLOCK_GAINED.
+
+    This centralizes block gain logic so that all block gains (cards, powers,
+    potions) consistently emit the BLOCK_GAINED event for listeners like
+    Juggernaut.
+    """
+    if amount <= 0:
+        return
+    state.player_block += amount
+    emit(state, Event.BLOCK_GAINED, "player", amount=amount)
+
+
 # Large slime → medium slime spawned on split
 # Value is either a single name (both slots get the same) or a tuple of two
 # names (slot i gets the first, slot i+1 gets the second).
@@ -266,21 +279,7 @@ class Combat:
             raise RuntimeError("Combat is already done.")
 
         if action.action_type == ActionType.PLAY_CARD:
-            card = state.piles.hand[action.hand_index]
-            block_before = state.player_block
             _play_card(state, action.hand_index, action.target_index)
-            block_gained = state.player_block - block_before
-
-            # Emit CARD_PLAYED for subscribed listeners (Rage, Gremlin Nob)
-            emit(state, Event.CARD_PLAYED, "player", card=card)
-
-            # Emit BLOCK_GAINED if block was gained (Juggernaut)
-            if block_gained > 0:
-                emit(state, Event.BLOCK_GAINED, "player", amount=block_gained)
-
-            # Triggered exhaust effects (Dark Embrace, Feel No Pain, Sentinel)
-            if card.effective_exhausts():
-                emit(state, Event.CARD_EXHAUSTED, "player", card=card)
             _drain_stack(state)
 
         elif action.action_type == ActionType.END_TURN:

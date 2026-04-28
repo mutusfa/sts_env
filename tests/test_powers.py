@@ -467,3 +467,83 @@ def test_double_tap_resets_at_end_of_turn():
     combat._state.player_powers.double_tap = 1
     combat.step(Action.end_turn())
     assert combat._state.player_powers.double_tap == 0
+
+
+# ---------------------------------------------------------------------------
+# BLOCK_GAINED coverage tests (TDD for refactor)
+# ---------------------------------------------------------------------------
+
+
+def test_metallicize_eot_triggers_juggernaut():
+    """Metallicize gaining block at EOT should trigger Juggernaut."""
+    from sts_env.combat.events import subscribe
+    from sts_env.combat.listeners_powers import POWER_SUBSCRIPTIONS
+
+    combat = Combat(
+        deck=IRONCLAD_STARTER, enemies=["JawWorm"], seed=42
+    )
+    obs = combat.reset()
+    combat._state.player_powers.juggernaut = 5
+    combat._state.player_powers.metallicize = 3
+
+    # Manually subscribe since we're setting powers after reset
+    for event, handler_name in POWER_SUBSCRIPTIONS.get("juggernaut", []):
+        subscribe(combat._state, event, handler_name, "player")
+    for event, handler_name in POWER_SUBSCRIPTIONS.get("metallicize", []):
+        subscribe(combat._state, event, handler_name, "player")
+
+    enemy_hp_before = combat._state.enemies[0].hp
+    combat.step(Action.end_turn())
+    # Juggernaut should have dealt 5 damage when Metallicize added 3 block
+    assert combat._state.enemies[0].hp == enemy_hp_before - 5
+
+
+def test_feel_no_pain_triggers_juggernaut():
+    """Feel No Pain gaining block on exhaust should trigger Juggernaut."""
+    from sts_env.combat.events import subscribe
+    from sts_env.combat.listeners_powers import POWER_SUBSCRIPTIONS
+
+    # Use ShockWave which exhausts on play
+    combat = Combat(
+        deck=["ShockWave"], enemies=["JawWorm"], seed=42
+    )
+    obs = combat.reset()
+    combat._state.player_powers.juggernaut = 5
+    combat._state.player_powers.feel_no_pain = 3
+
+    # Manually subscribe since we're setting powers after reset
+    for event, handler_name in POWER_SUBSCRIPTIONS.get("juggernaut", []):
+        subscribe(combat._state, event, handler_name, "player")
+    for event, handler_name in POWER_SUBSCRIPTIONS.get("feel_no_pain", []):
+        subscribe(combat._state, event, handler_name, "player")
+
+    enemy_hp_before = combat._state.enemies[0].hp
+    # Play ShockWave (exhausts on play) which triggers Feel No Pain
+    combat.step(Action.play_card(0, 0))
+    # ShockWave deals 0 damage and applies 3 vulnerable
+    # Feel No Pain adds 3 block, triggering Juggernaut for 5 damage
+    # But enemy has vulnerable=3, so Juggernaut deals floor(5 * 1.5) = 7 damage
+    assert combat._state.enemies[0].hp == enemy_hp_before - 7
+
+
+def test_block_potion_triggers_juggernaut():
+    """Block Potion gaining block should trigger Juggernaut."""
+    from sts_env.combat.events import subscribe
+    from sts_env.combat.listeners_powers import POWER_SUBSCRIPTIONS
+
+    combat = Combat(
+        deck=IRONCLAD_STARTER, enemies=["JawWorm"], seed=42
+    )
+    obs = combat.reset()
+    combat._state.player_powers.juggernaut = 5
+
+    # Manually subscribe since we're setting powers after reset
+    for event, handler_name in POWER_SUBSCRIPTIONS.get("juggernaut", []):
+        subscribe(combat._state, event, handler_name, "player")
+
+    # Add BlockPotion to potions (potions are stored as strings)
+    combat._state.potions.append("BlockPotion")
+    enemy_hp_before = combat._state.enemies[0].hp
+    combat.step(Action.use_potion(0, 0))
+    # Juggernaut should have dealt 5 damage when BlockPotion added 12 block
+    assert combat._state.enemies[0].hp == enemy_hp_before - 5

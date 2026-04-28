@@ -210,8 +210,11 @@ def _apply_spec(
 
     # 5. Player block
     if spec.block:
-        state.player_block += gain_block(
-            state.player_powers, spec.block + u.get("block", 0)
+        from .engine import gain_player_block
+        gain_player_block(
+            state, gain_block(
+                state.player_powers, spec.block + u.get("block", 0)
+            )
         )
 
     # 6. Player self-buffs
@@ -279,6 +282,14 @@ def play_card(state: "CombatState", hand_index: int, target_index: int) -> None:
         state.piles.move_to_exhaust(played_card)
     else:
         state.piles.move_to_discard(played_card)
+
+    # Emit CARD_PLAYED for subscribed listeners (Rage, Gremlin Nob)
+    from .events import emit, Event
+    emit(state, Event.CARD_PLAYED, "player", card=played_card)
+
+    # Emit CARD_EXHAUSTED for triggered effects (Dark Embrace, Feel No Pain, Sentinel)
+    if played_card.effective_exhausts():
+        emit(state, Event.CARD_EXHAUSTED, "player", card=played_card)
 
 
 # ---------------------------------------------------------------------------
@@ -407,7 +418,8 @@ def _second_wind_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int)
     for card in to_exhaust:
         state.piles.hand.remove(card)
         state.piles.move_to_exhaust(card)
-    state.player_block += block_per * count
+    from .engine import gain_player_block
+    gain_player_block(state, block_per * count)
 
 
 def _searing_blow_custom(state: "CombatState", _hi: int, _ti: int, upgrade_count: int) -> None:
