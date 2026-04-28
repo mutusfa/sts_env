@@ -70,7 +70,7 @@ _register(
 # RedSkull: +3 Strength while HP <= 50% (combat-internal, needs engine hook)
 _register(RelicSpec("RedSkull"))
 
-# CentennialPuzzle: draw 1 card first time you're attacked each combat (combat-internal)
+# CentennialPuzzle: draw 3 cards first time you lose HP each combat (combat-internal)
 _register(RelicSpec("CentennialPuzzle"))
 
 # JuzuBracelet: normal enemies no longer attack (combat-internal — simplifies encounters)
@@ -90,7 +90,7 @@ _register(RelicSpec("CeramicFish"))
 # TinyHouse: gain 50 gold, +3 max HP, gain 5 cards (simplified: just gold + HP)
 _register(RelicSpec("TinyHouse"))
 
-# BustedCrown: +1 energy per turn, but card rewards cost 50% more (combat-internal)
+# BustedCrown: +1 energy per turn, but card rewards offer 1 card instead of 3 (combat-internal + run-layer)
 _register(RelicSpec("BustedCrown"))
 
 # CoffeeDripper: can't rest at rest sites (affects rest site logic)
@@ -101,6 +101,24 @@ _register(RelicSpec("FusionHammer"))
 
 # RingOfSerpents: draw 1 additional card each turn (combat-internal)
 _register(RelicSpec("RingOfSerpents"))
+
+# Anchor: gain 10 block at start of combat (combat-internal)
+_register(RelicSpec("Anchor"))
+
+# BagOfMarbles: apply 1 Vulnerable to all enemies at start of combat (combat-internal)
+_register(RelicSpec("BagOfMarbles"))
+
+# Lantern: gain 1 energy at start of combat (combat-internal)
+_register(RelicSpec("Lantern"))
+
+# Vajra: gain 1 strength at start of combat (combat-internal)
+_register(RelicSpec("Vajra"))
+
+# PreservedInsect: reduce enemy HP by 25% for elite encounters (combat-internal)
+_register(RelicSpec("PreservedInsect"))
+
+# ToyOrnithopter: heal 5 HP when a potion is used (combat-internal)
+_register(RelicSpec("ToyOrnithopter"))
 
 
 # ---------------------------------------------------------------------------

@@ -11,7 +11,7 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
-from ..combat.card_pools import colorless_pool, pool
+from ..combat.card_pools import colorless_pool, curse_pool, pool
 from ..combat.cards import CardColor, Rarity
 from ..combat.rng import RNG
 
@@ -55,9 +55,13 @@ def get_event(event_id: str) -> EventSpec:
     return _EVENTS[event_id]
 
 
-def random_act1_event(rng: RNG) -> EventSpec:
-    """Pick a random Act 1 event."""
-    keys = list(_EVENTS.keys())
+def random_act1_event(rng: RNG, seen_events: list[str] | None = None) -> EventSpec:
+    """Pick a random Act 1 event, excluding already-seen events."""
+    exclude = set(seen_events) if seen_events else set()
+    keys = [k for k in _EVENTS if k not in exclude]
+    if not keys:
+        # All events seen — allow repeats (shouldn't happen in normal play)
+        keys = list(_EVENTS.keys())
     return _EVENTS[rng.choice(keys)]
 
 
@@ -82,24 +86,19 @@ _COMMON_RELICS: list[str] = [
     "BronzeScales",
     "CentennialPuzzle",
     "CeramicFish",
-    "DreamCatcher",
     "HappyFlower",
     "JuzuBracelet",
     "Lantern",
-    "MawBank",
-    "MealTicket",
     "Nunchaku",
+    "Orichalcum",
     "OrnamentalFan",
-    "Pantograph",
-    "PenNib",
-    "QuestionCard",
+    "PreservedInsect",
     "RedSkull",
     "RegalPillow",
-    "SmilingMask",
+    "Shuriken",
     "Strawberry",
+    "Sundial",
     "TheBoot",
-    "TinyChest",
-    "ToyOrnithopter",
     "Vajra",
     "WarPaint",
     "Whetstone",
@@ -223,7 +222,7 @@ def _golden_idol_flowers(character: "Character", rng: RNG) -> str:
     heal_amt = max(1, math.floor(missing * 0.25))
     character.heal(heal_amt)
     relic = rng.choice(_COMMON_RELICS)
-    character.relics.append(relic)
+    character.add_relic(relic)
     return f"Healed {heal_amt} HP.  Obtained {relic}."
 
 
@@ -448,6 +447,170 @@ register_event(
             EventChoice(
                 label="Lose 3 gold.",
                 effect=_scrap_ooze_pay,
+            ),
+        ],
+    )
+)
+
+
+# --- Shining Light ----------------------------------------------------------
+
+
+def _shining_light_upgrade(character: "Character", rng: RNG) -> str:
+    upgraded = []
+    for _ in range(2):
+        result = _upgrade_random_card(character, rng)
+        if result is not None:
+            upgraded.append(result)
+    if not upgraded:
+        return "No cards to upgrade."
+    return f"Upgraded {', '.join(upgraded)}."
+
+
+def _shining_light_damage(character: "Character", rng: RNG) -> str:
+    damage = 7
+    character.player_hp = max(0, character.player_hp - damage)
+    return f"Took {damage} damage."
+
+
+register_event(
+    EventSpec(
+        event_id="Shining Light",
+        description=(
+            "A brilliant light shines through the canopy.  You may step into "
+            "it to empower your cards or step away to avoid potential harm."
+        ),
+        choices=[
+            EventChoice(
+                label="Step into the light.  Upgrade 2 random cards.",
+                effect=_shining_light_upgrade,
+            ),
+            EventChoice(
+                label="Step away.  Take 7 damage.",
+                effect=_shining_light_damage,
+            ),
+        ],
+    )
+)
+
+
+# --- Bonfire ----------------------------------------------------------------
+
+
+def _bonfire_upgrade(character: "Character", rng: RNG) -> str:
+    from .rooms import _best_upgrade_target
+
+    target = _best_upgrade_target(character)
+    if target is None:
+        return "No cards to upgrade."
+    idx = character.deck.index(target)
+    character.deck[idx] = target + "+"
+    _lose_max_hp(character, 5)
+    return f"Upgraded {target}.  Lost 5 Max HP."
+
+
+def _bonfire_leave(character: "Character", rng: RNG) -> str:
+    return "You leave the bonfire burning."
+
+
+register_event(
+    EventSpec(
+        event_id="Bonfire",
+        description=(
+            "A mystical bonfire crackles before you.  You may toss a fragment "
+            "of your life essence into the flames to strengthen a card."
+        ),
+        choices=[
+            EventChoice(
+                label="Upgrade a card.  Lose 5 Max HP.",
+                effect=_bonfire_upgrade,
+            ),
+            EventChoice(
+                label="Leave.",
+                effect=_bonfire_leave,
+            ),
+        ],
+    )
+)
+
+
+# --- Wing Statue ------------------------------------------------------------
+
+
+def _wing_statue_remove(character: "Character", rng: RNG) -> str:
+    candidates = [c for c in character.deck if c in ("Strike", "Strike+", "Defend", "Defend+")]
+    if not candidates:
+        return "No Strike or Defend cards to remove."
+    card = rng.choice(candidates)
+    character.deck.remove(card)
+    return f"Removed {card} from deck."
+
+
+def _wing_statue_leave(character: "Character", rng: RNG) -> str:
+    return "You leave the statue undisturbed."
+
+
+register_event(
+    EventSpec(
+        event_id="Wing Statue",
+        description=(
+            "A winged statue radiates a purifying aura.  It offers to strip "
+            "away a basic defensive or offensive instinct from your mind."
+        ),
+        choices=[
+            EventChoice(
+                label="Remove a Strike or Defend from your deck.",
+                effect=_wing_statue_remove,
+            ),
+            EventChoice(
+                label="Leave.",
+                effect=_wing_statue_leave,
+            ),
+        ],
+    )
+)
+
+
+# --- Wheel of Change ---------------------------------------------------------
+
+
+def _wheel_of_change_spin(character: "Character", rng: RNG) -> str:
+    roll = rng.randint(1, 5)
+    if roll == 1:
+        character.gold += 50
+        return "The wheel lands on gold!  Gained 50 gold."
+    elif roll == 2:
+        curses = curse_pool()
+        if curses:
+            curse = rng.choice(curses)
+            character.add_card(curse)
+            return f"The wheel curses you!  Obtained {curse}."
+        return "The wheel spins… but nothing happens."
+    elif roll == 3:
+        card_pool_list = (
+            pool(character.character_class, Rarity.COMMON)
+            + pool(character.character_class, Rarity.UNCOMMON)
+        )
+        if card_pool_list:
+            card = rng.choice(card_pool_list)
+            character.add_card(card)
+            return f"The wheel grants a card!  Obtained {card}."
+        return "The wheel spins… but nothing happens."
+    else:
+        return "The wheel spins… nothing happens."
+
+
+register_event(
+    EventSpec(
+        event_id="Wheel of Change",
+        description=(
+            "A massive wheel stands before you, covered in cryptic symbols. "
+            "You may spin it and let fate decide your reward… or punishment."
+        ),
+        choices=[
+            EventChoice(
+                label="Spin the wheel.",
+                effect=_wheel_of_change_spin,
             ),
         ],
     )

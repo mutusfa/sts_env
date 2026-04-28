@@ -46,25 +46,39 @@ REMOVE_CARD_COST = 75  # flat cost per removal (simplified)
 # ---------------------------------------------------------------------------
 
 SHOP_RELIC_POOL: list[str] = [
+    "Anchor",
+    "BagOfMarbles",
     "BagOfPreparation",
+    "BloodVial",
     "BlueCandle",
-    "BronzeBlade",
+    "BronzeScales",
+    "CentennialPuzzle",
     "CeramicFish",
     "DreamCatcher",
     "FrozenEgg",
     "HappyFlower",
     "InkBottle",
+    "JuzuBracelet",
     "Lantern",
     "MawBank",
     "MealTicket",
     "Nunchaku",
+    "Orichalcum",
     "OrnamentalFan",
+    "Pantograph",
     "PenNib",
     "PreservedInsect",
+    "QuestionCard",
+    "RedSkull",
+    "RegalPillow",
     "Shuriken",
+    "SmilingMask",
+    "Strawberry",
     "Sundial",
     "TheBoot",
     "TinyChest",
+    "ToyOrnithopter",
+    "Vajra",
     "WarPaint",
     "Whetstone",
 ]
@@ -230,7 +244,7 @@ def buy_relic(inventory: ShopInventory, character: Character) -> str | None:
         return None
 
     character.gold -= price
-    character.relics.append(relic_id)
+    character.add_relic(relic_id)
     inventory.relic = None
     return relic_id
 

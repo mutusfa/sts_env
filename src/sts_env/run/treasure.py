@@ -30,20 +30,24 @@ _GOLD_MAX = 30
 _TREASURE_RELICS = [
     "Anchor",
     "BagOfMarbles",
+    "BloodVial",
+    "BronzeScales",
     "CentennialPuzzle",
     "CeramicFish",
-    "DreamCatcher",
+    "HappyFlower",
     "JuzuBracelet",
     "Lantern",
-    "MawBank",
     "Nunchaku",
+    "Orichalcum",
     "OrnamentalFan",
-    "PenNib",
     "PreservedInsect",
+    "RedSkull",
+    "RegalPillow",
     "Shuriken",
+    "Strawberry",
     "Sundial",
     "TheBoot",
-    "TinyChest",
+    "Vajra",
     "WarPaint",
     "Whetstone",
 ]
@@ -57,6 +61,6 @@ def open_treasure(character: Character, rng: RNG) -> TreasureResult:
     relic = None
     if rng.random() < _RELIC_DROP_CHANCE:
         relic = rng.choice(_TREASURE_RELICS)
-        character.relics.append(relic)
+        character.add_relic(relic)
 
     return TreasureResult(gold_found=gold, relic_found=relic)

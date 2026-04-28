@@ -16,9 +16,11 @@ from typing import TYPE_CHECKING
 
 from ..combat.card_pools import pool
 from ..combat.cards import CardColor, Rarity
+from .bus import RunEvent
 
 if TYPE_CHECKING:
     from ..combat.rng import RNG
+    from .bus import RunEventBus
 
 
 # ---------------------------------------------------------------------------
@@ -54,15 +56,25 @@ def roll_card_rewards(
     rng: "RNG",
     color: CardColor = CardColor.RED,
     is_elite: bool = False,
+    event_bus: "RunEventBus | None" = None,
+    # ``relics`` kept temporarily for backward compat — prefer ``event_bus``
+    relics: list[str] | None = None,
 ) -> list[str]:
-    """Return 3 card IDs to choose from as a card reward.
+    """Return card IDs to choose from as a card reward.
 
     Cards are drawn from the given character color's card pool with rarity
     weighting.  For elite fights, 1 of the 3 cards is guaranteed to be rare.
+    Relics that modify card reward count (e.g. BustedCrown) are handled
+    through the run-layer event bus.
     """
+    num_cards = 3
+    if event_bus is not None:
+        payload = event_bus.emit(RunEvent.CARD_REWARD_COUNT, count=num_cards)
+        num_cards = payload["count"]
+
     rewards: list[str] = []
 
-    for i in range(3):
+    for i in range(num_cards):
         guaranteed_rare = is_elite and i == 0
         card_pool = _roll_rarity(rng, color, guaranteed_rare=guaranteed_rare)
         if not card_pool:
@@ -120,11 +132,44 @@ def roll_potion_reward(rng: "RNG") -> str | None:
 # ---------------------------------------------------------------------------
 
 COMMON_RELICS: list[str] = [
-    "RedSkull", "CentennialPuzzle", "JuzuBracelet", "Orichalcum", "CeramicFish",
+    "RedSkull",
+    "CentennialPuzzle",
+    "JuzuBracelet",
+    "Orichalcum",
+    "CeramicFish",
+    "Anchor",
+    "BagOfMarbles",
+    "BloodVial",
+    "BronzeScales",
+    "HappyFlower",
+    "Lantern",
+    "Nunchaku",
+    "OrnamentalFan",
+    "PreservedInsect",
+    "Shuriken",
+    "Sundial",
+    "Vajra",
+    "WarPaint",
+    "Whetstone",
+    "TheBoot",
+    "Strawberry",
+    "RegalPillow",
 ]
 
 UNCOMMON_RELICS: list[str] = [
-    # Stub — can add more later
+    "DreamCatcher",
+    "MealTicket",
+    "MawBank",
+    "ToyOrnithopter",
+    "Pantograph",
+    "FrozenEgg",
+    "InkBottle",
+    "PenNib",
+    "QuestionCard",
+    "SmilingMask",
+    "TinyChest",
+    "BagOfPreparation",
+    "BlueCandle",
 ]
 
 ALL_RELICS = COMMON_RELICS + UNCOMMON_RELICS

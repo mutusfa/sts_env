@@ -27,12 +27,13 @@ class NeowOption:
 # Common relic pool — imported from rewards.py to avoid duplication
 from .rewards import COMMON_RELICS as _COMMON_RELIC_POOL
 
-# Cards available as random Neow reward (uncommon+ Ironclad cards)
+# Cards available as random Neow reward (uncommon Ironclad cards)
 _NEOW_CARD_POOL = [
     "ShrugItOff", "PommelStrike", "Inflame", "Metallicize",
     "Rage", "SecondWind", "WarCry", "Clothesline",
     "ThunderClap", "Headbutt", "TwinStrike", "Carnage",
-    "Uppercut", "HeavyBlade", "BodySlam", "Hemokinesis",
+    "Uppercut", "BodySlam", "Hemokinesis", "HeavyBlade",
+    "Combust", "SpotWeakness", "Disarm",
 ]
 
 
@@ -58,7 +59,7 @@ def apply_neow(choice: NeowChoice, character: Character, rng: RNG) -> str:
         available = [r for r in _COMMON_RELIC_POOL if r not in character.relics]
         if available:
             relic = rng.choice(available)
-            character.relics.append(relic)
+            character.add_relic(relic)
             return f"Gained relic: {relic}"
         return "No available relics"
 
@@ -72,7 +73,7 @@ def apply_neow(choice: NeowChoice, character: Character, rng: RNG) -> str:
 
     elif choice == NeowChoice.RANDOM_CARD:
         card = rng.choice(_NEOW_CARD_POOL)
-        character.deck.append(card)
+        character.add_card(card)
         return f"Added {card} to deck"
 
     return "Unknown choice"

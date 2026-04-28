@@ -151,17 +151,17 @@ def _best_upgrade_target(character: Character) -> str | None:
         "Strike",     # +3 damage — consistent
         "Carnage",    # +8 damage — big
         "Anger",      # +3 damage
-        "BodySlam",   # +0 cost — major
         "Defend",     # +3 block — consistent
+        "BodySlam",   # cost 1→0 — free block-damage
+        "Hemokinesis",# +6 damage
+        "HeavyBlade", # +4 damage + 1x str multiplier
         "ShrugItOff", # +1 block
         "WarCry",     # +1 draw
-        "Hemokinesis",
         "PommelStrike",
         "SwordBoomerang",
         "TwinStrike",
         "ThunderClap",
         "Clothesline",
-        "HeavyBlade",
         "Uppercut",
         "Bloodletting",
         "Combust",
