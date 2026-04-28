@@ -42,6 +42,7 @@ class Event(Enum):
     ATTACK_DAMAGED = auto()
     DEATH = auto()
     DEBUFF_APPLIED = auto()
+    POTION_USED = auto()       # payload: potion_id — fired when a potion is consumed
 
 
 # event -> {listener_name: handler}

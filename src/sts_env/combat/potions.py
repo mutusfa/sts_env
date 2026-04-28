@@ -69,6 +69,10 @@ def use_potion(state: "CombatState", potion_index: int, target_index: int) -> No
     _HANDLERS[potion_id](state, target_index)
     state.potions.pop(potion_index)
 
+    # Emit POTION_USED for subscribed listeners
+    from .events import emit, Event
+    emit(state, Event.POTION_USED, "player", potion_id=potion_id)
+
 
 # ---------------------------------------------------------------------------
 # Individual potion handlers

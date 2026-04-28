@@ -146,6 +146,7 @@ class Combat:
         max_potion_slots: int = 3,
         relics: frozenset[str] | None = None,
         gold: int = 99,
+        is_elite: bool = False,
     ) -> None:
         potions = list(potions) if potions else []
         if len(potions) > max_potion_slots:
@@ -161,6 +162,7 @@ class Combat:
         self._max_potion_slots = max_potion_slots
         self._starting_relics = relics if relics is not None else frozenset()
         self._starting_gold = gold
+        self._is_elite = is_elite
         self._state: CombatState | None = None
         self._damage_taken: int = 0
         self._max_hp_gained: int = 0
@@ -201,6 +203,7 @@ class Combat:
             max_potion_slots=self._max_potion_slots,
             relics=self._starting_relics,
             gold=self._starting_gold,
+            is_elite=self._is_elite,
         )
         self._damage_taken = 0
         self._max_hp_gained = 0
@@ -698,6 +701,7 @@ class Combat:
             for _ in range(intent.hits):
                 raw = calc_damage(intent.damage, enemy.powers, state.player_powers)
                 damage_player(state, raw)
+                emit(state, Event.ATTACK_DAMAGED, "player", damage=raw)
                 if state.player_hp <= 0:
                     return
 

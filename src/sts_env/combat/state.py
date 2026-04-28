@@ -60,6 +60,7 @@ class CombatState:
         default_factory=lambda: defaultdict(lambda: defaultdict(list))
     )
     relics: frozenset[str] = frozenset()
+    is_elite: bool = False         # True if this is an elite encounter (for PreservedInsect etc.)
 
 
 # ---------------------------------------------------------------------------
