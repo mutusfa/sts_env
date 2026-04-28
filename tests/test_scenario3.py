@@ -166,6 +166,49 @@ class TestSentry:
         )
         assert total_dazed > 0, "Dazed cards should exist somewhere after Bolt"
 
+    def test_dazed_shuffled_not_topdecked(self):
+        """Bolt Dazed should be shuffled into draw pile, not placed on top.
+
+        With a small draw pile the Dazed are often all drawn into hand, so
+        we can't reliably check the pile after drawing.  Instead we verify
+        the insertion order: shuffled insertion places cards at random
+        positions, so across many seeds the *relative* order of multiple
+        Dazed cards (all same id) inserted in sequence should vary.
+
+        We patch spawn_shuffled_into_draw to record the actual insertion
+        positions and verify they aren't always 0 (top-deck).
+        """
+        from sts_env.combat import deck as deck_mod
+        from unittest.mock import patch
+
+        recorded_positions: list[int] = []
+
+        original_spawn = deck_mod.Piles.spawn_shuffled_into_draw
+
+        def capturing_spawn(self, card, state, rng):
+            pos = rng.randint(0, len(self.draw))
+            recorded_positions.append(pos)
+            self.draw.insert(pos, card)
+            from sts_env.combat.events import emit, Event
+            emit(state, Event.CARD_CREATED, "player", card=card)
+
+        with patch.object(deck_mod.Piles, "spawn_shuffled_into_draw", capturing_spawn):
+            for seed in range(20):
+                combat = Combat(
+                    deck=IRONCLAD_STARTER,
+                    enemies=["Sentry", "Sentry", "Sentry"],
+                    seed=seed,
+                )
+                obs = combat.reset()
+                obs, _, _ = combat.step(Action.end_turn())
+                obs, _, _ = combat.step(Action.end_turn())
+
+        unique_positions = set(recorded_positions)
+        assert len(unique_positions) > 1, (
+            f"All Dazed inserted at same position(s) {unique_positions} — "
+            f"likely top-decked, not shuffled (recorded: {recorded_positions})"
+        )
+
 
 # ---------------------------------------------------------------------------
 # RunState / Relic tests

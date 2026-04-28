@@ -735,7 +735,7 @@ class Combat:
         if intent.status_card_count:
             for _ in range(intent.status_card_count):
                 if intent.status_to_draw:
-                    state.piles.spawn_on_top_of_draw(Card(intent.status_card_id), state)
+                    state.piles.spawn_shuffled_into_draw(Card(intent.status_card_id), state, state.rng)
                 else:
                     state.piles.spawn_to_discard(Card(intent.status_card_id), state)
 
