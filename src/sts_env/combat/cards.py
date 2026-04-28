@@ -11,13 +11,15 @@ Cards registered:
   Common:   Anger, Armaments, Cleave, Clothesline, Flex, Havoc, Headbutt,
             IronWave, PommelStrike, ShrugItOff, SwordBoomerang, ThunderClap,
             TrueStrike, TwinStrike, WarCry, WildStrike
-  Uncommon: Bloodletting, BurningPact, Carnage, Disarm, Dropkick, DualWield,
-            Entrench, FeelNoPain, FlameBarrier, GhostArmor, Inflame, Metallicize,
+  Uncommon: Bloodletting, BodySlam, BurningPact, Carnage, Combust, Disarm,
+            Dropkick, DualWield, Entrench, FeelNoPain, FlameBarrier,
+            GhostArmor, HeavyBlade, Hemokinesis, Inflame, Metallicize,
             PowerThrough, Pummel, Rage, Rampage, RecklessCharge, SecondWind,
-            SeeingRed, SearingBlow, Sentinel, SeverSoul, ShockWave, SpotWeakness,
-            Uppercut, Whirlwind, BattleTrance
+            SeeingRed, SearingBlow, Sentinel, SeverSoul, ShockWave,
+            SpotWeakness, Uppercut, Whirlwind, BattleTrance
   Rare:     Bludgeon, Berserk, Brutality, Corruption, DarkEmbrace, DemonForm,
-            DoubleTap, Feed, Impervious, Juggernaut, LimitBreak, Offering
+            DoubleTap, Exhume, Feed, FiendFire, Immolate, Impervious,
+            Juggernaut, LimitBreak, Offering, Reaper
 """
 
 from __future__ import annotations
@@ -500,6 +502,100 @@ def _searing_blow_custom(state: "CombatState", _hi: int, _ti: int, upgrade_count
         enemy.hp = nhp
 
 
+def _body_slam_custom(state: "CombatState", _hi: int, ti: int, _upgraded: int) -> None:
+    from .powers import calc_damage, apply_damage
+    dmg = state.player_block
+    enemy = state.enemies[ti]
+    raw = calc_damage(dmg, state.player_powers, enemy.powers)
+    nb, nhp = apply_damage(raw, enemy.block, enemy.hp)
+    enemy.block = nb
+    enemy.hp = nhp
+
+
+def _heavy_blade_custom(state: "CombatState", _hi: int, ti: int, upgraded: int) -> None:
+    from .powers import calc_damage, apply_damage
+    base_dmg = 14 + (4 if upgraded else 0)
+    multiplier = 4 if upgraded else 3
+    total_str_bonus = multiplier * state.player_powers.strength
+    dmg = base_dmg + total_str_bonus
+    enemy = state.enemies[ti]
+    # Apply weak/vulnerable but NOT strength again (already included)
+    raw = dmg
+    if state.player_powers.weak > 0:
+        import math
+        raw = math.floor(raw * 0.75)
+    if enemy.powers.vulnerable > 0:
+        import math
+        raw = math.floor(raw * 1.5)
+    raw = max(0, raw)
+    nb, nhp = apply_damage(raw, enemy.block, enemy.hp)
+    enemy.block = nb
+    enemy.hp = nhp
+
+
+def _reaper_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
+    from .powers import calc_damage, apply_damage
+    from .events import Event, emit as _emit
+    base_dmg = 5 if upgraded else 4
+    heal_amount = 0
+    # Snapshot HP for ATTACK_DAMAGED emission
+    hp_before = {ei: state.enemies[ei].hp for ei, e in enumerate(state.enemies)
+                 if e.hp > 0 and e.name != "Empty"}
+    for ei, enemy in enumerate(state.enemies):
+        if enemy.hp > 0 and enemy.name != "Empty":
+            pre_hp = enemy.hp
+            raw = calc_damage(base_dmg, state.player_powers, enemy.powers)
+            nb, nhp = apply_damage(raw, enemy.block, enemy.hp)
+            enemy.block = nb
+            enemy.hp = nhp
+            heal_amount += pre_hp - enemy.hp
+    if heal_amount > 0:
+        state.player_hp = min(state.player_max_hp, state.player_hp + heal_amount)
+    for ei, hpb in hp_before.items():
+        e = state.enemies[ei]
+        if 0 < e.hp < hpb:
+            _emit(state, Event.ATTACK_DAMAGED, ei, hp_before=hpb)
+
+
+def _immolate_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> None:
+    state.piles.spawn_to_discard(Card("Burn"), state)
+
+
+def _fiend_fire_custom(state: "CombatState", hi: int, ti: int, upgraded: int) -> None:
+    from .events import Event, emit as _emit
+    from .powers import calc_damage, apply_damage
+    dmg_per = 10 if upgraded else 7
+    # Exhaust entire hand except this card
+    to_exhaust = [c for c in state.piles.hand]
+    count = len(to_exhaust)
+    for card in to_exhaust:
+        state.piles.hand.remove(card)
+        state.piles.move_to_exhaust(card)
+        _emit(state, Event.CARD_EXHAUSTED, "player", card=card)
+    # Deal damage for each exhausted card
+    enemy = state.enemies[ti]
+    for _ in range(count):
+        raw = calc_damage(dmg_per, state.player_powers, enemy.powers)
+        nb, nhp = apply_damage(raw, enemy.block, enemy.hp)
+        enemy.block = nb
+        enemy.hp = nhp
+
+
+def _exhume_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> None:
+    if not state.piles.exhaust:
+        return
+    choices = list(state.piles.exhaust)
+
+    def on_choose(s: "CombatState", card: Card) -> None:
+        if card in s.piles.exhaust:
+            s.piles.exhaust.remove(card)
+        s.piles.hand.append(card)
+
+    state.pending_stack.append(
+        ChoiceFrame(choices=choices, kind="exhume", on_choose=on_choose)
+    )
+
+
 def _burning_pact_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
     draw_n = 2 + (1 if upgraded else 0)
     if state.piles.hand:
@@ -657,6 +753,8 @@ register("WarCry",     cost=0, card_type=S, target=NO, color=R, rarity=CO, exhau
          upgrade={"draw": 1})
 
 # --- Uncommon Attacks ---
+register("BodySlam",        cost=1, card_type=A, target=SE, color=R, rarity=U,
+         upgrade={"cost": -1}, custom=_body_slam_custom)
 register("Carnage",        cost=2, card_type=A, target=SE, color=R, rarity=U, ethereal=True, attack=20,
          upgrade={"attack": 8})
 register("Dropkick",       cost=1, card_type=A, target=SE, color=R, rarity=U, attack=5,
@@ -675,6 +773,10 @@ register("Uppercut",       cost=2, card_type=A, target=SE, color=R, rarity=U, at
          upgrade={"attack": 3, "vulnerable": 1, "weak": 1})
 register("Whirlwind",      cost=-1, card_type=A, target=AE, color=R, rarity=U, attack=5, x_cost=True,
          upgrade={"attack": 3})
+register("HeavyBlade",     cost=2, card_type=A, target=SE, color=R, rarity=U,
+         custom=_heavy_blade_custom)
+register("Hemokinesis",    cost=1, card_type=A, target=SE, color=R, rarity=U, hp_loss=3,
+         attack=15, upgrade={"attack": 6})
 
 # --- Uncommon Skills ---
 register("Bloodletting", cost=0, card_type=S, target=NO, color=R, rarity=U, hp_loss=3, energy=2,
@@ -708,6 +810,11 @@ register("BattleTrance", cost=0, card_type=S, target=NO, color=R, rarity=U, draw
          upgrade={"draw": 1})
 
 # --- Uncommon Powers ---
+register("Combust",     cost=1, card_type=P, target=NO, color=R, rarity=U,
+         custom=lambda s, _h, _t, u: (
+             setattr(s.player_powers, 'combust', s.player_powers.combust + 1),
+             setattr(s.player_powers, 'combust_dmg', s.player_powers.combust_dmg + (7 if u else 5)),
+         ))
 register("FeelNoPain",  cost=1, card_type=P, target=NO, color=R, rarity=U,
          custom=lambda s, _h, _t, u: setattr(s.player_powers, 'feel_no_pain', s.player_powers.feel_no_pain + 3 + (1 if u else 0)))
 register("Inflame",     cost=1, card_type=P, target=NO, color=R, rarity=U, self_strength=2,
@@ -720,8 +827,16 @@ register("Bludgeon", cost=3, card_type=A, target=SE, color=R, rarity=RA, attack=
          upgrade={"attack": 10})
 register("Feed",     cost=1, card_type=A, target=SE, color=R, rarity=RA, attack=10,
          upgrade={"attack": 5}, custom=_feed_custom)
+register("Reaper",   cost=2, card_type=A, target=AE, color=R, rarity=RA, exhausts=True,
+         custom=_reaper_custom)
+register("Immolate", cost=2, card_type=A, target=AE, color=R, rarity=RA, attack=21,
+         upgrade={"attack": 7}, custom=_immolate_custom)
+register("FiendFire",cost=2, card_type=A, target=SE, color=R, rarity=RA, exhausts=True,
+         custom=_fiend_fire_custom)
 
 # --- Rare Skills ---
+register("Exhume",      cost=1, card_type=S, target=NO, color=R, rarity=RA, exhausts=True,
+         upgrade={"cost": -1}, custom=_exhume_custom)
 register("Impervious", cost=2, card_type=S, target=NO, color=R, rarity=RA, exhausts=True, block=30,
          upgrade={"block": 10})
 register("Offering",   cost=0, card_type=S, target=NO, color=R, rarity=RA, exhausts=True,

@@ -157,6 +157,23 @@ def _berserk(state: CombatState, owner: Owner, payload: dict) -> None:
 # TURN_END handlers
 # ---------------------------------------------------------------------------
 
+@listener(Event.TURN_END, "combust", subscriptions=[(POWER_SUBSCRIPTIONS, "combust")])
+def _combust(state: CombatState, owner: Owner, payload: dict) -> None:
+    from .powers import calc_damage, apply_damage
+    powers = _get_powers(state, owner)
+    if powers is None or powers.combust <= 0:
+        return
+    if owner == "player":
+        state.player_hp = max(0, state.player_hp - powers.combust)
+        dmg = powers.combust_dmg
+        for ei, enemy in enumerate(state.enemies):
+            if enemy.hp > 0 and enemy.name != "Empty":
+                raw = calc_damage(dmg, powers, enemy.powers)
+                nb, nhp = apply_damage(raw, enemy.block, enemy.hp)
+                enemy.block = nb
+                enemy.hp = nhp
+
+
 @listener(Event.TURN_END, "metallicize", subscriptions=[(POWER_SUBSCRIPTIONS, "metallicize")])
 def _metallicize(state: CombatState, owner: Owner, payload: dict) -> None:
     from .engine import gain_player_block

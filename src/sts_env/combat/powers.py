@@ -119,6 +119,8 @@ class Powers:
     bomb_fuses: list[tuple[int, int]] = field(default_factory=list)  # (turns_left, damage)
     mayhem: int = 0              # start of turn: play top card of draw pile
     cards_played_this_turn: int = 0  # counter for Panache etc.
+    combust: int = 0               # Combust: stacks (HP loss per turn = this value)
+    combust_dmg: int = 0           # Combust: total damage dealt to all enemies per turn
     _red_skull_active: bool = False  # internal: RedSkull relic tracking
 
     def tick_start_of_turn(self) -> None:
