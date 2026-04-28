@@ -45,7 +45,7 @@ class TestRedSkull:
         state.player_hp = 38
         emit(state, Event.HP_LOSS, "player", hp_before=45)
         assert state.player_powers.strength == 3
-        assert state.player_powers._red_skull_active is True
+        assert state.relic_state.get("red_skull_active", 0)
 
     def test_bonus_removes_on_heal_above_half(self):
         c = _combat_with_red_skull(player_hp=38, player_max_hp=80)
@@ -61,7 +61,7 @@ class TestRedSkull:
         # This would happen on a future HP_LOSS event where HP is somehow
         # above the threshold. Let's just test the state directly.
         assert state.player_powers.strength == 0
-        assert state.player_powers._red_skull_active is False
+        assert not state.relic_state.get("red_skull_active", 0)
 
     def test_bonus_stays_at_exactly_half(self):
         c = _combat_with_red_skull(player_hp=40, player_max_hp=80)

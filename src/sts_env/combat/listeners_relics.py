@@ -1,13 +1,14 @@
 """Relic-triggered event listeners.
 
 Relics subscribe at Combat.reset based on ``state.relics``.
+Per-relic counters live in ``state.relic_state`` (a dict[str, int]).
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 from .events import Event, listener
-from .powers import Powers
 
 if TYPE_CHECKING:
     from .state import CombatState
@@ -21,6 +22,15 @@ if TYPE_CHECKING:
 RELIC_SUBSCRIPTIONS: dict[str, list[tuple[Event, str]]] = {}
 
 
+def _is_attack_card(payload: dict) -> bool:
+    """Return True if CARD_PLAYED payload carries an Attack card."""
+    card = payload.get("card")
+    if card is None or card.spec is None:
+        return False
+    from .cards import CardType
+    return card.spec.card_type == CardType.ATTACK
+
+
 # ---------------------------------------------------------------------------
 # RedSkull: +3 Strength while HP <= 50% of max
 # ---------------------------------------------------------------------------
@@ -32,7 +42,7 @@ def _red_skull_init(state: CombatState, owner: Owner, payload: dict) -> None:
         return
     if state.player_hp <= state.player_max_hp // 2:
         state.player_powers.strength += 3
-        state.player_powers._red_skull_active = True
+        state.relic_state["red_skull_active"] = 1
 
 
 @listener(Event.HP_LOSS, "red_skull", subscriptions=[(RELIC_SUBSCRIPTIONS, "RedSkull")])
@@ -42,14 +52,14 @@ def _red_skull(state: CombatState, owner: Owner, payload: dict) -> None:
         return
     if owner != "player":
         return
-    was_active = getattr(state.player_powers, "_red_skull_active", False)
+    was_active = state.relic_state.get("red_skull_active", 0)
     should_be_active = state.player_hp <= state.player_max_hp // 2
     if should_be_active and not was_active:
         state.player_powers.strength += 3
-        state.player_powers._red_skull_active = True
+        state.relic_state["red_skull_active"] = 1
     elif not should_be_active and was_active:
         state.player_powers.strength -= 3
-        state.player_powers._red_skull_active = False
+        state.relic_state["red_skull_active"] = 0
 
 
 # ---------------------------------------------------------------------------
@@ -90,25 +100,25 @@ def _busted_crown(state: CombatState, owner: Owner, payload: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# CentennialPuzzle: draw 1 card the first time you're attacked each combat
+# CentennialPuzzle: draw 3 cards the first time you lose HP each combat
 # ---------------------------------------------------------------------------
 
 @listener(Event.COMBAT_START, "centennial_puzzle_init", subscriptions=[(RELIC_SUBSCRIPTIONS, "CentennialPuzzle")])
 def _centennial_puzzle_init(state: CombatState, owner: Owner, payload: dict) -> None:
-    """Reset the per-combat 'attacked this combat' flag."""
+    """Reset the per-combat 'used this combat' flag."""
     if owner != "player":
         return
-    state.player_powers._centennial_puzzle_used = False
+    state.relic_state["centennial_puzzle_used"] = 0
 
 
 @listener(Event.HP_LOSS, "centennial_puzzle", subscriptions=[(RELIC_SUBSCRIPTIONS, "CentennialPuzzle")])
 def _centennial_puzzle(state: CombatState, owner: Owner, payload: dict) -> None:
-    """Draw 3 cards the first time the player loses HP each combat (any source)."""
+    """Draw 3 cards the first time the player loses HP each combat."""
     if owner != "player":
         return
-    if getattr(state.player_powers, "_centennial_puzzle_used", False):
+    if state.relic_state.get("centennial_puzzle_used", 0):
         return
-    state.player_powers._centennial_puzzle_used = True
+    state.relic_state["centennial_puzzle_used"] = 1
     state.piles.draw_cards(3, state.rng)
 
 
@@ -178,3 +188,95 @@ def _toy_ornithopter(state: CombatState, owner: Owner, payload: dict) -> None:
     """Heal 5 HP when a potion is used."""
     state.player_hp = min(state.player_max_hp, state.player_hp + 5)
 
+
+# ---------------------------------------------------------------------------
+# Shuriken: every 3 attacks in one turn → +1 Strength
+# Per-turn counter, resets at TURN_END.
+# ---------------------------------------------------------------------------
+
+@listener(Event.CARD_PLAYED, "shuriken", subscriptions=[(RELIC_SUBSCRIPTIONS, "Shuriken")])
+def _shuriken(state: CombatState, owner: Owner, payload: dict) -> None:
+    """On CARD_PLAYED (attack only), increment counter; at 3, gain 1 Strength."""
+    if "Shuriken" not in state.relics:
+        return
+    if not _is_attack_card(payload):
+        return
+    c = state.relic_state.get("shuriken", 0) + 1
+    if c >= 3:
+        c = 0
+        state.player_powers.strength += 1
+    state.relic_state["shuriken"] = c
+
+
+@listener(Event.TURN_END, "shuriken_reset", subscriptions=[(RELIC_SUBSCRIPTIONS, "Shuriken")])
+def _shuriken_reset(state: CombatState, owner: Owner, payload: dict) -> None:
+    """Reset Shuriken counter at end of player turn."""
+    if owner != "player":
+        return
+    state.relic_state["shuriken"] = 0
+
+
+# ---------------------------------------------------------------------------
+# Kunai: every 3 attacks in one turn → +1 Dexterity
+# Per-turn counter, resets at TURN_END.
+# ---------------------------------------------------------------------------
+
+@listener(Event.CARD_PLAYED, "kunai", subscriptions=[(RELIC_SUBSCRIPTIONS, "Kunai")])
+def _kunai(state: CombatState, owner: Owner, payload: dict) -> None:
+    """On CARD_PLAYED (attack only), increment counter; at 3, gain 1 Dexterity."""
+    if "Kunai" not in state.relics:
+        return
+    if not _is_attack_card(payload):
+        return
+    c = state.relic_state.get("kunai", 0) + 1
+    if c >= 3:
+        c = 0
+        state.player_powers.dexterity += 1
+    state.relic_state["kunai"] = c
+
+
+@listener(Event.TURN_END, "kunai_reset", subscriptions=[(RELIC_SUBSCRIPTIONS, "Kunai")])
+def _kunai_reset(state: CombatState, owner: Owner, payload: dict) -> None:
+    """Reset Kunai counter at end of player turn."""
+    if owner != "player":
+        return
+    state.relic_state["kunai"] = 0
+
+
+# ---------------------------------------------------------------------------
+# Pen Nib: every 10 attacks across the entire run → next attack deals double
+# Per-run counter persists across combats via relic_state sync.
+# The "active" flag is consumed in attack_enemy() (powers.py).
+# ---------------------------------------------------------------------------
+
+@listener(Event.CARD_PLAYED, "pen_nib", subscriptions=[(RELIC_SUBSCRIPTIONS, "PenNib")])
+def _pen_nib(state: CombatState, owner: Owner, payload: dict) -> None:
+    """On CARD_PLAYED (attack only), increment counter; at 10, activate double damage."""
+    if "PenNib" not in state.relics:
+        return
+    if not _is_attack_card(payload):
+        return
+    c = state.relic_state.get("pen_nib", 0) + 1
+    if c >= 10:
+        c = 0
+        state.relic_state["pen_nib_active"] = 1
+    state.relic_state["pen_nib"] = c
+
+
+# ---------------------------------------------------------------------------
+# Nunchaku: every 10 attacks across the entire run → gain 1 energy
+# Per-run counter persists across combats via relic_state sync.
+# ---------------------------------------------------------------------------
+
+@listener(Event.CARD_PLAYED, "nunchaku", subscriptions=[(RELIC_SUBSCRIPTIONS, "Nunchaku")])
+def _nunchaku(state: CombatState, owner: Owner, payload: dict) -> None:
+    """On CARD_PLAYED (attack only), increment counter; at 10, gain 1 energy."""
+    if "Nunchaku" not in state.relics:
+        return
+    if not _is_attack_card(payload):
+        return
+    c = state.relic_state.get("nunchaku", 0) + 1
+    if c >= 10:
+        c = 0
+        state.energy += 1
+    state.relic_state["nunchaku"] = c

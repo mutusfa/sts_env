@@ -121,7 +121,6 @@ class Powers:
     cards_played_this_turn: int = 0  # counter for Panache etc.
     combust: int = 0               # Combust: stacks (HP loss per turn = this value)
     combust_dmg: int = 0           # Combust: total damage dealt to all enemies per turn
-    _red_skull_active: bool = False  # internal: RedSkull relic tracking
 
     def tick_start_of_turn(self) -> None:
         """Decrement duration-based statuses."""
@@ -195,6 +194,11 @@ def attack_enemy(state: "CombatState", enemy: "EnemyState", base_dmg: int, enemy
     Mutates enemy and state in place.
     """
     from .events import Event, emit as _emit
+
+    # Pen Nib: if active, double the damage
+    if state.relic_state.get("pen_nib_active", 0):
+        base_dmg *= 2
+        state.relic_state["pen_nib_active"] = 0
 
     raw = calc_damage(base_dmg, state.player_powers, enemy.powers)
 

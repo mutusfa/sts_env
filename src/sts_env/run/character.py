@@ -53,6 +53,7 @@ class Character:
     character_class: CardColor = CardColor.RED
     seen_events: list[str] = field(default_factory=list)
     event_bus: RunEventBus = field(default_factory=RunEventBus)
+    relic_state: dict[str, int] = field(default_factory=dict)  # relic-owned counters (persists across combats)
 
     def __post_init__(self) -> None:
         """Wire relic event handlers for starting relics."""

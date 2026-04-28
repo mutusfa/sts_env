@@ -163,6 +163,7 @@ class Combat:
         self._starting_relics = relics if relics is not None else frozenset()
         self._starting_gold = gold
         self._is_elite = is_elite
+        self._relic_state: dict[str, int] = {}
         self._state: CombatState | None = None
         self._damage_taken: int = 0
         self._max_hp_gained: int = 0
@@ -204,6 +205,7 @@ class Combat:
             relics=self._starting_relics,
             gold=self._starting_gold,
             is_elite=self._is_elite,
+            relic_state=dict(self._relic_state),
         )
         self._damage_taken = 0
         self._max_hp_gained = 0

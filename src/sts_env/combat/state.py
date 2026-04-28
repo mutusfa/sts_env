@@ -61,6 +61,7 @@ class CombatState:
     )
     relics: frozenset[str] = frozenset()
     is_elite: bool = False         # True if this is an elite encounter (for PreservedInsect etc.)
+    relic_state: dict[str, int] = field(default_factory=dict)  # relic-owned counters/flags
 
 
 # ---------------------------------------------------------------------------
