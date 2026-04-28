@@ -136,7 +136,7 @@ def test_corruption_observation_visibility():
             assert card_dict["corrupted"] is True, f"Skill {card_dict['card_id']} should show corrupted=True"
         else:
             # Non-skills should show their normal cost
-            assert card_dict["cost"] == actual_card.effective_cost()
+            assert card_dict["cost"] == actual_card.effective_cost(state.energy)
             assert card_dict["exhausts"] == actual_card.effective_exhausts()
 
 

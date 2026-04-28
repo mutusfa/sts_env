@@ -327,9 +327,10 @@ def _corruption_stamp_skill(state: CombatState, owner: Owner, payload: dict) -> 
     # Corruption only affects skills
     if card.spec.card_type != CardType.SKILL:
         return
-    # Corruption trumps all other cost modifiers
-    card.cost_override = 0
-    card.cost_override_duration = "combat"
+    # X-cost skills keep spending all energy; only apply exhaust + flag
+    if not card.spec.x_cost:
+        card.cost_override = 0
+        card.cost_override_duration = "combat"
     card.exhausts_override = True
     card.corrupted = True
 

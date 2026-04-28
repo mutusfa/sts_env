@@ -666,3 +666,48 @@ def test_double_tap_upgraded():
     state = _make_state(hand=["DoubleTap+"])
     play_card(state, hand_index=0, target_index=0)
     assert state.player_powers.double_tap == 2
+
+
+# ---------------------------------------------------------------------------
+# X-cost — cost_override is ignored, effective_cost uses energy
+# ---------------------------------------------------------------------------
+
+def test_x_cost_ignores_cost_override():
+    """X-cost cards always spend all available energy, ignoring cost_override."""
+    card = Card("Whirlwind", cost_override=0)
+    assert card.effective_cost(energy=3) == 3
+    assert card.effective_cost(energy=0) == 0
+
+
+def test_x_cost_fallback_without_energy():
+    """Without energy context, X-cost returns spec.cost (typically -1)."""
+    card = Card("Whirlwind")
+    assert card.effective_cost() == -1
+
+
+def test_x_cost_with_override_still_spends_all_energy():
+    """Even with cost_override set, play_card spends all energy for X-cost."""
+    enemies = [EnemyState(name="E1", hp=50, max_hp=50)]
+    card = Card("Whirlwind", cost_override=0)
+    state = CombatState(
+        player_hp=80, player_max_hp=80, player_block=0,
+        player_powers=Powers(), energy=3,
+        piles=Piles(hand=[card]),
+        enemies=enemies, rng=RNG(0),
+    )
+    play_card(state, hand_index=0, target_index=0)
+    assert state.energy == 0
+    assert state.enemies[0].hp == 35  # 50 - 5*3
+
+
+def test_observation_hand_cost_for_x_card():
+    """Observation reports current energy as cost for X-cost cards."""
+    from sts_env.combat.engine import Combat, Action, ActionType
+
+    combat = Combat(deck=["Whirlwind"] * 10, enemies=["Cultist"], seed=0)
+    combat.reset()
+    combat._state.energy = 3
+    combat._state.piles.hand = [Card("Whirlwind")]
+
+    obs = combat.observe()
+    assert obs.hand[0]["cost"] == 3

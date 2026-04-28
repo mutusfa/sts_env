@@ -29,8 +29,19 @@ class Card:
         from sts_env.combat.cards import get_spec
         self._spec = get_spec(self.card_id)
 
-    def effective_cost(self) -> int:
-        """Return the effective cost of this card, accounting for overrides."""
+    def effective_cost(self, energy: int | None = None) -> int:
+        """Return the effective cost of this card, accounting for overrides.
+
+        For X-cost cards, the cost is always all available energy and
+        ``cost_override`` is ignored.  ``energy`` must be provided by
+        combat-resolution callers; when ``None`` the spec's base cost
+        (typically -1) is returned as a fallback for non-combat contexts.
+        """
+        if self.spec.x_cost:
+            if energy is not None:
+                return energy
+            # Non-combat fallback (e.g. serialisation without state)
+            return self.spec.cost
         if self.cost_override is not None:
             return self.cost_override
         base_cost = self.spec.cost

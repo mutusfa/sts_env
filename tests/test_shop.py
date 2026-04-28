@@ -61,9 +61,8 @@ class TestGenerateShop:
 
     def test_generates_five_cards_when_colorless_available(self, rng: RNG, character: Character) -> None:
         inv = generate_shop(rng, character)
-        # Currently 3 character cards (1C/1U/1R) + 0 colorless (none registered yet) = 3
-        # Will become 5 once colorless cards are registered
-        assert len(inv.cards) >= 3
+        # 3 character cards (1C/1U/1R) + 2 colorless (1U/1R) = 5
+        assert len(inv.cards) == 5
 
     def test_generates_three_potions(self, rng: RNG, character: Character) -> None:
         inv = generate_shop(rng, character)
@@ -82,6 +81,9 @@ class TestGenerateShop:
         assert inv.cards[0][1] == CARD_PRICES["common"]
         assert inv.cards[1][1] == CARD_PRICES["uncommon"]
         assert inv.cards[2][1] == CARD_PRICES["rare"]
+        # 2 colorless cards: 1 uncommon + 1 rare
+        assert inv.cards[3][1] == CARD_PRICES["uncommon"]
+        assert inv.cards[4][1] == CARD_PRICES["rare"]
 
     def test_remove_cost_is_set(self, rng: RNG, character: Character) -> None:
         inv = generate_shop(rng, character)

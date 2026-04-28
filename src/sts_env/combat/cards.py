@@ -301,13 +301,7 @@ def play_card(state: "CombatState", hand_index: int, target_index: int) -> None:
         raise ValueError(f"Card {card_id!r} is unplayable.")
 
     # Cost calculation
-    if spec.x_cost:
-        if card.cost_override is not None:
-            effective_cost = card.cost_override
-        else:
-            effective_cost = state.energy
-    else:
-        effective_cost = card.effective_cost()
+    effective_cost = card.effective_cost(state.energy)
 
     if effective_cost > state.energy:
         raise ValueError(
@@ -730,8 +724,9 @@ def _corruption_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int)
     all_cards = list(state.piles.draw) + list(state.piles.hand) + list(state.piles.discard) + list(state.piles.exhaust)
     for card in all_cards:
         if card.spec.card_type == CardType.SKILL:
-            card.cost_override = 0
-            card.cost_override_duration = "combat"
+            if not card.spec.x_cost:
+                card.cost_override = 0
+                card.cost_override_duration = "combat"
             card.exhausts_override = True
             card.corrupted = True
     # Subscribe to stamp future skill spawns

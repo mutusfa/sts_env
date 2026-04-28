@@ -369,11 +369,7 @@ class Combat:
             spec = card.spec
             if not spec.playable:
                 continue
-            # X-cost cards cost all remaining energy (playable if energy >= 0)
-            if spec.x_cost:
-                effective_cost = card.cost_override if card.cost_override is not None else state.energy
-            else:
-                effective_cost = card.effective_cost()
+            effective_cost = card.effective_cost(state.energy)
             if effective_cost > state.energy:
                 continue
             if entangled and spec.card_type in (CardType.SKILL, CardType.POWER):
@@ -467,7 +463,7 @@ class Combat:
         for card in state.piles.hand:
             hand_obs.append({
                 "card_id": card.card_id,
-                "cost": card.effective_cost(),
+                "cost": card.effective_cost(state.energy),
                 "exhausts": card.effective_exhausts(),
                 "corrupted": card.corrupted,
                 "upgraded": card.upgraded,
