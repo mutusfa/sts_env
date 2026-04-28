@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from .cards import CardSpec
 
 
-@dataclass(eq=False)  # drop slots=True to allow @cached_property
+@dataclass(eq=False, slots=True)  # drop slots=True to allow @cached_property
 class Card:
     card_id: str
     cost_override: int | None = (
@@ -16,13 +16,15 @@ class Card:
     )
     exhausts_override: bool | None = None  # None = use spec exhausts
     corrupted: bool = False  # True if Corruption power has modified this card
+    _spec: CardSpec | None = None
 
-    @functools.cached_property
+    @property
     def spec(self) -> CardSpec:
-        """Cached card spec reference."""
-        # Import here to avoid circular import with cards.py
-        from .cards import get_spec as _get_card_spec
-        return _get_card_spec(self.card_id)
+        return self._spec
+
+    def __post_init__(self) -> None:
+        from sts_env.combat.cards import get_spec
+        self._spec = get_spec(self.card_id)
 
     def effective_cost(self) -> int:
         """Return the effective cost of this card, accounting for overrides."""
