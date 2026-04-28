@@ -15,6 +15,9 @@ from ..combat.cards import CardColor
 # Re-exported here for convenience (``from sts_env.run.character import IRONCLAD_STARTER``).
 from ..combat.engine import IRONCLAD_STARTER  # noqa: F401
 
+# Run-layer event bus
+from .bus import RunEventBus, RunEvent, wire_relics as _wire_relics
+
 # Default Ironclad values
 _IRONCLAD_HP = 80
 _IRONCLAD_MAX_HP = 80
@@ -36,6 +39,7 @@ class Character:
         gold: Gold count.
         floor: Current floor number.
         relics: Current relics.
+        event_bus: Run-layer event bus (auto-wired on creation).
     """
 
     deck: list[str] = field(default_factory=lambda: list(IRONCLAD_STARTER))
@@ -47,6 +51,12 @@ class Character:
     floor: int = 0
     relics: list[str] = field(default_factory=lambda: list(_IRONCLAD_STARTER_RELICS))
     character_class: CardColor = CardColor.RED
+    seen_events: list[str] = field(default_factory=list)
+    event_bus: RunEventBus = field(default_factory=RunEventBus)
+
+    def __post_init__(self) -> None:
+        """Wire relic event handlers for starting relics."""
+        _wire_relics(self.event_bus, self.relics)
 
     # ------------------------------------------------------------------
     # Factory methods
@@ -62,8 +72,14 @@ class Character:
     # ------------------------------------------------------------------
 
     def add_card(self, card_id: str) -> None:
-        """Add a card to the deck (from card rewards)."""
+        """Add a card to the deck (from card rewards, events, shops, etc.)."""
         self.deck.append(card_id)
+        self.event_bus.emit(RunEvent.CARD_ADDED, character=self, card_id=card_id)
+
+    def add_relic(self, relic_id: str) -> None:
+        """Add a relic and wire its event handlers into the bus."""
+        self.relics.append(relic_id)
+        _wire_relics(self.event_bus, [relic_id])
 
     def add_potion(self, potion_id: str) -> None:
         """Add a potion if a slot is available, otherwise discard it."""
@@ -105,6 +121,7 @@ class Character:
             "gold": self.gold,
             "floor": self.floor,
             "relics": list(self.relics),
+            "seen_events": list(self.seen_events),
         }
 
     # ------------------------------------------------------------------
