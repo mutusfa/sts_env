@@ -10,11 +10,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .events import Event, register_listener
+from .events import Event, listener
 
 if TYPE_CHECKING:
     from .state import CombatState
     from .events import Owner
+
+
+# ---------------------------------------------------------------------------
+# Subscription tables
+# ---------------------------------------------------------------------------
+
+# Name-based subscriptions (subscribe in Combat.reset for matching enemies)
+ENEMY_SUBSCRIPTIONS: dict[str, list[tuple[Event, str]]] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -24,6 +32,11 @@ if TYPE_CHECKING:
 _SPLIT_NAMES = frozenset({"AcidSlimeL", "SpikeSlimeL", "SlimeBoss"})
 
 
+@listener(Event.HP_LOSS, "slime_split", subscriptions=[
+    (ENEMY_SUBSCRIPTIONS, "AcidSlimeL"),
+    (ENEMY_SUBSCRIPTIONS, "SpikeSlimeL"),
+    (ENEMY_SUBSCRIPTIONS, "SlimeBoss"),
+])
 def _slime_split(state: CombatState, owner: Owner, payload: dict) -> None:
     if not isinstance(owner, int):
         return
@@ -39,6 +52,7 @@ def _slime_split(state: CombatState, owner: Owner, payload: dict) -> None:
         enemy.pending_split = True
 
 
+@listener(Event.HP_LOSS, "lagavulin_wake", subscriptions=[(ENEMY_SUBSCRIPTIONS, "Lagavulin")])
 def _lagavulin_wake(state: CombatState, owner: Owner, payload: dict) -> None:
     if not isinstance(owner, int):
         return
@@ -49,6 +63,7 @@ def _lagavulin_wake(state: CombatState, owner: Owner, payload: dict) -> None:
         enemy.powers.enemy_metallicize = 0
 
 
+@listener(Event.HP_LOSS, "curl_up", subscriptions=[])
 def _curl_up(state: CombatState, owner: Owner, payload: dict) -> None:
     if not isinstance(owner, int):
         return
@@ -59,15 +74,11 @@ def _curl_up(state: CombatState, owner: Owner, payload: dict) -> None:
         enemy.powers.curl_up = 0
 
 
-register_listener(Event.HP_LOSS, "slime_split", _slime_split)
-register_listener(Event.HP_LOSS, "lagavulin_wake", _lagavulin_wake)
-register_listener(Event.HP_LOSS, "curl_up", _curl_up)
-
-
 # ---------------------------------------------------------------------------
 # DEATH handlers (owner = enemy index)
 # ---------------------------------------------------------------------------
 
+@listener(Event.DEATH, "spore_cloud", subscriptions=[])
 def _spore_cloud(state: CombatState, owner: Owner, payload: dict) -> None:
     if not isinstance(owner, int):
         return
@@ -78,13 +89,11 @@ def _spore_cloud(state: CombatState, owner: Owner, payload: dict) -> None:
         enemy.powers.spore_cloud = 0
 
 
-register_listener(Event.DEATH, "spore_cloud", _spore_cloud)
-
-
 # ---------------------------------------------------------------------------
 # CARD_PLAYED handlers (owner = "player" for Gremlin Nob)
 # ---------------------------------------------------------------------------
 
+@listener(Event.CARD_PLAYED, "gremlin_nob_skill", subscriptions=[(ENEMY_SUBSCRIPTIONS, "GremlinNob")])
 def _gremlin_nob_skill(state: CombatState, owner: Owner, payload: dict) -> None:
     from .cards import CardType
     card_spec = payload.get("card_spec")
@@ -95,22 +104,7 @@ def _gremlin_nob_skill(state: CombatState, owner: Owner, payload: dict) -> None:
             enemy.powers.strength += enemy.skill_played_str
 
 
-register_listener(Event.CARD_PLAYED, "gremlin_nob_skill", _gremlin_nob_skill)
-
-
 # ---------------------------------------------------------------------------
-# Subscription tables
-# ---------------------------------------------------------------------------
-
-# Name-based subscriptions (subscribe in Combat.reset for matching enemies)
-ENEMY_SUBSCRIPTIONS: dict[str, list[tuple[Event, str]]] = {
-    "AcidSlimeL": [(Event.HP_LOSS, "slime_split")],
-    "SpikeSlimeL": [(Event.HP_LOSS, "slime_split")],
-    "SlimeBoss": [(Event.HP_LOSS, "slime_split")],
-    "Lagavulin": [(Event.HP_LOSS, "lagavulin_wake")],
-    "GremlinNob": [(Event.CARD_PLAYED, "gremlin_nob_skill")],
-}
-
 # Condition-based subscriptions (subscribe in Combat.reset if power > 0)
 # key is checked against enemy powers; value is (event, handler_name, owner_override)
 # owner_override: None means use enemy index; "player" means subscribe to player events

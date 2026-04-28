@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .events import Event, register_listener
+from .events import Event, listener
 from .powers import Powers
 
 if TYPE_CHECKING:
@@ -15,9 +15,17 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
+# Subscription table
+# ---------------------------------------------------------------------------
+
+RELIC_SUBSCRIPTIONS: dict[str, list[tuple[Event, str]]] = {}
+
+
+# ---------------------------------------------------------------------------
 # RedSkull: +3 Strength while HP <= 50% of max
 # ---------------------------------------------------------------------------
 
+@listener(Event.COMBAT_START, "red_skull_init", subscriptions=[(RELIC_SUBSCRIPTIONS, "RedSkull")])
 def _red_skull_init(state: CombatState, owner: Owner, payload: dict) -> None:
     """At COMBAT_START, apply RedSkull if player starts at or below 50% HP."""
     if "RedSkull" not in state.relics:
@@ -27,6 +35,7 @@ def _red_skull_init(state: CombatState, owner: Owner, payload: dict) -> None:
         state.player_powers._red_skull_active = True
 
 
+@listener(Event.HP_LOSS, "red_skull", subscriptions=[(RELIC_SUBSCRIPTIONS, "RedSkull")])
 def _red_skull(state: CombatState, owner: Owner, payload: dict) -> None:
     """On HP_LOSS for player, recompute RedSkull strength bonus."""
     if "RedSkull" not in state.relics:
@@ -42,18 +51,3 @@ def _red_skull(state: CombatState, owner: Owner, payload: dict) -> None:
         state.player_powers.strength -= 3
         state.player_powers._red_skull_active = False
 
-
-register_listener(Event.COMBAT_START, "red_skull_init", _red_skull_init)
-register_listener(Event.HP_LOSS, "red_skull", _red_skull)
-
-
-# ---------------------------------------------------------------------------
-# Subscription table
-# ---------------------------------------------------------------------------
-
-RELIC_SUBSCRIPTIONS: dict[str, list[tuple[Event, str]]] = {
-    "RedSkull": [
-        (Event.COMBAT_START, "red_skull_init"),
-        (Event.HP_LOSS, "red_skull"),
-    ],
-}

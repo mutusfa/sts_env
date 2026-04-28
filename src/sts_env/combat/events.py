@@ -64,6 +64,27 @@ def register_listener(
     _LISTENERS[event][name] = handler
 
 
+def listener(
+    event: Event,
+    name: str,
+    subscriptions: list[tuple[dict, str]] | None = None,
+) -> Callable[[Callable[["CombatState", Owner, dict], None]], Callable[["CombatState", Owner, dict], None]]:
+    """Decorator that registers a handler and populates subscription tables.
+
+    Args:
+        event: The event this handler responds to.
+        name: Unique identifier for this handler.
+        subscriptions: List of (table, key) pairs where (event, name) should be appended.
+                      Each table is a dict[str, list[tuple[Event, str]]].
+    """
+    def deco(fn: Callable[["CombatState", Owner, dict], None]) -> Callable[["CombatState", Owner, dict], None]:
+        register_listener(event, name, fn)
+        for table, key in subscriptions or ():
+            table.setdefault(key, []).append((event, name))
+        return fn
+    return deco
+
+
 def subscribe(state: "CombatState", event: Event, name: str, owner: Owner) -> None:
     """Add *name* to the subscriber list for ``(event, owner)``.
 

@@ -213,11 +213,7 @@ class Combat:
                     subscribe(self._state, event, handler_name, "player")
             elif attr not in ("vulnerable", "weak", "frail", "entangled", "ritual"):
                 val = getattr(self._state.player_powers, attr, 0)
-                if isinstance(val, bool):
-                    if val:
-                        for event, handler_name in subs:
-                            subscribe(self._state, event, handler_name, "player")
-                elif val > 0:
+                if val:
                     for event, handler_name in subs:
                         subscribe(self._state, event, handler_name, "player")
 
@@ -383,12 +379,16 @@ class Combat:
 
         for pi, potion_id in enumerate(state.potions):
             spec = _get_potion_spec(potion_id)
-            if spec.target == TargetType.SINGLE_ENEMY:
-                for ti in live_enemy_indices:
-                    actions.append(Action.use_potion(pi, ti))
+            if spec.passive:
+                # Passive potions cannot be actively used, only discarded
+                actions.append(Action.discard_potion(pi))
             else:
-                actions.append(Action.use_potion(pi))
-            actions.append(Action.discard_potion(pi))
+                if spec.target == TargetType.SINGLE_ENEMY:
+                    for ti in live_enemy_indices:
+                        actions.append(Action.use_potion(pi, ti))
+                else:
+                    actions.append(Action.use_potion(pi))
+                actions.append(Action.discard_potion(pi))
 
         actions.append(Action.end_turn())
         return actions

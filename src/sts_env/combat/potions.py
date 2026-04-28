@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 class PotionSpec:
     potion_id: str
     target: TargetType  # SINGLE_ENEMY, ALL_ENEMIES, or NONE (self-targeting)
+    passive: bool = False
 
 
 PotionHandler = Callable[["CombatState", int], None]  # (state, target_index)
@@ -44,9 +45,9 @@ _SPECS: dict[str, PotionSpec] = {}
 _HANDLERS: dict[str, PotionHandler] = {}
 
 
-def potion(potion_id: str, target: TargetType) -> Callable[[PotionHandler], PotionHandler]:
+def potion(potion_id: str, target: TargetType, passive: bool = False) -> Callable[[PotionHandler], PotionHandler]:
     def decorator(fn: PotionHandler) -> PotionHandler:
-        _SPECS[potion_id] = PotionSpec(potion_id, target)
+        _SPECS[potion_id] = PotionSpec(potion_id, target, passive=passive)
         _HANDLERS[potion_id] = fn
         return fn
     return decorator
@@ -62,6 +63,9 @@ def get_spec(potion_id: str) -> PotionSpec:
 def use_potion(state: "CombatState", potion_index: int, target_index: int) -> None:
     """Execute a potion's effect and remove it from the slot list."""
     potion_id = state.potions[potion_index]
+    spec = _SPECS[potion_id]
+    if spec.passive:
+        raise ValueError(f"Passive potion {potion_id!r} cannot be actively used")
     _HANDLERS[potion_id](state, target_index)
     state.potions.pop(potion_index)
 
@@ -163,7 +167,7 @@ def _heart_of_iron(state: "CombatState", _ti: int) -> None:
     state.player_powers.metallicize += 4
 
 
-@potion("FairyInABottle", TargetType.NONE)
+@potion("FairyInABottle", TargetType.NONE, passive=True)
 def _fairy_in_a_bottle(state: "CombatState", _ti: int) -> None:
     """Passive: auto-revive at 30% max HP on lethal damage (consumed on use).
 

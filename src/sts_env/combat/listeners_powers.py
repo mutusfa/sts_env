@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from .events import Event, register_listener
+from .events import Event, listener
 
 if TYPE_CHECKING:
     from .state import CombatState
@@ -19,9 +19,17 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
+# Subscription table for auto-subscribe when powers are gained
+# ---------------------------------------------------------------------------
+
+POWER_SUBSCRIPTIONS: dict[str, list[tuple[Event, str]]] = {}
+
+
+# ---------------------------------------------------------------------------
 # BLOCK_GAINED handlers
 # ---------------------------------------------------------------------------
 
+@listener(Event.BLOCK_GAINED, "juggernaut", subscriptions=[(POWER_SUBSCRIPTIONS, "juggernaut")])
 def _juggernaut(state: CombatState, owner: Owner, payload: dict) -> None:
     from .powers import calc_damage, apply_damage
     powers = state.player_powers
@@ -38,13 +46,11 @@ def _juggernaut(state: CombatState, owner: Owner, payload: dict) -> None:
     target.hp = nhp
 
 
-register_listener(Event.BLOCK_GAINED, "juggernaut", _juggernaut)
-
-
 # ---------------------------------------------------------------------------
 # CARD_PLAYED handlers
 # ---------------------------------------------------------------------------
 
+@listener(Event.CARD_PLAYED, "rage", subscriptions=[(POWER_SUBSCRIPTIONS, "rage_block")])
 def _rage(state: CombatState, owner: Owner, payload: dict) -> None:
     from .cards import CardType
     powers = state.player_powers
@@ -59,13 +65,11 @@ def _rage(state: CombatState, owner: Owner, payload: dict) -> None:
     emit(state, Event.BLOCK_GAINED, "player", amount=block_gain)
 
 
-register_listener(Event.CARD_PLAYED, "rage", _rage)
-
-
 # ---------------------------------------------------------------------------
 # CARD_EXHAUSTED handlers
 # ---------------------------------------------------------------------------
 
+@listener(Event.CARD_EXHAUSTED, "sentinel", subscriptions=[(POWER_SUBSCRIPTIONS, "sentinel")])
 def _sentinel(state: CombatState, owner: Owner, payload: dict) -> None:
     card = payload.get("card")
     if card is None:
@@ -78,57 +82,62 @@ def _sentinel(state: CombatState, owner: Owner, payload: dict) -> None:
     state.energy += gain
 
 
+@listener(Event.CARD_EXHAUSTED, "dark_embrace", subscriptions=[(POWER_SUBSCRIPTIONS, "dark_embrace")])
 def _dark_embrace(state: CombatState, owner: Owner, payload: dict) -> None:
     if state.player_powers.dark_embrace <= 0:
         return
     state.piles.draw_cards(state.player_powers.dark_embrace, state.rng)
 
 
+@listener(Event.CARD_EXHAUSTED, "feel_no_pain", subscriptions=[(POWER_SUBSCRIPTIONS, "feel_no_pain")])
 def _feel_no_pain(state: CombatState, owner: Owner, payload: dict) -> None:
     if state.player_powers.feel_no_pain <= 0:
         return
     state.player_block += state.player_powers.feel_no_pain
 
 
-register_listener(Event.CARD_EXHAUSTED, "sentinel", _sentinel)
-register_listener(Event.CARD_EXHAUSTED, "dark_embrace", _dark_embrace)
-register_listener(Event.CARD_EXHAUSTED, "feel_no_pain", _feel_no_pain)
-
-
 # ---------------------------------------------------------------------------
 # TURN_START handlers (duration ticks first, then behavioural)
 # ---------------------------------------------------------------------------
 
+# Duration ticks registered first (ordering matters)
+@listener(Event.TURN_START, "tick_vulnerable", subscriptions=[(POWER_SUBSCRIPTIONS, "vulnerable")])
 def _tick_vulnerable(state: CombatState, owner: Owner, payload: dict) -> None:
     powers = _get_powers(state, owner)
     if powers is not None and powers.vulnerable > 0:
         powers.vulnerable -= 1
 
 
+@listener(Event.TURN_START, "tick_weak", subscriptions=[(POWER_SUBSCRIPTIONS, "weak")])
 def _tick_weak(state: CombatState, owner: Owner, payload: dict) -> None:
     powers = _get_powers(state, owner)
     if powers is not None and powers.weak > 0:
         powers.weak -= 1
 
 
+@listener(Event.TURN_START, "tick_frail", subscriptions=[(POWER_SUBSCRIPTIONS, "frail")])
 def _tick_frail(state: CombatState, owner: Owner, payload: dict) -> None:
     powers = _get_powers(state, owner)
     if powers is not None and powers.frail > 0:
         powers.frail -= 1
 
 
+@listener(Event.TURN_START, "clear_entangled", subscriptions=[(POWER_SUBSCRIPTIONS, "entangled")])
 def _clear_entangled(state: CombatState, owner: Owner, payload: dict) -> None:
     powers = _get_powers(state, owner)
     if powers is not None:
         powers.entangled = False
 
 
+# Behavioural listeners after ticks
+@listener(Event.TURN_START, "demon_form", subscriptions=[(POWER_SUBSCRIPTIONS, "demon_form")])
 def _demon_form(state: CombatState, owner: Owner, payload: dict) -> None:
     powers = _get_powers(state, owner)
     if powers is not None and powers.demon_form > 0:
         powers.strength += powers.demon_form
 
 
+@listener(Event.TURN_START, "brutality", subscriptions=[(POWER_SUBSCRIPTIONS, "brutality")])
 def _brutality(state: CombatState, owner: Owner, payload: dict) -> None:
     powers = _get_powers(state, owner)
     if powers is None or powers.brutality <= 0:
@@ -139,27 +148,18 @@ def _brutality(state: CombatState, owner: Owner, payload: dict) -> None:
         state.piles.draw_cards(1, state.rng)
 
 
+@listener(Event.TURN_START, "berserk", subscriptions=[(POWER_SUBSCRIPTIONS, "berserk_energy")])
 def _berserk(state: CombatState, owner: Owner, payload: dict) -> None:
     powers = _get_powers(state, owner)
     if powers is not None and powers.berserk_energy > 0:
         state.energy += powers.berserk_energy
 
 
-# Duration ticks registered first (ordering matters)
-register_listener(Event.TURN_START, "tick_vulnerable", _tick_vulnerable)
-register_listener(Event.TURN_START, "tick_weak", _tick_weak)
-register_listener(Event.TURN_START, "tick_frail", _tick_frail)
-register_listener(Event.TURN_START, "clear_entangled", _clear_entangled)
-# Behavioural listeners after ticks
-register_listener(Event.TURN_START, "demon_form", _demon_form)
-register_listener(Event.TURN_START, "brutality", _brutality)
-register_listener(Event.TURN_START, "berserk", _berserk)
-
-
 # ---------------------------------------------------------------------------
 # TURN_END handlers
 # ---------------------------------------------------------------------------
 
+@listener(Event.TURN_END, "metallicize", subscriptions=[(POWER_SUBSCRIPTIONS, "metallicize")])
 def _metallicize(state: CombatState, owner: Owner, payload: dict) -> None:
     powers = _get_powers(state, owner)
     if powers is None or powers.metallicize <= 0:
@@ -168,6 +168,7 @@ def _metallicize(state: CombatState, owner: Owner, payload: dict) -> None:
         state.player_block += powers.metallicize
 
 
+@listener(Event.TURN_END, "strength_loss", subscriptions=[(POWER_SUBSCRIPTIONS, "strength_loss_eot")])
 def _strength_loss(state: CombatState, owner: Owner, payload: dict) -> None:
     powers = _get_powers(state, owner)
     if powers is None or powers.strength_loss_eot <= 0:
@@ -176,6 +177,7 @@ def _strength_loss(state: CombatState, owner: Owner, payload: dict) -> None:
     powers.strength_loss_eot = 0
 
 
+@listener(Event.TURN_END, "dex_loss", subscriptions=[(POWER_SUBSCRIPTIONS, "dexterity_loss_eot")])
 def _dex_loss(state: CombatState, owner: Owner, payload: dict) -> None:
     powers = _get_powers(state, owner)
     if powers is None or powers.dexterity_loss_eot <= 0:
@@ -184,6 +186,7 @@ def _dex_loss(state: CombatState, owner: Owner, payload: dict) -> None:
     powers.dexterity_loss_eot = 0
 
 
+@listener(Event.TURN_END, "ritual", subscriptions=[(POWER_SUBSCRIPTIONS, "ritual")])
 def _ritual(state: CombatState, owner: Owner, payload: dict) -> None:
     powers = _get_powers(state, owner)
     if powers is None:
@@ -192,35 +195,6 @@ def _ritual(state: CombatState, owner: Owner, payload: dict) -> None:
         powers.ritual_just_applied = False
     elif powers.ritual > 0:
         powers.strength += powers.ritual
-
-
-register_listener(Event.TURN_END, "metallicize", _metallicize)
-register_listener(Event.TURN_END, "strength_loss", _strength_loss)
-register_listener(Event.TURN_END, "dex_loss", _dex_loss)
-register_listener(Event.TURN_END, "ritual", _ritual)
-
-
-# ---------------------------------------------------------------------------
-# Subscription table for auto-subscribe when powers are gained
-# ---------------------------------------------------------------------------
-
-POWER_SUBSCRIPTIONS: dict[str, list[tuple[Event, str]]] = {
-    "juggernaut": [(Event.BLOCK_GAINED, "juggernaut")],
-    "rage_block": [(Event.CARD_PLAYED, "rage")],
-    "dark_embrace": [(Event.CARD_EXHAUSTED, "dark_embrace")],
-    "feel_no_pain": [(Event.CARD_EXHAUSTED, "feel_no_pain")],
-    "metallicize": [(Event.TURN_END, "metallicize")],
-    "demon_form": [(Event.TURN_START, "demon_form")],
-    "brutality": [(Event.TURN_START, "brutality")],
-    "berserk_energy": [(Event.TURN_START, "berserk")],
-    "ritual": [(Event.TURN_END, "ritual")],
-    "vulnerable": [(Event.TURN_START, "tick_vulnerable")],
-    "weak": [(Event.TURN_START, "tick_weak")],
-    "frail": [(Event.TURN_START, "tick_frail")],
-    "entangled": [(Event.TURN_START, "clear_entangled")],
-    "strength_loss_eot": [(Event.TURN_END, "strength_loss")],
-    "dexterity_loss_eot": [(Event.TURN_END, "dex_loss")],
-}
 
 
 # ---------------------------------------------------------------------------

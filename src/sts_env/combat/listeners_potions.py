@@ -8,7 +8,7 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from .events import Event, register_listener, unsubscribe
+from .events import Event, listener, unsubscribe
 
 if TYPE_CHECKING:
     from .state import CombatState
@@ -16,9 +16,17 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
+# Subscription table
+# ---------------------------------------------------------------------------
+
+POTION_SUBSCRIPTIONS: dict[str, list[tuple[Event, str]]] = {}
+
+
+# ---------------------------------------------------------------------------
 # Fairy in a Bottle: auto-revive at 30% max HP on lethal damage
 # ---------------------------------------------------------------------------
 
+@listener(Event.HP_LOSS, "fairy", subscriptions=[(POTION_SUBSCRIPTIONS, "FairyInABottle")])
 def _fairy(state: CombatState, owner: Owner, payload: dict) -> None:
     if owner != "player":
         return
@@ -34,14 +42,3 @@ def _fairy(state: CombatState, owner: Owner, payload: dict) -> None:
             unsubscribe(state, Event.HP_LOSS, "fairy", "player")
             return
 
-
-register_listener(Event.HP_LOSS, "fairy", _fairy)
-
-
-# ---------------------------------------------------------------------------
-# Subscription table
-# ---------------------------------------------------------------------------
-
-POTION_SUBSCRIPTIONS: dict[str, list[tuple[Event, str]]] = {
-    "FairyInABottle": [(Event.HP_LOSS, "fairy")],
-}
