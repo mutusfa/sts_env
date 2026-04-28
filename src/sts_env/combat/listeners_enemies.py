@@ -63,7 +63,7 @@ def _lagavulin_wake(state: CombatState, owner: Owner, payload: dict) -> None:
         enemy.powers.enemy_metallicize = 0
 
 
-@listener(Event.HP_LOSS, "curl_up", subscriptions=[])
+@listener(Event.ATTACK_DAMAGED, "curl_up", subscriptions=[])
 def _curl_up(state: CombatState, owner: Owner, payload: dict) -> None:
     if not isinstance(owner, int):
         return
@@ -120,8 +120,8 @@ def _gremlin_nob_skill(state: CombatState, owner: Owner, payload: dict) -> None:
 # owner_override: None means use enemy index; "player" means subscribe to player events
 ENEMY_CONDITION_SUBSCRIPTIONS: list[tuple[str, Event, str, str | None]] = [
     # (power_attr, event, handler_name, owner_override)
-    ("curl_up", Event.HP_LOSS, "curl_up", None),       # owner = enemy index
-    ("spore_cloud", Event.DEATH, "spore_cloud", None),  # owner = enemy index
+    ("curl_up", Event.ATTACK_DAMAGED, "curl_up", None),  # only card-attack damage
+    ("spore_cloud", Event.DEATH, "spore_cloud", None),    # owner = enemy index
     ("ritual", Event.TURN_END, "ritual", None),          # owner = enemy index
     ("vulnerable", Event.TURN_START, "tick_vulnerable", None),
     ("weak", Event.TURN_START, "tick_weak", None),

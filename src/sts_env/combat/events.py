@@ -39,6 +39,7 @@ class Event(Enum):
     CARD_CREATED = auto()
     BLOCK_GAINED = auto()
     HP_LOSS = auto()
+    ATTACK_DAMAGED = auto()
     DEATH = auto()
     DEBUFF_APPLIED = auto()
 

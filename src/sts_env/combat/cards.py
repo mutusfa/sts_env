@@ -215,20 +215,30 @@ def _apply_spec(
 
     # 3. Attack
     if spec.attack:
+        from .events import Event, emit as _emit
         dmg = spec.attack + u.get("attack", 0)
         hits = spec.hits + u.get("hits", 0)
         # X-cost cards: hits = energy spent (Whirlwind)
         if spec.x_cost:
             hits = x_energy
+        # Snapshot HP for ATTACK_DAMAGED emission after all hits
         if spec.target == TargetType.ALL_ENEMIES:
+            hp_before = {ei: state.enemies[ei].hp for ei, e in enumerate(state.enemies)
+                         if e.hp > 0 and e.name != "Empty"}
             for ei, enemy in enumerate(state.enemies):
                 if enemy.hp > 0 and enemy.name != "Empty":
                     for _ in range(hits):
                         attack_enemy(state, enemy, dmg, enemy_index=ei)
         else:
             enemy = state.enemies[target_index]
+            hp_before = {target_index: enemy.hp}
             for _ in range(hits):
                 attack_enemy(state, enemy, dmg, enemy_index=target_index)
+        # Emit ATTACK_DAMAGED for each enemy that took HP loss but is still alive
+        for ei, hpb in hp_before.items():
+            e = state.enemies[ei]
+            if 0 < e.hp < hpb:
+                _emit(state, Event.ATTACK_DAMAGED, ei, hp_before=hpb)
 
     # 4. Debuffs applied to target(s)
     vuln = spec.vulnerable + u.get("vulnerable", 0)
@@ -395,13 +405,21 @@ def _havoc_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> N
 
 
 def _sword_boomerang_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
+    from .events import Event, emit as _emit
     dmg = 3 + (1 if upgraded else 0)
+    # Snapshot HP for all alive enemies before the random hits
+    hp_before = {i: e.hp for i, e in enumerate(state.enemies)
+                 if e.hp > 0 and e.name != "Empty"}
     for _ in range(3):
         alive_indices = [i for i, e in enumerate(state.enemies) if e.hp > 0 and e.name != "Empty"]
         if alive_indices:
             idx = alive_indices[state.rng.randint(0, len(alive_indices) - 1)]
             target = state.enemies[idx]
             attack_enemy(state, target, dmg, enemy_index=idx)
+    for ei, hpb in hp_before.items():
+        e = state.enemies[ei]
+        if 0 < e.hp < hpb:
+            _emit(state, Event.ATTACK_DAMAGED, ei, hp_before=hpb)
 
 
 def _wild_strike_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> None:

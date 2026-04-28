@@ -222,38 +222,49 @@ def test_attack_enemy_respects_enemy_block():
 
 
 def test_attack_enemy_curl_up_triggers_on_first_hp_damage():
-    """Curl Up fires the first time HP actually drops."""
-    e = EnemyState(name="RedLouse", hp=12, max_hp=12)
+    """Curl Up fires the first time HP actually drops via card attack."""
+    from sts_env.combat.card import Card
+    from sts_env.combat.cards import play_card
+    e = EnemyState(name="RedLouse", hp=20, max_hp=20)
     e.powers.curl_up = 5
     state = _make_state(e)
-    subscribe(state, Event.HP_LOSS, "curl_up", 0)
-    attack_enemy(state, e, 3, enemy_index=0)   # 3 dmg, no block → HP damage triggers Curl Up
-    assert e.hp == 9
-    assert e.block == 5         # Curl Up grants block
+    subscribe(state, Event.ATTACK_DAMAGED, "curl_up", 0)
+    # Put a Strike in hand
+    state.piles.hand.append(Card("Strike"))
+    play_card(state, 0, 0)
+    assert e.hp == 14         # 6 damage from Strike
+    assert e.block == 5       # Curl Up grants block
     assert e.powers.curl_up == 0  # consumed
 
 
 def test_attack_enemy_curl_up_does_not_trigger_when_fully_blocked():
     """Curl Up must NOT trigger when damage is fully absorbed by block."""
+    from sts_env.combat.card import Card
+    from sts_env.combat.cards import play_card
     e = EnemyState(name="RedLouse", hp=12, max_hp=12, block=10)
     e.powers.curl_up = 5
     state = _make_state(e)
-    subscribe(state, Event.HP_LOSS, "curl_up", 0)
-    attack_enemy(state, e, 3, enemy_index=0)   # fully blocked → no HP damage
+    subscribe(state, Event.ATTACK_DAMAGED, "curl_up", 0)
+    state.piles.hand.append(Card("Strike"))
+    play_card(state, 0, 0)   # 6 damage, fully blocked
     assert e.hp == 12
     assert e.powers.curl_up == 5  # not consumed
 
 
 def test_attack_enemy_curl_up_only_triggers_once():
-    e = EnemyState(name="RedLouse", hp=20, max_hp=20)
+    from sts_env.combat.card import Card
+    from sts_env.combat.cards import play_card
+    e = EnemyState(name="RedLouse", hp=40, max_hp=40)
     e.powers.curl_up = 4
     state = _make_state(e)
-    subscribe(state, Event.HP_LOSS, "curl_up", 0)
-    attack_enemy(state, e, 5, enemy_index=0)
+    subscribe(state, Event.ATTACK_DAMAGED, "curl_up", 0)
+    state.piles.hand.append(Card("Strike"))
+    play_card(state, 0, 0)
     assert e.powers.curl_up == 0
     assert e.block == 4  # Curl Up granted block
-    # Second attack: no more Curl Up; block is consumed by the hit normally
-    attack_enemy(state, e, 3, enemy_index=0)
+    # Second attack: no more Curl Up
+    state.piles.hand.append(Card("Strike"))
+    play_card(state, 0, 0)
     assert e.powers.curl_up == 0  # still 0, did not re-trigger
 
 
@@ -547,3 +558,89 @@ def test_block_potion_triggers_juggernaut():
     combat.step(Action.use_potion(0, 0))
     # Juggernaut should have dealt 5 damage when BlockPotion added 12 block
     assert combat._state.enemies[0].hp == enemy_hp_before - 5
+
+
+# ---------------------------------------------------------------------------
+# ATTACK_DAMAGED / Curl Up integration
+# ---------------------------------------------------------------------------
+
+
+def test_whirlwind_resolves_all_hits_before_curl_up():
+    """Multi-hit card: all hits land before Curl Up block is gained."""
+    from sts_env.combat.card import Card
+    from sts_env.combat.cards import play_card
+    from sts_env.combat.engine import Combat, IRONCLAD_STARTER
+
+    combat = Combat(
+        deck=IRONCLAD_STARTER, enemies=["RedLouse"], seed=99
+    )
+    combat.reset()
+    state = combat._state
+    enemy = state.enemies[0]
+    # Set high HP and a known curl_up value
+    enemy.hp = 50
+    enemy.max_hp = 50
+    enemy.powers.curl_up = 5
+
+    # Subscribe curl_up to ATTACK_DAMAGED
+    subscribe(state, Event.ATTACK_DAMAGED, "curl_up", 0)
+
+    # Put Whirlwind in hand, set energy to 2 (so 2 hits of 5 dmg each = 10 total)
+    state.piles.hand.append(Card("Whirlwind"))
+    state.energy = 2
+    hp_before = enemy.hp
+    play_card(state, len(state.piles.hand) - 1, 0)
+
+    # All 10 damage should land before Curl Up block is added
+    assert enemy.hp == hp_before - 10, f"Expected {hp_before - 10} hp, got {enemy.hp}"
+    assert enemy.block == 5, f"Curl Up should have granted 5 block, got {enemy.block}"
+    assert enemy.powers.curl_up == 0
+
+
+def test_curl_up_not_triggered_by_juggernaut():
+    """Juggernaut damage should NOT trigger Curl Up."""
+    from sts_env.combat.engine import Combat, IRONCLAD_STARTER
+
+    combat = Combat(
+        deck=IRONCLAD_STARTER, enemies=["JawWorm"], seed=42
+    )
+    combat.reset()
+    state = combat._state
+    state.enemies[0].powers.curl_up = 5
+    state.player_powers.juggernaut = 5
+
+    # Subscribe both
+    subscribe(state, Event.ATTACK_DAMAGED, "curl_up", 0)
+    for event, handler_name in POWER_SUBSCRIPTIONS.get("juggernaut", []):
+        subscribe(state, event, handler_name, "player")
+
+    # Play Defend — triggers Juggernaut which damages enemy but not via card attack
+    combat.step(Action.play_card(0, 0))
+
+    # Juggernaut dealt damage, but curl_up should NOT be consumed
+    assert state.enemies[0].powers.curl_up == 5, "Curl Up should NOT trigger on Juggernaut"
+
+
+def test_curl_up_not_triggered_by_fire_potion():
+    """FirePotion damage should NOT trigger Curl Up."""
+    from sts_env.combat.engine import Combat, IRONCLAD_STARTER
+
+    combat = Combat(
+        deck=IRONCLAD_STARTER, enemies=["JawWorm"], seed=42
+    )
+    combat.reset()
+    state = combat._state
+    state.enemies[0].powers.curl_up = 5
+    state.enemies[0].hp = 50
+    state.enemies[0].max_hp = 50
+
+    subscribe(state, Event.ATTACK_DAMAGED, "curl_up", 0)
+
+    # Use FirePotion
+    state.potions.append("FirePotion")
+    hp_before = state.enemies[0].hp
+    combat.step(Action.use_potion(0, 0))
+
+    # Fire Potion dealt 20 damage, but curl_up should NOT be consumed
+    assert state.enemies[0].hp == hp_before - 20
+    assert state.enemies[0].powers.curl_up == 5, "Curl Up should NOT trigger on Fire Potion"
