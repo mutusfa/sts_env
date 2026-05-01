@@ -54,6 +54,10 @@ class Character:
     seen_events: list[str] = field(default_factory=list)
     event_bus: RunEventBus = field(default_factory=RunEventBus)
     relic_state: dict[str, int] = field(default_factory=dict)  # relic-owned counters (persists across combats)
+    # Persists across rewards — mirrors C++ GameContext::cardRarityFactor.
+    # Note: a single RNG is used here (unlike C++ which has separate cardRng/merchantRng),
+    # so shop pricing rolls will perturb card draws slightly vs the reference.
+    card_rarity_factor: int = 0
 
     def __post_init__(self) -> None:
         """Wire relic event handlers for starting relics."""

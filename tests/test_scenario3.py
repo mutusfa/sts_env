@@ -366,12 +366,12 @@ class TestRewards:
 
     def test_card_reward_returns_3_cards(self):
         rng = RNG(42)
-        cards = rewards.roll_card_rewards(rng, is_elite=False)
+        cards, _ = rewards.roll_card_rewards(rng)
         assert len(cards) == 3
 
     def test_elite_card_reward(self):
         rng = RNG(42)
-        cards = rewards.roll_card_rewards(rng, is_elite=True)
+        cards, _ = rewards.roll_card_rewards(rng, room=rewards.Room.ELITE)
         assert len(cards) == 3
 
     def test_potion_reward_returns_string_or_none(self):

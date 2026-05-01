@@ -27,6 +27,21 @@ def pool(color: CardColor, rarity: Rarity) -> list[str]:
     ]
 
 
+def typed_pool(color: CardColor, card_type: CardType, rarity: Rarity) -> list[str]:
+    """Return card IDs for a given character color, card type, and rarity.
+
+    Used by the shop to build per-type buckets (ATTACK/SKILL/POWER) matching
+    C++ Shop::getRandomClassCardOfTypeAndRarity.
+    """
+    return [
+        spec.card_id
+        for spec in all_specs().values()
+        if spec.color == color
+        and spec.card_type == card_type
+        and spec.rarity == rarity
+    ]
+
+
 def colorless_pool(rarity: Rarity | None = None) -> list[str]:
     """Return colorless card IDs, optionally filtered by rarity.
 

@@ -4,14 +4,20 @@ After winning a combat encounter, the player receives:
   - 3 card choices drawn from the character's card pool (with rarity weighting).
   - An optional potion reward (40% chance).
 
-Card rarity and pool composition mirrors StS Act 1:
-  - Common: 60% weight
-  - Uncommon: 37% weight
-  - Rare: 3% weight (guaranteed 1 in 3 for elite fights)
+Card rarity mechanics mirror C++ GameContext::createCardReward / rollCardRarity:
+  - MONSTER: rare 3 %, uncommon 37 %, common 60 %  (roll = rng(0..99) + factor)
+  - ELITE:   rare 10 %, uncommon 40 %, common 50 %
+  - BOSS:    100 % rare
+  - A persistent ``card_rarity_factor`` (pity counter) adjusts the roll:
+      COMMON drawn → max(factor - 1, -40)
+      RARE drawn   → factor reset to 5
+      UNCOMMON     → no change
+  - Within a single reward, re-roll until all card IDs are distinct.
 """
 
 from __future__ import annotations
 
+from enum import Enum, auto
 from typing import TYPE_CHECKING
 
 from ..combat.card_pools import pool
@@ -24,48 +30,89 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
-# Rarity weights for normal combats (Common 60%, Uncommon 37%, Rare 3%)
+# Room type enum (mirrors C++ Room, used for rarity roll thresholds)
 # ---------------------------------------------------------------------------
 
-_RARITY_ROLLS: list[tuple[float, Rarity]] = [
-    (0.60, Rarity.COMMON),
-    (0.97, Rarity.UNCOMMON),
-    (1.00, Rarity.RARE),
-]
+class Room(Enum):
+    MONSTER = auto()
+    ELITE = auto()
+    BOSS = auto()
+    REST = auto()
+    EVENT = auto()
 
 
-def _roll_rarity(
-    rng: "RNG",
-    color: CardColor,
-    guaranteed_rare: bool = False,
-) -> list[str]:
-    """Roll which rarity pool to draw from.
+# ---------------------------------------------------------------------------
+# Rarity roll — matches C++ GameContext::rollCardRarity
+# ---------------------------------------------------------------------------
 
-    If guaranteed_rare is True, always returns the rare pool.
+# Thresholds: (rare_chance, uncommon_chance) per room type.
+# roll = rng.randint(0, 99) + card_rarity_factor
+# if roll < rare_chance          → RARE
+# elif roll < rare + uncommon    → UNCOMMON
+# else                           → COMMON
+_RARE_CHANCE: dict[Room, int] = {
+    Room.MONSTER: 3,
+    Room.ELITE:   10,
+    Room.BOSS:    100,  # always rare
+    Room.REST:    3,
+    Room.EVENT:   3,
+}
+_UNCOMMON_CHANCE: dict[Room, int] = {
+    Room.MONSTER: 37,
+    Room.ELITE:   40,
+    Room.BOSS:    0,
+    Room.REST:    37,
+    Room.EVENT:   37,
+}
+
+_FACTOR_FLOOR = -40
+
+
+def roll_card_rarity(rng: "RNG", room: Room, factor: int) -> tuple[Rarity, int]:
+    """Roll one card rarity and return (rarity, updated_factor).
+
+    Mirrors C++ GameContext::rollCardRarity + the inline factor update in
+    createCardReward.
     """
-    if guaranteed_rare:
-        return pool(color, Rarity.RARE)
-    roll = rng.random()
-    for threshold, rarity in _RARITY_ROLLS:
-        if roll < threshold:
-            return pool(color, rarity)
-    return pool(color, Rarity.RARE)
+    rare_chance = _RARE_CHANCE[room]
+    uncommon_chance = _UNCOMMON_CHANCE[room]
 
+    roll = rng.randint(0, 99) + factor
+
+    if roll < rare_chance:
+        rarity = Rarity.RARE
+        new_factor = 5
+    elif roll < rare_chance + uncommon_chance:
+        rarity = Rarity.UNCOMMON
+        new_factor = factor  # unchanged
+    else:
+        rarity = Rarity.COMMON
+        new_factor = max(factor - 1, _FACTOR_FLOOR)
+
+    return rarity, new_factor
+
+
+# ---------------------------------------------------------------------------
+# Card reward generation
+# ---------------------------------------------------------------------------
 
 def roll_card_rewards(
     rng: "RNG",
     color: CardColor = CardColor.RED,
-    is_elite: bool = False,
+    room: Room = Room.MONSTER,
+    card_rarity_factor: int = 0,
     event_bus: "RunEventBus | None" = None,
-    # ``relics`` kept temporarily for backward compat — prefer ``event_bus``
-    relics: list[str] | None = None,
-) -> list[str]:
-    """Return card IDs to choose from as a card reward.
+) -> tuple[list[str], int]:
+    """Return (card_ids, new_card_rarity_factor) for one reward screen.
 
-    Cards are drawn from the given character color's card pool with rarity
-    weighting.  For elite fights, 1 of the 3 cards is guaranteed to be rare.
-    Relics that modify card reward count (e.g. BustedCrown) are handled
-    through the run-layer event bus.
+    Mirrors C++ GameContext::createCardReward:
+    - Per-slot rarity rolls using the pity counter.
+    - Re-roll card ID (within the same rarity) until it does not duplicate an
+      already-chosen card in this reward (C++ hasDuplicate loop).
+    - BOSS room is always 100 % rare.
+
+    The caller is responsible for persisting the returned factor on the run
+    state (e.g. ``character.card_rarity_factor = new_factor``).
     """
     num_cards = 3
     if event_bus is not None:
@@ -73,16 +120,24 @@ def roll_card_rewards(
         num_cards = payload["count"]
 
     rewards: list[str] = []
+    factor = card_rarity_factor
 
-    for i in range(num_cards):
-        guaranteed_rare = is_elite and i == 0
-        card_pool = _roll_rarity(rng, color, guaranteed_rare=guaranteed_rare)
+    for _ in range(num_cards):
+        rarity, factor = roll_card_rarity(rng, room, factor)
+        card_pool = pool(color, rarity)
         if not card_pool:
             continue
+
+        # Re-roll until unique within this reward (C++ hasDuplicate loop).
+        # Safety guard: if pool is exhausted (tiny pool), accept duplicate.
         card = rng.choice(card_pool)
+        attempts = 0
+        while card in rewards and attempts < len(card_pool):
+            card = rng.choice(card_pool)
+            attempts += 1
         rewards.append(card)
 
-    return rewards
+    return rewards, factor
 
 
 # ---------------------------------------------------------------------------

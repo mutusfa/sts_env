@@ -1,7 +1,7 @@
 """Treasure room logic for Slay the Spire.
 
-Treasure rooms contain a chest that awards gold and have a small chance
-of dropping a common relic.
+Treasure rooms contain a chest that always grants a relic.
+Gold is optional and depends on chest size.
 """
 from __future__ import annotations
 
@@ -22,9 +22,16 @@ class TreasureResult:
     relic_found: str | None = None
 
 
-_RELIC_DROP_CHANCE = 0.25  # 25% chance to find a relic in treasure
-_GOLD_MIN = 20
-_GOLD_MAX = 30
+# Chest roll model mirrors sts_lightspeed constants:
+# SMALL/MEDIUM/LARGE chest roll chances: 50/33/17
+# Gold chance by chest size: 50/35/50
+# Base gold amount by chest size: 25/50/75 (then 90%-110% variance)
+_SMALL_CHEST_CHANCE = 50
+_MEDIUM_CHEST_CHANCE = 33
+_LARGE_CHEST_CHANCE = 17
+
+_CHEST_GOLD_CHANCES = (50, 35, 50)
+_CHEST_GOLD_AMOUNTS = (25, 50, 75)
 
 # Common relic pool for treasure rooms
 _TREASURE_RELICS = [
@@ -54,13 +61,24 @@ _TREASURE_RELICS = [
 
 
 def open_treasure(character: Character, rng: RNG) -> TreasureResult:
-    """Open a treasure chest. Adds gold to character, maybe a relic."""
-    gold = rng.randint(_GOLD_MIN, _GOLD_MAX)
-    character.gold += gold
+    """Open a treasure chest, granting relic and optional gold."""
+    roll = rng.randint(0, 99)
+    if roll < _SMALL_CHEST_CHANCE:
+        chest_idx = 0  # small
+    elif roll < _SMALL_CHEST_CHANCE + _MEDIUM_CHEST_CHANCE:
+        chest_idx = 1  # medium
+    else:
+        chest_idx = 2  # large
 
-    relic = None
-    if rng.random() < _RELIC_DROP_CHANCE:
-        relic = rng.choice(_TREASURE_RELICS)
-        character.add_relic(relic)
+    gold = 0
+    gold_roll = rng.randint(0, 99)
+    if gold_roll < _CHEST_GOLD_CHANCES[chest_idx]:
+        base_gold = _CHEST_GOLD_AMOUNTS[chest_idx]
+        variance_mult = 0.9 + (0.2 * rng.random())
+        gold = round(base_gold * variance_mult)
+        character.gold += gold
+
+    relic = rng.choice(_TREASURE_RELICS)
+    character.add_relic(relic)
 
     return TreasureResult(gold_found=gold, relic_found=relic)

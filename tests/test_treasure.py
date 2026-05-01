@@ -8,9 +8,11 @@ import pytest
 from sts_env.combat.rng import RNG
 from sts_env.run.character import Character
 from sts_env.run.treasure import (
-    _GOLD_MAX,
-    _GOLD_MIN,
-    _RELIC_DROP_CHANCE,
+    _CHEST_GOLD_AMOUNTS,
+    _CHEST_GOLD_CHANCES,
+    _LARGE_CHEST_CHANCE,
+    _MEDIUM_CHEST_CHANCE,
+    _SMALL_CHEST_CHANCE,
     _TREASURE_RELICS,
     TreasureResult,
     open_treasure,
@@ -31,94 +33,70 @@ def _make_rng(randint_val: int = 25, random_val: float = 1.0, choice_val: str = 
 
 
 # ---------------------------------------------------------------------------
-# 1. Gold is within the expected range
+# 1. Chest model constants
 # ---------------------------------------------------------------------------
 
-class TestGoldRange:
-    """Gold found should always be within [GOLD_MIN, GOLD_MAX]."""
+class TestChestModel:
+    """Treasure constants should mirror C++ chest behavior."""
 
-    def test_gold_never_below_minimum(self) -> None:
-        """Across many seeds, gold must never drop below _GOLD_MIN."""
-        character = Character.ironclad()
-        for seed in range(200):
-            c = Character.ironclad()
-            result = open_treasure(c, RNG(seed))
-            assert result.gold_found >= _GOLD_MIN
+    def test_chest_size_roll_chances(self) -> None:
+        assert _SMALL_CHEST_CHANCE == 50
+        assert _MEDIUM_CHEST_CHANCE == 33
+        assert _LARGE_CHEST_CHANCE == 17
 
-    def test_gold_never_above_maximum(self) -> None:
-        """Across many seeds, gold must never exceed _GOLD_MAX."""
-        for seed in range(200):
-            c = Character.ironclad()
-            result = open_treasure(c, RNG(seed))
-            assert result.gold_found <= _GOLD_MAX
+    def test_gold_chance_by_size(self) -> None:
+        assert _CHEST_GOLD_CHANCES == (50, 35, 50)
 
-    def test_gold_is_integer(self) -> None:
-        """Gold found should be an int, not a float."""
-        c = Character.ironclad()
-        result = open_treasure(c, RNG(42))
-        assert isinstance(result.gold_found, int)
+    def test_gold_base_by_size(self) -> None:
+        assert _CHEST_GOLD_AMOUNTS == (25, 50, 75)
 
 
 # ---------------------------------------------------------------------------
-# 2. Gold is added to character
+# 2. Relic reward behavior
 # ---------------------------------------------------------------------------
 
-class TestGoldAddition:
-    """Gold from the chest must be added to the character's gold."""
+class TestRelicReward:
+    """Opening treasure should always grant exactly one relic."""
 
-    def test_gold_added_to_character(self) -> None:
-        rng = _make_rng(randint_val=30)
-        c = Character.ironclad()
-        starting_gold = c.gold
-        result = open_treasure(c, rng)
-        assert c.gold == starting_gold + result.gold_found
-
-    def test_gold_accumulates_over_multiple_opens(self) -> None:
-        c = Character.ironclad()
-        starting_gold = c.gold
-        total_found = 0
-        for _ in range(5):
-            rng = _make_rng(randint_val=25, random_val=1.0)
-            result = open_treasure(c, rng)
-            total_found += result.gold_found
-        assert c.gold == starting_gold + total_found
-
-
-# ---------------------------------------------------------------------------
-# 3. Relic drop chance
-# ---------------------------------------------------------------------------
-
-class TestRelicDrop:
-    """Relic should drop when RNG rolls below the threshold."""
-
-    def test_relic_drops_when_random_below_threshold(self) -> None:
-        rng = _make_rng(random_val=0.0, choice_val="Lantern")
+    def test_relic_always_awarded(self) -> None:
+        # Force a no-gold path via high first roll to keep this focused on relic behavior.
+        rng = _make_rng(randint_val=99, random_val=0.5, choice_val="Lantern")
         c = Character.ironclad()
         result = open_treasure(c, rng)
         assert result.relic_found == "Lantern"
-        assert "Lantern" in c.relics
+        assert c.relics.count("Lantern") == 1
 
-    def test_no_relic_when_random_above_threshold(self) -> None:
-        rng = _make_rng(random_val=0.99)
-        c = Character.ironclad()
-        result = open_treasure(c, rng)
-        assert result.relic_found is None
-        # Only the starter relic should remain
-        assert len(c.relics) == 1
 
-    def test_relic_exactly_at_threshold_does_not_drop(self) -> None:
-        """rng.random() == _RELIC_DROP_CHANCE should NOT drop (strict <)."""
-        rng = _make_rng(random_val=_RELIC_DROP_CHANCE)
-        c = Character.ironclad()
-        result = open_treasure(c, rng)
-        assert result.relic_found is None
+# ---------------------------------------------------------------------------
+# 3. Gold reward behavior
+# ---------------------------------------------------------------------------
 
-    def test_just_below_threshold_drops(self) -> None:
-        """A value just below threshold should still drop."""
-        rng = _make_rng(random_val=_RELIC_DROP_CHANCE - 1e-9, choice_val="Shuriken")
+class TestGoldReward:
+    """Gold reward should follow chest-size chance and amount variance."""
+
+    def test_no_gold_when_roll_fails_chance(self) -> None:
+        # small chest when roll=0, then no-gold when roll=99
+        rng = MagicMock(spec=RNG)
+        rng.randint.side_effect = [0, 99]
+        rng.random.return_value = 0.5
+        rng.choice.return_value = "Anchor"
         c = Character.ironclad()
+        before = c.gold
         result = open_treasure(c, rng)
-        assert result.relic_found == "Shuriken"
+        assert result.gold_found == 0
+        assert c.gold == before
+
+    def test_gold_in_small_chest_range(self) -> None:
+        # small chest and gold-enabled roll
+        rng = MagicMock(spec=RNG)
+        rng.randint.side_effect = [0, 0]
+        rng.random.return_value = 0.0  # 90% of base
+        rng.choice.return_value = "Anchor"
+        c = Character.ironclad()
+        before = c.gold
+        result = open_treasure(c, rng)
+        assert result.gold_found == 22  # round(25 * 0.9)
+        assert c.gold == before + 22
 
 
 # ---------------------------------------------------------------------------
@@ -129,13 +107,19 @@ class TestTreasureResult:
     """TreasureResult should faithfully report what happened."""
 
     def test_result_matches_character_gold(self) -> None:
-        rng = _make_rng(randint_val=22)
+        rng = MagicMock(spec=RNG)
+        rng.randint.side_effect = [0, 0]
+        rng.random.return_value = 0.0
+        rng.choice.return_value = "Anchor"
         c = Character.ironclad()
         result = open_treasure(c, rng)
         assert result.gold_found == 22
 
     def test_result_matches_relic(self) -> None:
-        rng = _make_rng(random_val=0.1, choice_val="Nunchaku")
+        rng = MagicMock(spec=RNG)
+        rng.randint.side_effect = [99, 99]
+        rng.random.return_value = 0.1
+        rng.choice.return_value = "Nunchaku"
         c = Character.ironclad()
         result = open_treasure(c, rng)
         assert result.relic_found == "Nunchaku"
@@ -160,7 +144,6 @@ class TestRelicPool:
         for seed in range(500):
             c = Character.ironclad()
             result = open_treasure(c, RNG(seed))
-            if result.relic_found is not None:
-                relics_found.add(result.relic_found)
+            relics_found.add(result.relic_found)
         for r in relics_found:
             assert r in _TREASURE_RELICS, f"Relic {r!r} not in treasure pool"
