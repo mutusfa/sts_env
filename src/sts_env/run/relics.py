@@ -13,10 +13,15 @@ Currently implemented:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable
+from typing import Protocol, runtime_checkable, Callable
 
-if TYPE_CHECKING:
-    from .state import RunState
+
+@runtime_checkable
+class CombatEndTarget(Protocol):
+    """Duck-type accepted by on_combat_end: anything with relics + heal."""
+    relics: list[str]
+
+    def heal(self, amount: int) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -25,7 +30,7 @@ class RelicSpec:
 
 
 # Hook: called after winning a combat (before next floor starts)
-CombatEndHook = Callable[["RunState"], None]
+CombatEndHook = Callable[[CombatEndTarget], None]
 
 _SPECS: dict[str, RelicSpec] = {}
 _COMBAT_END_HOOKS: dict[str, CombatEndHook] = {}
@@ -41,8 +46,12 @@ def get_spec(relic_id: str) -> RelicSpec:
     return _SPECS[relic_id]
 
 
-def on_combat_end(run_state: "RunState") -> None:
-    """Call on_combat_end hooks for all relics the player has."""
+def on_combat_end(run_state: CombatEndTarget) -> None:
+    """Call on_combat_end hooks for all relics the player has.
+
+    Accepts any object with ``.relics`` and ``.heal()`` — works with both
+    ``RunState`` and ``Character``.
+    """
     for relic_id in run_state.relics:
         hook = _COMBAT_END_HOOKS.get(relic_id)
         if hook is not None:
@@ -54,7 +63,7 @@ def on_combat_end(run_state: "RunState") -> None:
 # ---------------------------------------------------------------------------
 
 # BurningBlood: Ironclad starter relic. Heal 6 HP after winning combat.
-def _burning_blood_on_combat_end(run_state: "RunState") -> None:
+def _burning_blood_on_combat_end(run_state: CombatEndTarget) -> None:
     run_state.heal(6)
 
 
@@ -80,8 +89,8 @@ _register(RelicSpec("JuzuBracelet"))
 _register(RelicSpec("Orichalcum"))
 
 # CeramicFish: gain 9 gold whenever you add a card to your deck
-def _ceramic_fish_on_card_add(run_state: "RunState") -> None:
-    run_state.gold += 9
+def _ceramic_fish_on_card_add(run_state: CombatEndTarget) -> None:
+    run_state.gold += 9  # type: ignore[attr-defined]
 
 # Register CeramicFish with combat-end hook as a proxy for card-add events
 # (simplified: the runner calls this explicitly after card rewards)

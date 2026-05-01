@@ -42,6 +42,8 @@ from .rewards import (
     COMMON_RELICS,
     UNCOMMON_POTIONS,
     UNCOMMON_RELICS,
+    RARE_RELICS,
+    RelicTier,
 )
 
 if TYPE_CHECKING:
@@ -87,15 +89,11 @@ SHOP_TIER_RELICS: list[str] = [
     "QuestionCard",
 ]
 
-# RARE-tier relics for Act 1.  Our inventory is sparse here; when this pool
-# is exhausted for a character's owned relics, the code falls back to UNCOMMON.
-RARE_RELICS: list[str] = []
-
-# Combined pool indexed by tier string (used in roll_shop_relic_tier).
-_RELIC_POOL_BY_TIER: dict[str, list[str]] = {
-    "COMMON":   COMMON_RELICS,
-    "UNCOMMON": UNCOMMON_RELICS,
-    "RARE":     RARE_RELICS,
+# Combined pool indexed by RelicTier (used in _roll_relic_tier).
+_RELIC_POOL_BY_TIER: dict[RelicTier, list[str]] = {
+    RelicTier.COMMON:   COMMON_RELICS,
+    RelicTier.UNCOMMON: UNCOMMON_RELICS,
+    RelicTier.RARE:     RARE_RELICS,
 }
 
 # Legacy name kept for any external code still referencing it.
@@ -131,15 +129,18 @@ def _roll_rarity_shop(rng: RNG, card_rarity_factor: int) -> Rarity:
 # Relic tier roll (C++ Shop::rollRelicTier)
 # ---------------------------------------------------------------------------
 
-def _roll_relic_tier(rng: RNG) -> str:
-    """Roll a relic tier: 48% COMMON, 34% UNCOMMON, 18% RARE."""
+def _roll_relic_tier(rng: RNG) -> RelicTier:
+    """Roll a relic tier: 48% COMMON, 34% UNCOMMON, 18% RARE.
+
+    Mirrors C++ Shop::rollRelicTier.
+    """
     roll = rng.randint(0, 99)
     if roll < 48:
-        return "COMMON"
+        return RelicTier.COMMON
     elif roll < 82:
-        return "UNCOMMON"
+        return RelicTier.UNCOMMON
     else:
-        return "RARE"
+        return RelicTier.RARE
 
 
 def _pick_relic(rng: RNG, pool: list[str], owned: set[str]) -> str | None:
@@ -312,6 +313,8 @@ def generate_shop(
 
     def _relic_base_price(relic_id: str) -> int:
         """Simplified base price per C++ getRelicBasePrice."""
+        if relic_id in RARE_RELICS:
+            return 300
         if relic_id in UNCOMMON_RELICS:
             return 250
         if relic_id in SHOP_TIER_RELICS:
@@ -324,7 +327,7 @@ def generate_shop(
         relic_id = _pick_relic(rng, rpool, owned_relics)
         if relic_id is None:
             # Fallback: try UNCOMMON then COMMON
-            for fallback_tier in ("UNCOMMON", "COMMON"):
+            for fallback_tier in (RelicTier.UNCOMMON, RelicTier.COMMON):
                 relic_id = _pick_relic(rng, _RELIC_POOL_BY_TIER[fallback_tier], owned_relics)
                 if relic_id is not None:
                     break

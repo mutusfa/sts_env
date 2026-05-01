@@ -23,7 +23,7 @@ from sts_env.run.shop import (
     remove_card,
     remove_worst_card,
 )
-from sts_env.run.rewards import ALL_RELICS, COMMON_RELICS, UNCOMMON_RELICS
+from sts_env.run.rewards import ALL_RELICS, COMMON_RELICS, UNCOMMON_RELICS, RARE_RELICS
 
 
 # ---------------------------------------------------------------------------
@@ -248,6 +248,21 @@ class TestShopRelics:
             assert relic_entry is not None
             _, price = relic_entry
             assert price > 0
+
+    def test_rare_relics_pool_not_empty(self) -> None:
+        """RARE_RELICS must be non-empty so the shop can actually stock them."""
+        assert len(RARE_RELICS) > 0, "RARE_RELICS is empty — shop's 18% rare roll always falls back"
+
+    def test_shop_can_stock_rare_relic(self) -> None:
+        """Shop rolls 18% RARE for slots 0/1 — rare relics must actually appear."""
+        character = Character.ironclad()
+        found_rare = any(
+            inv.relics[i][0] in RARE_RELICS
+            for seed in range(200)
+            for i in [0, 1]
+            if (inv := generate_shop(RNG(seed), character)) is not None
+        )
+        assert found_rare, "No rare relic appeared in shop slots 0/1 over 200 seeds"
 
 
 # ---------------------------------------------------------------------------

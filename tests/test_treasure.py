@@ -7,13 +7,14 @@ import pytest
 
 from sts_env.combat.rng import RNG
 from sts_env.run.character import Character
+from sts_env.run.rewards import ALL_RELICS, COMMON_RELICS, UNCOMMON_RELICS, RARE_RELICS
 from sts_env.run.treasure import (
     _CHEST_GOLD_AMOUNTS,
     _CHEST_GOLD_CHANCES,
+    _CHEST_RELIC_TIER_CHANCES,
     _LARGE_CHEST_CHANCE,
     _MEDIUM_CHEST_CHANCE,
     _SMALL_CHEST_CHANCE,
-    _TREASURE_RELICS,
     TreasureResult,
     open_treasure,
 )
@@ -49,6 +50,24 @@ class TestChestModel:
 
     def test_gold_base_by_size(self) -> None:
         assert _CHEST_GOLD_AMOUNTS == (25, 50, 75)
+
+    def test_relic_tier_chances_shape(self) -> None:
+        """3 chest sizes, each with (common_chance, uncommon_chance) — remainder is rare."""
+        assert len(_CHEST_RELIC_TIER_CHANCES) == 3
+        for common_c, uncommon_c in _CHEST_RELIC_TIER_CHANCES:
+            assert 0 <= common_c <= 100
+            assert 0 <= uncommon_c <= 100
+            assert common_c + uncommon_c <= 100
+
+    def test_small_chest_never_rare(self) -> None:
+        """Small chest: common=75 uncommon=25 rare=0 → C++ chestRelicTierChances[0]."""
+        common_c, uncommon_c = _CHEST_RELIC_TIER_CHANCES[0]
+        assert common_c + uncommon_c == 100, "Small chest should have 0% rare"
+
+    def test_large_chest_never_common(self) -> None:
+        """Large chest: common=0 uncommon=75 rare=25 → C++ chestRelicTierChances[2]."""
+        common_c, _uncommon_c = _CHEST_RELIC_TIER_CHANCES[2]
+        assert common_c == 0, "Large chest should have 0% common"
 
 
 # ---------------------------------------------------------------------------
@@ -124,26 +143,58 @@ class TestTreasureResult:
         result = open_treasure(c, rng)
         assert result.relic_found == "Nunchaku"
 
-    def test_default_result_fields(self) -> None:
-        """Default TreasureResult should have zero gold and no relic."""
-        result = TreasureResult()
-        assert result.gold_found == 0
-        assert result.relic_found is None
-
 
 # ---------------------------------------------------------------------------
-# 5. Relic is from the treasure pool
+# 5. Relic tier and pool membership
 # ---------------------------------------------------------------------------
 
 class TestRelicPool:
-    """Any relic dropped must come from the treasure relic pool."""
+    """Treasure relics must come from the tiered relic pools and obey chest-size constraints."""
 
-    def test_all_relics_are_from_pool(self) -> None:
-        """Over many seeds, every relic found must be in _TREASURE_RELICS."""
+    def test_all_relics_are_from_all_relics(self) -> None:
+        """Over many seeds, every relic found must be in the combined common/uncommon/rare pool."""
         relics_found = set()
         for seed in range(500):
             c = Character.ironclad()
             result = open_treasure(c, RNG(seed))
             relics_found.add(result.relic_found)
         for r in relics_found:
-            assert r in _TREASURE_RELICS, f"Relic {r!r} not in treasure pool"
+            assert r in ALL_RELICS, f"Relic {r!r} not in any relic pool"
+
+    def test_small_chest_never_yields_rare(self) -> None:
+        """Small chest has 0% rare tier — no rare relic should ever appear."""
+        # Force small chest (size roll < 50) over many rarity rolls.
+        for rarity_roll in range(100):
+            rng = MagicMock(spec=RNG)
+            rng.randint.side_effect = [0, rarity_roll]  # size=SMALL, then rarity roll
+            rng.random.return_value = 0.5
+            rng.choice.side_effect = lambda pool: pool[0]  # pick first from whatever pool
+            c = Character.ironclad()
+            result = open_treasure(c, rng)
+            assert result.relic_found not in RARE_RELICS, (
+                f"Small chest gave rare relic on rarity_roll={rarity_roll}: {result.relic_found}"
+            )
+
+    def test_large_chest_never_yields_common(self) -> None:
+        """Large chest has 0% common tier."""
+        for rarity_roll in range(100):
+            rng = MagicMock(spec=RNG)
+            rng.randint.side_effect = [99, rarity_roll]  # size=LARGE, then rarity roll
+            rng.random.return_value = 0.5
+            rng.choice.side_effect = lambda pool: pool[0]
+            c = Character.ironclad()
+            result = open_treasure(c, rng)
+            assert result.relic_found not in COMMON_RELICS, (
+                f"Large chest gave common relic on rarity_roll={rarity_roll}: {result.relic_found}"
+            )
+
+    def test_rare_relics_can_appear_from_large_chest(self) -> None:
+        """Large chest has 25% rare — rare relics must be reachable."""
+        found_rare = False
+        for seed in range(200):
+            c = Character.ironclad()
+            result = open_treasure(c, RNG(seed))
+            if result.relic_found in RARE_RELICS:
+                found_rare = True
+                break
+        assert found_rare, "No rare relic appeared in 200 seeds from any chest"
