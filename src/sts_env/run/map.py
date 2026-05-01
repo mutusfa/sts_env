@@ -119,21 +119,104 @@ class StSMap:
         return paths
 
     def __str__(self) -> str:
+        return self.render_ascii()
+
+    @staticmethod
+    def legend() -> str:
+        """Legend for map node and connector symbols."""
+        return (
+            "M=Monster E=Elite R=Rest B=Boss ?=Event $=Shop T=Treasure "
+            "@=Current |=Straight /=DiagRight \\=DiagLeft"
+        )
+
+    def _forward_reachable(self, start_floor: int, start_x: int) -> set[tuple[int, int]]:
+        """Return nodes reachable from (start_floor, start_x), inclusive."""
+        reachable: set[tuple[int, int]] = set()
+        stack: list[tuple[int, int]] = [(start_floor, start_x)]
+        while stack:
+            floor, x = stack.pop()
+            if (floor, x) in reachable:
+                continue
+            node = self.get_node(floor, x)
+            if node is None:
+                continue
+            reachable.add((floor, x))
+            for edge in node.edges:
+                if isinstance(edge, tuple):
+                    next_floor, next_x = edge
+                else:
+                    next_floor, next_x = floor + 1, edge
+                stack.append((next_floor, next_x))
+        return reachable
+
+    def render_ascii(
+        self,
+        current_floor: int | None = None,
+        current_x: int | None = None,
+        reachable_only: bool = False,
+    ) -> str:
+        """Render map rows with edge connector rows between floors.
+
+        If current position is provided, the current node is marked with '@'.
+        If reachable_only is true, only nodes forward-reachable from current
+        position are shown.
+        """
         symbols = {
             RoomType.MONSTER: "M", RoomType.ELITE: "E", RoomType.REST: "R",
             RoomType.BOSS: "B", RoomType.EVENT: "?", RoomType.SHOP: "$",
             RoomType.TREASURE: "T",
         }
+        visible_nodes: set[tuple[int, int]] | None = None
+        if reachable_only:
+            if current_floor is None or current_x is None:
+                raise ValueError("reachable_only=True requires current_floor and current_x")
+            visible_nodes = self._forward_reachable(current_floor, current_x)
+
+        row_width = MAP_WIDTH * 2 - 1
         lines: list[str] = []
-        for floor in sorted(self.nodes.keys(), reverse=True):
-            row_chars: list[str] = []
+        for floor in range(MAP_HEIGHT - 1, -1, -1):
+            row_chars: list[str] = [" "] * row_width
             for x in range(MAP_WIDTH):
                 n = self.get_node(floor, x)
-                if n is None or (not n.edges and not n.parents):
-                    row_chars.append(" ")
-                else:
-                    row_chars.append(symbols.get(n.room_type, "?"))
-            lines.append(f"F{floor:2d}: {' '.join(row_chars)}")
+                if n is None:
+                    continue
+                is_reachable = bool(n.edges or n.parents)
+                if not is_reachable:
+                    continue
+                if visible_nodes is not None and (floor, x) not in visible_nodes:
+                    continue
+                ch = symbols.get(n.room_type, "?")
+                if current_floor == floor and current_x == x:
+                    ch = "@"
+                row_chars[x * 2] = ch
+            lines.append(f"F{floor:2d}: {''.join(row_chars)}")
+
+            if floor > 0:
+                lower_floor = floor - 1
+                conn_chars: list[str] = [" "] * row_width
+                for src_x in range(MAP_WIDTH):
+                    node = self.get_node(lower_floor, src_x)
+                    if node is None:
+                        continue
+                    if visible_nodes is not None and (lower_floor, src_x) not in visible_nodes:
+                        continue
+                    for edge in node.edges:
+                        _, dst_x = edge if isinstance(edge, tuple) else (lower_floor + 1, edge)
+                        if visible_nodes is not None and (floor, dst_x) not in visible_nodes:
+                            continue
+                        delta = dst_x - src_x
+                        if delta == 0:
+                            pos = src_x * 2
+                            glyph = "|"
+                        elif delta > 0:
+                            pos = src_x * 2 + 1
+                            glyph = "/"
+                        else:
+                            pos = src_x * 2 - 1
+                            glyph = "\\"
+                        if 0 <= pos < row_width and conn_chars[pos] == " ":
+                            conn_chars[pos] = glyph
+                lines.append(f"{' ' * 5}{''.join(conn_chars)}")
         return "\n".join(lines)
 
 

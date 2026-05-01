@@ -257,7 +257,8 @@ class TestEncounterSelection:
 class TestMapStr:
     def test_str_renders_15_floors(self, sample_map: StSMap):
         lines = str(sample_map).split("\n")
-        assert len(lines) == MAP_HEIGHT
+        # Node rows + connector rows between floors
+        assert len(lines) == (MAP_HEIGHT * 2 - 1)
 
     def test_str_shows_rest_at_bottom(self, sample_map: StSMap):
         lines = str(sample_map).split("\n")
@@ -267,4 +268,58 @@ class TestMapStr:
     def test_str_shows_monster_at_top(self, sample_map: StSMap):
         lines = str(sample_map).split("\n")
         # line 14 = floor 0 (MONSTER)
-        assert "M" in lines[MAP_HEIGHT - 1]
+        assert "M" in lines[(MAP_HEIGHT - 1) * 2]
+
+    def test_str_includes_connector_rows(self, sample_map: StSMap):
+        lines = str(sample_map).split("\n")
+        connector_lines = [lines[i] for i in range(1, len(lines), 2)]
+        assert len(connector_lines) == MAP_HEIGHT - 1
+        assert any(ch in line for line in connector_lines for ch in ("/", "|", "\\"))
+
+    def test_str_connectors_reflect_graph_edges(self, sample_map: StSMap):
+        lines = str(sample_map).split("\n")
+        # Find one concrete edge and verify the expected connector character appears
+        # in that floor's connector row.
+        for floor in range(MAP_HEIGHT - 1):
+            rendered_row_idx = (MAP_HEIGHT - 1 - floor) * 2
+            connector_row = lines[rendered_row_idx - 1]
+            for node in sample_map.nodes[floor]:
+                for edge in node.edges:
+                    _, dst_x = edge if isinstance(edge, tuple) else (floor + 1, edge)
+                    delta = dst_x - node.x
+                    expected = "|" if delta == 0 else ("/" if delta > 0 else "\\")
+                    assert expected in connector_row
+                    return
+        pytest.fail("No edge found in map to validate connector rendering")
+
+    def test_render_ascii_marks_current_position(self, sample_map: StSMap):
+        start_x = next(n.x for n in sample_map.nodes[0] if n.edges)
+        lines = sample_map.render_ascii(current_floor=0, current_x=start_x).split("\n")
+        assert any("@" in line for line in lines)
+
+    def test_render_ascii_reachable_only_filters_nodes(self, sample_map: StSMap):
+        start_x = next(n.x for n in sample_map.nodes[0] if n.edges)
+        full_lines = sample_map.render_ascii().split("\n")
+        filtered_lines = sample_map.render_ascii(
+            current_floor=0,
+            current_x=start_x,
+            reachable_only=True,
+        ).split("\n")
+        assert len(filtered_lines) == len(full_lines)
+        full_non_space = sum(1 for line in full_lines for ch in line if ch != " ")
+        filtered_non_space = sum(1 for line in filtered_lines for ch in line if ch != " ")
+        assert filtered_non_space <= full_non_space
+
+    def test_legend_contains_room_and_edge_symbols(self, sample_map: StSMap):
+        legend = sample_map.legend()
+        assert "M=Monster" in legend
+        assert "E=Elite" in legend
+        assert "R=Rest" in legend
+        assert "B=Boss" in legend
+        assert "?=Event" in legend
+        assert "$=Shop" in legend
+        assert "T=Treasure" in legend
+        assert "@=Current" in legend
+        assert "|=Straight" in legend
+        assert "/=DiagRight" in legend
+        assert "\\=DiagLeft" in legend
