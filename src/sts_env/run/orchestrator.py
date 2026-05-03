@@ -60,6 +60,7 @@ class RunResult:
     encounter_types: list[str] = field(default_factory=list)
     cards_added: list[str] = field(default_factory=list)
     potions_gained: list[str] = field(default_factory=list)
+    combat_log: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -142,10 +143,32 @@ class RunAgentProtocol(Protocol):
     ) -> str | None:
         """Choose a card to remove from the deck, or None to cancel.
 
-        Called by card-removal events (The Cleric, Wing Statue) and any
-        other mechanic that lets the player purge a card.  The agent
-        should return the ``card_id`` string matching an entry in
+        Called by card-removal events (The Cleric, Wing Statue, Living Wall,
+        Purifier) and any other mechanic that lets the player purge a card.
+        The agent should return the ``card_id`` string matching an entry in
         ``character.deck``, or ``None`` to skip the removal.
+        """
+        ...
+
+    def pick_card_to_transform(
+        self, character: Character, **kwargs: object,
+    ) -> str | None:
+        """Choose a card to transform, or None to cancel.
+
+        Called by card-transform events (Living Wall, Transmorgrifier).
+        The agent should return the ``card_id`` string matching an entry
+        in ``character.deck``, or ``None`` to skip.
+        """
+        ...
+
+    def pick_card_to_upgrade(
+        self, character: Character, **kwargs: object,
+    ) -> str | None:
+        """Choose a card to upgrade, or None to cancel.
+
+        Called by card-upgrade events (Living Wall, Upgrade Shrine).
+        The agent should return the ``card_id`` string matching an entry
+        in ``character.deck``, or ``None`` to skip.
         """
         ...
 
@@ -326,10 +349,15 @@ def _run_map(
                     from .events import _da_state, _dead_adventurer_setup
                     _da_state.clear()
                     _da_state.update(_dead_adventurer_setup(encounter_rng))
+                elif event.multi_phase and event.event_id == "Scrap Ooze":
+                    from .events import _ooze_state, _scrap_ooze_setup
+                    _ooze_state.clear()
+                    _ooze_state.update(_scrap_ooze_setup())
 
                 # Multi-phase event loop (single iteration for normal events)
                 event_done = False
                 event_damage = 0
+                event_enemies_str = ""
                 while not event_done:
                     choice_idx = agent.pick_event_choice(
                         event, character,
@@ -357,6 +385,37 @@ def _run_map(
                         else:
                             log.info("  Card removal skipped (agent returned %s)", card)
 
+                    # Card transform: if the choice requires it, ask the agent
+                    if choice.requires_card_transform:
+                        card = agent.pick_card_to_transform(
+                            character,
+                            sts_map=sts_map,
+                            current_position=(floor_num, x_pos),
+                        )
+                        if card and card in character.deck:
+                            from .events import transform_card
+                            new_card = transform_card(character, card, encounter_rng)
+                            log.info("  Card transformed: %s -> %s", card, new_card)
+                        else:
+                            log.info("  Card transform skipped (agent returned %s)", card)
+
+                    # Card upgrade: if the choice requires it, ask the agent
+                    if choice.requires_card_upgrade:
+                        card = agent.pick_card_to_upgrade(
+                            character,
+                            sts_map=sts_map,
+                            current_position=(floor_num, x_pos),
+                        )
+                        if card and card in character.deck:
+                            idx = character.deck.index(card)
+                            if not card.endswith("+"):
+                                character.deck[idx] = card + "+"
+                                log.info("  Card upgraded: %s -> %s", card, character.deck[idx])
+                            else:
+                                log.info("  Card already upgraded: %s", card)
+                        else:
+                            log.info("  Card upgrade skipped (agent returned %s)", card)
+
                     # Check if event choice triggers combat
                     if choice.triggers_combat:
                         # Determine encounter details
@@ -383,6 +442,12 @@ def _run_map(
                             result.max_hp_gained_total += combat.max_hp_gained
 
                             obs = combat.observe()
+                            event_enemies_str = ", ".join(n for n in combat._enemy_names if n != "Empty")
+                            result.combat_log.append(
+                                f"FLOOR {floor_num+1} (event_combat/{combat_enc_id}): "
+                                f"enemies=[{event_enemies_str}] damage={damage} turns={obs.turn} "
+                                f"outcome={'died' if obs.player_dead else 'won'}"
+                            )
                             if obs.player_dead:
                                 log.info("FLOOR %d EVENT COMBAT (%s): DIED (damage=%d)",
                                          floor_num + 1, combat_enc_id, damage)
@@ -418,6 +483,13 @@ def _run_map(
                                                 log.info("  DA bonus relic: %s", relic)
                                         da_st["combat_needed"] = False
 
+                                # Apply Mushrooms bonus rewards (gold + Odd Mushroom relic)
+                                if event.event_id == "Hypnotizing Colored Mushrooms":
+                                    gold_reward = encounter_rng.randint(20, 30)
+                                    character.gold += gold_reward
+                                    character.add_relic("Odd Mushroom")
+                                    log.info("  Mushrooms reward: %d gold + Odd Mushroom", gold_reward)
+
                                 # Standard combat rewards (cards, potions, gold)
                                 _apply_combat_rewards(
                                     character, result, combat_enc_type,
@@ -434,6 +506,9 @@ def _run_map(
                             event_done = False  # Can loot again
                         else:
                             event_done = True
+                    elif event.multi_phase and event.event_id == "Scrap Ooze":
+                        from .events import _ooze_state as ooze_st
+                        event_done = ooze_st.get("done", True)
                     else:
                         event_done = True
 
@@ -441,6 +516,7 @@ def _run_map(
                     "event_id": event.event_id,
                     "choice_idx": choice_idx,
                     "event_result": str(desc),
+                    "enemies": event_enemies_str,
                 })
                 result.encounter_types.append("event")
                 result.damage_per_floor.append(event_damage)
@@ -494,13 +570,20 @@ def _run_map(
                     result.max_hp_gained_total += combat.max_hp_gained
 
                     obs = combat.observe()
+                    enemies_str = ", ".join(n for n in combat._enemy_names if n != "Empty")
                     attrs.update({
                         "encounter_id": encounter_id,
                         "damage_taken": damage,
                         "max_hp_gained": combat.max_hp_gained,
                         "survived": not obs.player_dead,
                         "turns": obs.turn,
+                        "enemies": enemies_str,
                     })
+                    result.combat_log.append(
+                        f"FLOOR {floor_num+1} ({encounter_type}/{encounter_id}): "
+                        f"enemies=[{enemies_str}] damage={damage} turns={obs.turn} "
+                        f"outcome={'died' if obs.player_dead else 'won'}"
+                    )
 
                     if obs.player_dead:
                         log.info("FLOOR %d (%s/%s): DIED (damage=%d)",
@@ -583,13 +666,20 @@ def _run_linear(
             result.max_hp_gained_total += combat.max_hp_gained
 
             obs = combat.observe()
+            enemies_str = ", ".join(n for n in combat._enemy_names if n != "Empty")
             attrs.update({
                 "encounter_id": encounter_id,
                 "damage_taken": damage,
                 "max_hp_gained": combat.max_hp_gained,
                 "survived": not obs.player_dead,
                 "turns": obs.turn,
+                "enemies": enemies_str,
             })
+            result.combat_log.append(
+                f"FLOOR {floor_idx+1} ({encounter_type}/{encounter_id}): "
+                f"enemies=[{enemies_str}] damage={damage} turns={obs.turn} "
+                f"outcome={'died' if obs.player_dead else 'won'}"
+            )
 
             if obs.player_dead:
                 log.info("FLOOR %d (%s/%s): DIED (damage=%d)",

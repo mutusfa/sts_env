@@ -297,3 +297,139 @@ Status: **Complete**
 3. [LOW] RedSkull/CentennialPuzzle/JuzuBracelet/CeramicFish need combat-engine hooks
 4. [LOW] Encounter ID string matching is fragile
 5. [LOW] _pick_path greedy walk doesn't look ahead past immediate branch
+
+---
+
+## Iteration 8 — LLM Agent Run (seed 42, second attempt)
+Status: **Observations recorded**
+**Agent:** StrategyAgent (DeepSeek via GLM API) + MCTSPlanner (1000 sims, 5000 nodes)
+
+### Run Summary
+- `victory=False`, died on floor 11 (Lots of Slimes), 10/15 floors cleared
+- Final HP: 0/80, total damage: 118
+- Cards picked: Rampage, Cleave, Cleave, ShrugItOff
+- Potions: BloodPotion
+- Duration: ~15 min (890s)
+
+### Bugs Fixed During Run
+1. `_RunAgentAdapter` missing `pick_card_to_remove` — orchestrator hit card-removal event, adapter couldn't forward to strategy agent. Added delegation method.
+2. `BaseStrategyAgent` missing `pick_card_to_remove` default — added random-from-deck fallback.
+3. **Dead Adventurer infinite loop** — `_dead_adventurer_leave()` never set `phase=3`, so the orchestrator's multi-phase loop ran forever when the agent chose "Leave". Fixed by setting `_da_state["phase"] = 3`.
+
+### Strategic Failures Identified
+1. **[HIGH] Healing at 78/80 HP (97.5%) instead of upgrading** — LLM chose REST on floor 8 when it had viable upgrade targets. Wasted a rest site. This is a strategy/learning issue, not an architecture gap. To be addressed when building a strategy learning system after Act 1 is fully fleshed out.
+
+   More broadly: the LLM has **no fight-specific tactical awareness**. It doesn't know Gremlin Nob punishes Skills (Defend is a Skill — playing it gives Nob +2 Strength), so it can't factor that into card picks. Simulations *should* surface the damage, but the agent can't reason about *why* the damage is high or adjust strategy (e.g. "pick more attacks, avoid block cards before Nob"). This is the first failure mode that the planned learning-from-experience system will address.
+
+2. **[HIGH] No potion reservation system** — Strategy agent has no mechanism to communicate "save this potion for the elite/boss" to the combat MCTS planner. MCTS treats potions as immediately available resources with no strategic context about upcoming encounters. The strategy layer knows the map and upcoming rooms but cannot influence combat-layer potion usage.
+
+   **Proposed direction (per Julius):** Strategy agent should be able to mark potions as reserved or set a priority order, so combat MCTS doesn't burn a BloodPotion on a hallway fight when an elite is 2 floors away.
+
+### Remaining Gaps (unchanged + new)
+1. [MEDIUM] Colorless card specs not registered
+2. [MEDIUM] Oracle tests need `slaythespire` module
+3. [LOW] RedSkull/CentennialPuzzle/JuzuBracelet/CeramicFish need combat-engine hooks
+4. [LOW] Encounter ID string matching is fragile
+5. [LOW] _pick_path greedy walk doesn't look ahead past immediate branch
+6. **[HIGH] No potion reservation system** — strategy agent cannot communicate potion priorities to combat MCTS
+
+---
+
+## Iteration 9 — Event Audit (Python vs C++ Reference)
+Status: **Audit complete**
+**Full audit report:** `docs/act1_event_audit_report.md`
+
+### Summary: 0 CORRECT, 10 WRONG, 7 MISSING, 2 FABRICATED
+
+Of the 17 required Act 1 events/shrines:
+- **7 completely MISSING**: World of Goop, Living Wall, Match and Keep, Golden Shrine, Transmorgrifier, Purifier, Upgrade Shrine
+- **10 WRONG** (6 CRITICAL, 2 MODERATE, 1 MINOR, 1 CRITICAL): Big Fish, The Cleric, Dead Adventurer, Golden Idol, Wing Statue, The Ssssserpent, Mushrooms, Scrap Ooze, Shining Light, Wheel of Change
+- **2 FABRICATED** (not in C++): "Golden Wing" and "Bonfire" — must be removed
+
+### Event-by-Event Gaps
+
+#### WRONG events (must be rewritten):
+
+1. **[CRITICAL] Big Fish** — all 3 choices are wrong. Python: (lose 5% max HP + 50 gold, upgrade random card, pay 7 gold). C++: (heal 33% max HP, gain 5 max HP, random relic + Regret card). Completely different event.
+
+2. **[CRITICAL] Golden Idol** — only 2 choices, neither correct. Python: (lose max HP + gold, heal + relic). C++ has 5 choices: (obtain Golden Idol relic, leave, Injury card, 25%/35% HP damage, 8%/10% max HP loss).
+
+3. **[CRITICAL] Wing Statue** — split into 2 fabricated events ("Golden Wing" and "Wing Statue"), neither correct. C++ has 3 choices: (take 7 damage + remove ANY card, gain 50-80 gold, leave).
+
+4. **[CRITICAL] The Ssssserpent** — named "Liars Game" with gambling mechanics. C++: (gain 175/150 gold + Doubt card, leave). No gambling mechanic exists.
+
+5. **[CRITICAL] Scrap Ooze** — completely wrong. Python: (free colorless card, pay 3 gold). C++: (take 3/5 damage, escalating relic chance starting 25% +10% per attempt, leave).
+
+6. **[CRITICAL] Shining Light** — damage+upgrade split into separate choices. C++: choice 0 is take 20%/30% damage THEN upgrade 2 random cards; choice 1 is leave. Python has them as two separate mutually-exclusive choices.
+
+7. **[CRITICAL] Wheel of Change** — 5 outcomes instead of 6, most wrong. C++ has 6: (act*100 gold, random relic, full heal, Decay card, card removal, 10%/15% HP loss). Python: (50 gold, random curse, random card, nothing×2).
+
+8. **[MODERATE] Dead Adventurer** — wrong reward for card slot (Python adds random card, C++ gives NOTHING for safe-loot card slot), wrong relic pools (hardcoded common vs tier-based), missing Asc15 encounter chance increase.
+
+9. **[MODERATE] Mushrooms** — missing Asc15 gold reduction (99→50), rewards applied immediately instead of as post-combat rewards (missing card reward, potion rewards).
+
+10. **[MINOR] The Cleric** — choice 1 gold cost missing Asc15 increase (50→75).
+
+#### MISSING events (must be implemented):
+
+11. **World of Goop** — choice 0: take 11 damage + gain 75 gold; choice 1: lose 20-50 gold (35-75 Asc15).
+
+12. **Living Wall** — choice 0: remove card; choice 1: transform card; choice 2: upgrade card.
+
+13. **Match and Keep** — complex memory card game (6 cards duplicated to 12, shuffled into 4×3 grid, 5 attempts to match pairs).
+
+14. **Golden Shrine** — choice 0: gain 100/50 gold; choice 1: gain 275 gold + Regret card; choice 2: leave.
+
+15. **Transmorgrifier** — choice 0: transform 1 card; choice 1: leave.
+
+16. **Purifier** — choice 0: remove 1 card; choice 1: leave.
+
+17. **Upgrade Shrine** — choice 0: upgrade 1 card; choice 1: leave.
+
+#### FABRICATED events (must be removed):
+
+18. **"Golden Wing"** — does not exist in C++. Must be removed or merged into correct Wing Statue.
+
+19. **"Bonfire"** — does not exist in C++. "Bonfire Spirits" is a one-time event with completely different mechanics. Must be removed.
+
+### Cross-Cutting Issues
+
+- **[HIGH] No Ascension 15 support** — none of the 10 implemented events handle A15+ value changes (HP amounts, gold costs, encounter chances)
+- **[HIGH] Relic pool system wrong** — hardcoded `_COMMON_RELICS` list instead of tier-based rolling (`returnRandomRelicTier`)
+- **[MEDIUM] Card reward screens missing** — combat events (Dead Adventurer, Mushrooms) should use `createCardReward(Room::EVENT)` + `addPotionRewards`, not immediately grant items
+
+---
+
+## Iteration 10 — Event Rewrite (all 17 events)
+Status: **Complete**
+
+### Changes
+
+**events.py** — full rewrite:
+- Removed 2 fabricated events: Golden Wing, Bonfire
+- Removed 1 incorrectly named event: Liars Game → replaced with The Ssssserpent
+- Rewrote 10 wrong events to match C++ reference
+- Added 7 missing events: World of Goop, Living Wall, Match and Keep, Golden Shrine, Transmorgrifier, Purifier, Upgrade Shrine
+- All 17 Act 1 events now match C++ sts_lightspeed (non-A15)
+- Replaced hardcoded `_COMMON_RELICS` with tier-based `roll_elite_relic`
+- Added `transform_card()` helper, `_gain_max_hp()`, `_lose_max_hp()`, `_damage_player()`, `_upgrade_random_card()`
+- Multi-phase state modules for Dead Adventurer (`_da_state`) and Scrap Ooze (`_ooze_state`)
+
+**orchestrator.py** — protocol + dispatch extensions:
+- Added `pick_card_to_transform()` and `pick_card_to_upgrade()` to `RunAgentProtocol`
+- Wired `requires_card_transform` and `requires_card_upgrade` in event dispatch loop
+- Added Scrap Ooze multi-phase setup + loop continuation
+- Added Mushrooms post-combat rewards (20-30 gold + Odd Mushroom relic)
+- Card transform uses `transform_card()` from events.py (same-color+rarity pool replacement)
+
+**tests/test_events.py** — full rewrite:
+- 64 tests covering all 17 events
+- Registry tests verify all 17 IDs, no fabricated events
+- Per-event tests for each choice, gold/HP/deck mutations, flags
+- Multi-phase tests for Dead Adventurer and Scrap Ooze
+- Helper tests for `_pick_worst_card` and `transform_card`
+
+### Test Results
+- 64/64 tests pass
+- Full suite: 878 passed, 3 failed (pre-existing, unrelated), 9 skipped
+- **[MEDIUM] damagePlayer vs playerLoseHp vs loseMaxHp conflated** — Python `_lose_max_hp` used where `damagePlayer` should be used
