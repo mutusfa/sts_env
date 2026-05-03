@@ -243,6 +243,38 @@ Status: **In Progress**
 
 ---
 
+## Iteration 7a — LLM Agent Observations (first end-to-end run, seed 42)
+Status: **Observations recorded**
+**Agent:** LLM (DeepSeek via GLM API), strategy=ReAct with tools (try_card, simulate_upcoming, pick_card)
+
+### Run Summary
+- `victory=True`, 15/15 floors cleared, final HP 40/76
+- Cards picked: Rampage, Cleave, Armaments, Disarm
+- Potions: BloodPotion, FlexPotion, StrengthPotion
+- Total damage taken: 122 (biggest hit: floor 10 elite for 66 damage)
+- Duration: ~19.5 min (1174s)
+
+### Bugs Found
+1. [CRITICAL → FIXED] **Boss battle missing** — row 14 hardcoded as REST, no BOSS room on map. Victory declared without fighting boss. Fixed by adding row 15 with single BOSS node connected from all REST nodes on row 14. `MAP_HEIGHT` → 16.
+2. [COSMETIC] `pick_rest_choice` MLflow child span output always shows `hp_healed: 0` — healing happens in orchestrator's `_execute_rest_choice`, not in the agent's return. Floor-level span has correct value.
+
+### Rest Site Choices (from MLflow traces)
+| Floor | Choice | Card Upgraded | HP Before | HP After | HP Healed |
+|-------|--------|---------------|-----------|----------|-----------|
+| 6     | UPGRADE | Defend       | 78        | 78       | 0         |
+| 8     | REST   | —             | 56        | 80       | 24        |
+| 15*   | REST   | —             | 18        | 40       | 22        |
+
+\* Floor 15 = pre-boss rest (row 14 in the old map, now row 14 stays with boss at row 15)
+
+### Tracing Notes
+- `pick_rest_choice` spans log the agent's decision (REST vs UPGRADE + target card) as outputs
+- Floor-level spans log `rest_choice`, `hp_healed` / `card_upgraded`, `hp_before`/`hp_after` as attributes
+- MCTS combat inside floor spans is **not** traced — no LLM decisions, pure simulation. Acceptable.
+- `pick_card` spans are rich (card options, chosen card, deck before/after). `pick_rest_choice` could be richer but sufficient for now.
+
+---
+
 ## Iteration 7 — Card Pool Architecture (Multi-Character Foundation)
 Status: **Complete**
 

@@ -40,11 +40,14 @@ class TestMapGeneration:
             if node.edges:
                 assert node.room_type == RoomType.REST
 
-    def test_floor14_has_no_edges(self):
-        """Floor 14 is the last floor — no outgoing edges."""
+    def test_floor14_edges_go_to_boss(self):
+        """Floor 14 rest nodes have outgoing edges to the boss at floor 15."""
         m = generate_act1_map(42)
         for node in m.nodes[14]:
-            assert len(node.edges) == 0
+            if node.edges:
+                assert node.room_type == RoomType.REST
+                for edge in node.edges:
+                    assert edge[0] == 15
 
     def test_reachable_non_boss_have_edges(self):
         """Nodes that are reachable (on a path) on floors 0-13 have edges."""
@@ -64,12 +67,12 @@ class TestMapGeneration:
                     f"Reachable node ({floor},{x}) has no edges"
                 )
 
-    def test_all_paths_reach_floor14(self):
+    def test_all_paths_reach_boss(self):
         m = generate_act1_map(42)
         paths = m.all_paths()
         assert len(paths) > 0
         for path in paths:
-            assert path[-1][0] == 14
+            assert path[-1][0] == MAP_HEIGHT - 1
 
     def test_deterministic(self):
         m1 = generate_act1_map(42)

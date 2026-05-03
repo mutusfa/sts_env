@@ -1,6 +1,8 @@
 """Act 1 map generation for Slay the Spire — faithful to sts_lightspeed.
 
-Generates a branching map with 15 floors (rows 0..14) and 7 columns.
+Generates a branching map with 15 floors (rows 0..14) and 7 columns,
+then appends a single boss node at row 15 connected from all rest sites
+on row 14.
 
 Algorithm (from sts_lightspeed/src/game/Map.cpp):
 1. Create 6 independent paths from row 0 → row 14, each starting at a random
@@ -26,7 +28,7 @@ from ..combat.rng import RNG
 # Constants (matching sts_lightspeed)
 # ---------------------------------------------------------------------------
 
-MAP_HEIGHT = 15
+MAP_HEIGHT = 16  # rows 0..14 (map) + row 15 (boss)
 MAP_WIDTH = 7
 PATH_DENSITY = 6
 
@@ -94,7 +96,7 @@ class StSMap:
         return None
 
     def all_paths(self) -> list[list[tuple[int, int]]]:
-        """Enumerate all root-to-boss paths (floor 0 → floor 14)."""
+        """Enumerate all root-to-boss paths (floor 0 → floor 15)."""
         paths: list[list[tuple[int, int]]] = []
 
         def dfs(floor: int, x: int, current_path: list[tuple[int, int]]) -> None:
@@ -102,7 +104,7 @@ class StSMap:
             if node is None:
                 return
             current_path.append((floor, x))
-            if floor == 14:
+            if floor == 15:
                 paths.append(list(current_path))
             else:
                 for edge in node.edges:
@@ -317,7 +319,7 @@ def _create_path_iteration(
 ) -> None:
     """Create a single path from row 0 → row 14 starting at start_x."""
     cur_x = start_x
-    for cur_y in range(MAP_HEIGHT - 1):
+    for cur_y in range(MAP_HEIGHT - 2):  # rows 0..13 → create edges to row 14
         new_x = _choose_new_path(nodes, rng, cur_x, cur_y)
         nodes[cur_y][cur_x].add_edge(new_x)
         nodes[cur_y + 1][new_x].add_parent(cur_x)
@@ -372,10 +374,9 @@ def _get_room_counts_and_assign_fixed(nodes: dict[int, dict[int, MapNode]]) -> t
     total = 0.0
     unassigned = 0
 
-    for row in range(MAP_HEIGHT):
+    for row in range(MAP_HEIGHT - 1):  # only rows 0..14 (boss row assigned separately)
         for node in nodes[row].values():
             # A node is reachable if it has outgoing edges or parents
-            # Row 14 has parents but no edges (boss convergence removed)
             if not node.edges and not node.parents:
                 continue
 
@@ -537,15 +538,17 @@ def _assign_rooms(nodes: dict[int, dict[int, MapNode]], rng: RNG, ascension: int
 # ---------------------------------------------------------------------------
 
 def generate_act1_map(seed: int, ascension: int = 0) -> StSMap:
-    """Generate an Act 1 map with 15 floors (0..14), 7 columns.
+    """Generate an Act 1 map with 15 floors (0..14), boss at floor 15, 7 columns.
 
-    Faithfully implements the sts_lightspeed map generation algorithm.
+    Faithfully implements the sts_lightspeed map generation algorithm
+    for rows 0..14, then adds a boss node at (15, 3) connected from
+    all reachable rest nodes on row 14.
     """
     rng = RNG(seed)
 
-    # Create 7x15 grid of nodes
+    # Create 7x15 grid of nodes (rows 0..14)
     nodes: dict[int, dict[int, MapNode]] = {}
-    for row in range(MAP_HEIGHT):
+    for row in range(MAP_HEIGHT - 1):
         nodes[row] = {}
         for x in range(MAP_WIDTH):
             nodes[row][x] = MapNode(floor=row, x=x, room_type=RoomType.MONSTER)
@@ -559,10 +562,22 @@ def generate_act1_map(seed: int, ascension: int = 0) -> StSMap:
     # Assign rooms with constraints
     _assign_rooms(nodes, rng, ascension)
 
+    # --- Boss row (row 15) ---
+    boss_x = MAP_WIDTH // 2  # column 3
+    boss_node = MapNode(floor=MAP_HEIGHT - 1, x=boss_x, room_type=RoomType.BOSS)
+    nodes[MAP_HEIGHT - 1] = {boss_x: boss_node}
+
+    # Connect all reachable row-14 nodes to the boss
+    for x, node in nodes[MAP_HEIGHT - 2].items():
+        if node.parents:  # reachable (has incoming edges)
+            node.add_edge(boss_x)
+            boss_node.add_parent(x)
+
     # Convert to list-based format for StSMap compatibility
     list_nodes: dict[int, list[MapNode]] = {}
     for row in range(MAP_HEIGHT):
-        row_list = [nodes[row][x] for x in range(MAP_WIDTH)]
+        row_list = [nodes[row].get(x, MapNode(floor=row, x=x, room_type=RoomType.MONSTER))
+                     for x in range(MAP_WIDTH)]
         # Convert edges from list[int] to list[tuple[int,int]] for compatibility
         for node in row_list:
             node.edges = [(node.floor + 1, dst_x) for dst_x in node.edges]  # type: ignore[assignment]

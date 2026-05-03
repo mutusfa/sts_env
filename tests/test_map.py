@@ -91,7 +91,8 @@ class TestFloorStructure:
 class TestRoomTypeConstraints:
     def test_valid_room_types_only(self, sample_map: StSMap):
         valid = {RoomType.MONSTER, RoomType.ELITE, RoomType.REST,
-                 RoomType.EVENT, RoomType.SHOP, RoomType.TREASURE}
+                 RoomType.EVENT, RoomType.SHOP, RoomType.TREASURE,
+                 RoomType.BOSS}
         for f in range(MAP_HEIGHT):
             for node in sample_map.nodes[f]:
                 assert node.room_type in valid
@@ -141,15 +142,15 @@ class TestConnectivity:
                 # Nodes with edges are reachable via paths
                 pass  # Edge existence is checked by path connectivity
 
-    def test_all_paths_reach_floor14(self, sample_map: StSMap):
+    def test_all_paths_reach_boss(self, sample_map: StSMap):
         paths = sample_map.all_paths()
-        assert len(paths) > 0, "No paths found from floor 0 to floor 14"
+        assert len(paths) > 0, "No paths found from floor 0 to boss"
         for path in paths:
             assert path[0][0] == 0, f"Path doesn't start at floor 0: {path}"
-            assert path[-1][0] == 14, f"Path doesn't end at floor 14: {path}"
+            assert path[-1][0] == MAP_HEIGHT - 1, f"Path doesn't end at boss floor: {path}"
 
     def test_paths_have_correct_length(self, sample_map: StSMap):
-        """Each path should visit exactly 15 floors (0..14)."""
+        """Each path should visit exactly MAP_HEIGHT floors (0..15)."""
         for path in sample_map.all_paths():
             assert len(path) == MAP_HEIGHT, (
                 f"Path has {len(path)} nodes, expected {MAP_HEIGHT}"
@@ -260,10 +261,10 @@ class TestMapStr:
         # Node rows + connector rows between floors
         assert len(lines) == (MAP_HEIGHT * 2 - 1)
 
-    def test_str_shows_rest_at_bottom(self, sample_map: StSMap):
+    def test_str_shows_boss_at_bottom(self, sample_map: StSMap):
         lines = str(sample_map).split("\n")
-        # Reversed, so line 0 = floor 14 (REST)
-        assert "R" in lines[0]
+        # Reversed, so line 0 = floor 15 (BOSS)
+        assert "B" in lines[0]
 
     def test_str_shows_monster_at_top(self, sample_map: StSMap):
         lines = str(sample_map).split("\n")
