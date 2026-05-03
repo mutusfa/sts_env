@@ -8,7 +8,7 @@ from sts_env.combat import Combat
 from sts_env.combat.rng import RNG
 from sts_env.combat.state import Action
 from sts_env.run.character import Character
-from sts_env.run.rooms import RestChoice
+from sts_env.run.rooms import RestChoice, RestResult
 from sts_env.run.orchestrator import RunResult, run_act1, _apply_combat_rewards
 from sts_env.run.rewards import ALL_RELICS, BOSS_RELICS
 
@@ -56,8 +56,8 @@ class _MockAgent:
     def pick_card(self, character, card_choices, upcoming_encounters, seed, **kwargs):
         return card_choices[0] if card_choices else None
 
-    def pick_rest_choice(self, character):
-        return RestChoice.REST
+    def pick_rest_choice(self, character, **kwargs):
+        return RestResult(choice=RestChoice.REST)
 
     def pick_event_choice(self, event, character):
         return 0

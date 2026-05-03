@@ -77,6 +77,24 @@ Agents implement `RunAgentProtocol` (duck-typed, no inheritance): methods for `p
 - **Declarative + escape hatch**: ~80% of cards use `CardSpec` declarative fields; ~20% need `custom` handlers. Prefer declarative; add `custom` only when the effect truly can't be expressed.
 - **No inheritance in card/enemy/relic specs**: Everything is data (`CardSpec`, `EnemySpec`, `RelicSpec` frozen dataclasses), not class hierarchies.
 
+## Information hiding (agent visibility)
+
+Agents must not have access to hidden information that a real Slay the Spire player would not know. The encounter system is the primary example:
+
+**Open knowledge** (may be exposed to agents / included in prompts):
+- Pool composition: `WEAK_POOL`, `STRONG_POOL`, `ELITE_POOL`, `BOSS_POOL` and their weights
+- Generation rules: 3 weak → 1 first-strong → 12 strong; 2-back no-repeat; no consecutive elite repeats
+- Encounter count consumed so far (e.g. "you've fought 2 hallway monsters, 1 elite")
+- Which encounters have been seen (a player remembers their fights)
+- Boss identity — the boss is revealed on the map as soon as it's generated
+
+**Hidden information** (must NOT be exposed to agents):
+- The pre-generated `monster_list[monster_offset:]` — exact upcoming encounters from the queue
+- The pre-generated `elite_list[elite_offset:]` — exact upcoming elites
+- RNG seed or any internal state that would let an agent predict future rolls
+
+In practice: when building prompts or tool parameters for the strategy agent, derive "possible remaining encounters" from pool composition + filtering rules + encounters already seen — never from the queue itself.
+
 ## Implementation status
 
 Several areas are stubs or partially implemented (as of the current codebase):

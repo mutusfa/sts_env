@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, Iterator, Protocol, runtime_checkable
 
 from .character import Character
 from .map import generate_act1_map, get_encounter_for_room, RoomType
-from .rooms import RestChoice, rest_heal, rest_upgrade, _best_upgrade_target
+from .rooms import RestChoice, RestResult, rest_heal, rest_upgrade, _best_upgrade_target
 from .events import random_act1_event, resolve_event
 from .shop import generate_shop
 from .treasure import open_treasure
@@ -99,11 +99,33 @@ class RunAgentProtocol(Protocol):
         seed: int,
         **kwargs: Any,
     ) -> str | None:
-        """Choose a card from the offered list, or None to skip."""
+        """Choose a card from the offered list, or None to skip.
+
+        Keyword arguments may include ``sts_map`` and ``current_position``.
+
+        Encounter-aware agents should call ``self.get_possible_encounters()``
+        to get the current possible remaining encounters (computed fresh from
+        shared state).  The orchestrator calls ``self.set_encounter_tracking``
+        once at run start.
+        """
         ...
 
-    def pick_rest_choice(self, character: Character) -> RestChoice:
-        """Choose REST or UPGRADE at a rest site."""
+    def pick_rest_choice(
+        self,
+        character: Character,
+        **kwargs: Any,
+    ) -> "RestResult":
+        """Choose REST or UPGRADE at a rest site.
+
+        Returns a :class:`RestResult` indicating the choice and, if
+        UPGRADE was chosen, the card to upgrade.
+
+        Keyword arguments may include ``sts_map`` and ``current_position``.
+
+        Encounter-aware agents should call ``self.get_possible_encounters()``
+        for current possible remaining encounters, same as for
+        :meth:`pick_card`.
+        """
         ...
 
     def pick_event_choice(self, event: EventSpec, character: Character) -> int:
@@ -220,8 +242,17 @@ def _run_map(
     encounter_rng = RNG(seed ^ 0xCAFE)
     encounter_queue = EncounterQueue(encounter_rng)
 
+    # Track encounters seen by the player (open knowledge)
+    hallway_seen: list[str] = []
+    elites_seen: list[str] = []
+
     path = agent.plan_route(sts_map, character, seed)
     total_floors = len(path)
+
+    # Give the agent references to encounter state so it can compute
+    # possible_encounters fresh on every call (lists are shared refs).
+    if hasattr(agent, "set_encounter_tracking"):
+        agent.set_encounter_tracking(encounter_queue, hallway_seen, elites_seen)
 
     result = RunResult(
         victory=False,
@@ -247,7 +278,11 @@ def _run_map(
         with _floor_scope(observer, floor_num + 1, room_type_str, character) as attrs:
 
             if room_type == RoomType.REST:
-                rest_result = _execute_rest_choice(agent, character)
+                rest_result = _execute_rest_choice(
+                    agent, character,
+                    sts_map=sts_map,
+                    current_position=(floor_num, x_pos),
+                )
                 if rest_result.choice == RestChoice.REST:
                     log.info("FLOOR %d REST: healed %d HP (hp=%d/%d)",
                              floor_num + 1, rest_result.hp_healed,
@@ -309,6 +344,13 @@ def _run_map(
                 else:
                     encounter_type = room_type_str
                     result.encounter_types.append(encounter_type)
+
+                    # Track encounter for open-knowledge queries (before rewards,
+                    # so possible_encounters includes the just-seen fight)
+                    if room_type == RoomType.MONSTER:
+                        hallway_seen.append(encounter_id)
+                    elif room_type == RoomType.ELITE:
+                        elites_seen.append(encounter_id)
 
                     combat_seed = seed * 1000 + floor_num
                     combat = builder.build_combat(
@@ -480,20 +522,28 @@ class _RestExecResult:
 def _execute_rest_choice(
     agent: RunAgentProtocol,
     character: Character,
+    *,
+    sts_map: StSMap | None = None,
+    current_position: tuple[int, int] | None = None,
 ) -> _RestExecResult:
-    """Ask the agent for a RestChoice, then execute it.
+    """Ask the agent for a RestResult, then execute it.
 
-    Falls back to healing if UPGRADE was chosen but no targets exist.
+    Falls back to healing if UPGRADE was chosen but no targets exist or
+    the chosen card isn't upgradeable.
     """
-    choice = agent.pick_rest_choice(character)
+    result = agent.pick_rest_choice(
+        character,
+        sts_map=sts_map,
+        current_position=current_position,
+    )
 
-    if choice == RestChoice.UPGRADE:
-        target = _best_upgrade_target(character)
-        if target is not None:
+    if result.choice == RestChoice.UPGRADE and result.card_upgraded:
+        target = result.card_upgraded
+        # Verify the card is actually upgradeable in the deck
+        if target in character.deck and not target.endswith("+"):
             rest_upgrade(character, target)
             return _RestExecResult(RestChoice.UPGRADE, card_upgraded=target)
-        healed = rest_heal(character)
-        return _RestExecResult(RestChoice.REST, hp_healed=healed)
+        # Card not found or already upgraded — fall through to heal
 
     healed = rest_heal(character)
     return _RestExecResult(RestChoice.REST, hp_healed=healed)
@@ -539,6 +589,7 @@ def _apply_combat_rewards(
     character.card_rarity_factor = new_factor
 
     upcoming = _upcoming_from_path(remaining_path or [], sts_map)
+
     picked = agent.pick_card(
         character,
         list(offer.card_choices),

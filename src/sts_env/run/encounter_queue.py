@@ -239,3 +239,112 @@ class EncounterQueue:
     def is_weak(self, encounter_id: str) -> bool:
         """Check if an encounter is from the weak (easy) pool."""
         return encounter_id in WEAK_POOL
+
+    # ------------------------------------------------------------------
+    # Open-knowledge helper (no hidden state)
+    # ------------------------------------------------------------------
+
+    def possible_encounters(
+        self,
+        hallway_seen: list[str],
+        elites_seen: list[str],
+    ) -> dict[str, list[str] | str]:
+        """Return the set of encounters that could still appear, using only
+        information a real player would know (pools + rules + what they've seen).
+
+        This does **not** peek at the pre-generated queue — it derives the
+        possible set from pool composition and filtering rules.
+
+        Parameters
+        ----------
+        hallway_seen:
+            Ordered list of hallway encounter_ids the player has already fought.
+        elites_seen:
+            Ordered list of elite encounter_ids the player has already fought.
+
+        Returns
+        -------
+        Dict with keys:
+
+        - ``"monster_weak"`` — weak pool entries still possible for the next
+          hallway fight (filtered by 2-back no-repeat).  Empty if we're past
+          the weak phase (≥ 3 weak fights seen).
+        - ``"monster_strong"`` — strong pool entries still possible for the
+          next hallway fight (filtered by 2-back no-repeat and thematic
+          constraints on the first-strong transition).
+        - ``"elite"`` — elite pool entries possible for the next elite fight
+          (filtered by no-consecutive-repeat).
+        - ``"boss"`` — the fixed boss encounter_id.
+
+        Example
+        -------
+        >>> eq.possible_encounters(
+        ...     hallway_seen=["cultist", "jaw_worm"],
+        ...     elites_seen=["Gremlin Nob"],
+        ... )
+        {
+            "monster_weak": ["two_louses", "small_slimes"],
+            "monster_strong": ["gremlin_gang", "lots_of_slimes", ...],
+            "elite": ["Lagavulin", "Three Sentries"],
+            "boss": "hexaghost",
+        }
+        """
+        # --- Hallway monsters ---
+        weak_seen = [e for e in hallway_seen if e in WEAK_POOL]
+        still_in_weak_phase = len(weak_seen) < 3
+
+        if still_in_weak_phase and hallway_seen:
+            # 2-back no-repeat: exclude last 2 seen
+            exclude = set(hallway_seen[-2:])
+            possible_weak = [e for e in WEAK_POOL if e not in exclude]
+        elif still_in_weak_phase:
+            # No hallway fights yet — full weak pool is possible
+            possible_weak = list(WEAK_POOL)
+        else:
+            possible_weak: list[str] = []
+
+        if hallway_seen:
+            # Strong pool: 2-back no-repeat from ALL seen (weak+strong)
+            exclude_strong = set(hallway_seen[-2:])
+
+            # If the last weak fight was small_slimes, apply thematic constraint
+            # on the first-strong entry: large_slime and lots_of_slimes excluded.
+            # After the first-strong, this constraint no longer applies.
+            strong_seen_count = len(
+                [e for e in hallway_seen if e not in WEAK_POOL]
+            )
+            if strong_seen_count == 0 and len(weak_seen) == 3:
+                # Next fight is first-strong — check thematic constraints
+                last_weak = hallway_seen[-1] if hallway_seen else None
+                if last_weak == "small_slimes":
+                    exclude_strong.update(
+                        e for e in ("large_slime", "lots_of_slimes")
+                        if e in STRONG_POOL
+                    )
+                if last_weak == "two_louses":
+                    exclude_strong.update(
+                        e for e in ("three_louse",)
+                        if e in STRONG_POOL
+                    )
+
+            possible_strong = [
+                e for e in STRONG_POOL if e not in exclude_strong
+            ]
+        else:
+            # No hallway fights seen yet — next is from weak pool, but also
+            # list full strong pool for reference
+            possible_strong = list(STRONG_POOL)
+
+        # --- Elites: no consecutive repeat ---
+        if elites_seen:
+            last_elite = elites_seen[-1]
+            possible_elite = [e for e in ELITE_POOL if e != last_elite]
+        else:
+            possible_elite = list(ELITE_POOL)
+
+        return {
+            "monster_weak": possible_weak,
+            "monster_strong": possible_strong,
+            "elite": possible_elite,
+            "boss": self.boss,
+        }
