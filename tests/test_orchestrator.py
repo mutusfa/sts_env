@@ -59,8 +59,11 @@ class _MockAgent:
     def pick_rest_choice(self, character, **kwargs):
         return RestResult(choice=RestChoice.REST)
 
-    def pick_event_choice(self, event, character):
+    def pick_event_choice(self, event, character, **kwargs):
         return 0
+
+    def pick_card_to_remove(self, character, **kwargs):
+        return None
 
     def shop(self, inventory, character):
         return None

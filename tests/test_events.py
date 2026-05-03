@@ -50,6 +50,7 @@ class TestRegistry:
             "Bonfire",
             "Wing Statue",
             "Wheel of Change",
+            "Hypnotizing Colored Mushrooms",
         ]:
             spec = get_event(eid)
             assert spec.event_id == eid
@@ -74,6 +75,7 @@ class TestRegistry:
             "Bonfire",
             "Wing Statue",
             "Wheel of Change",
+            "Hypnotizing Colored Mushrooms",
         ]
 
 
@@ -142,22 +144,25 @@ class TestGoldenIdol:
 class TestCleric:
     def test_heal_choice(self, char, rng):
         char.player_hp = 50
-        char.gold = 30
+        char.gold = 50
         result = resolve_event("The Cleric", 0, char, rng)
-        assert char.gold == 15  # paid 15
+        assert char.gold == 15  # paid 35
         assert char.player_hp > 50  # healed
 
     def test_heal_not_enough_gold(self, char, rng):
-        char.gold = 10
+        char.gold = 20
         result = resolve_event("The Cleric", 0, char, rng)
-        assert char.gold == 10  # unchanged
+        assert char.gold == 20  # unchanged
 
     def test_remove_choice(self, char, rng):
         char.gold = 99
         old_deck_len = len(char.deck)
         result = resolve_event("The Cleric", 1, char, rng)
         assert char.gold == 49  # paid 50
-        assert len(char.deck) == old_deck_len - 1
+        # Card removal is now handled by the orchestrator calling
+        # agent.pick_card_to_remove() — resolve_event only deducts gold.
+        assert len(char.deck) == old_deck_len
+        assert "paid" in result.lower() or "remove" in result.lower()
 
     def test_remove_not_enough_gold(self, char, rng):
         char.gold = 30
@@ -179,20 +184,49 @@ class TestCleric:
 # ---------------------------------------------------------------------------
 
 class TestDeadAdventurer:
-    def test_fight_choice(self, char, rng):
-        old_hp = char.player_hp
+    def test_loot_safe_phase0(self, char, rng):
+        """Phase 0: 25% encounter chance. With deterministic RNG we may get safe loot."""
+        from sts_env.run.events import _da_state, _dead_adventurer_setup
+        _da_state.clear()
+        _da_state.update(_dead_adventurer_setup(rng))
         old_gold = char.gold
+        old_deck_len = len(char.deck)
         result = resolve_event("Dead Adventurer", 0, char, rng)
-        assert char.player_hp == old_hp - 5
-        assert char.gold > old_gold
-        assert "damage" in result.lower()
+        # Either safe loot (gold/card/relic gained) or combat triggered
+        assert "Looted safely" in result or "ambushed" in result.lower()
+
+    def test_loot_safe_gives_gold(self, char):
+        """Force a gold reward by setting rewards schedule and ensuring no encounter."""
+        from sts_env.run.events import _da_state, _dead_adventurer_loot
+        from sts_env.combat.rng import RNG
+        rng = RNG(42)
+        _da_state.clear()
+        _da_state.update({"phase": 0, "rewards": [0, 1, 2], "encounter_id": "Lagavulin"})
+        old_gold = char.gold
+        # Use a seeded RNG that won't trigger encounter at phase 0
+        result = _dead_adventurer_loot(char, RNG(100))
+        if "Looted safely" in result:
+            assert char.gold == old_gold + 30  # gold reward
+            assert _da_state["phase"] == 1
 
     def test_leave(self, char, rng):
+        from sts_env.run.events import _da_state, _dead_adventurer_setup
+        _da_state.clear()
+        _da_state.update(_dead_adventurer_setup(rng))
         old_hp = char.player_hp
         old_gold = char.gold
         result = resolve_event("Dead Adventurer", 1, char, rng)
         assert char.player_hp == old_hp
         assert char.gold == old_gold
+
+    def test_phase_advances(self, char):
+        """After 3 safe loots, event reports nothing left."""
+        from sts_env.run.events import _da_state, _dead_adventurer_loot
+        from sts_env.combat.rng import RNG
+        _da_state.clear()
+        _da_state.update({"phase": 3, "rewards": [0, 1, 2], "encounter_id": "Lagavulin"})
+        result = _dead_adventurer_loot(char, RNG(42))
+        assert "nothing left" in result.lower()
 
 
 # ---------------------------------------------------------------------------

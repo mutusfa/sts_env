@@ -30,8 +30,10 @@ def build_combat(
     Parameters
     ----------
     encounter_type:
-        "easy", "hard", "monster", "boss", or "elite".
+        "easy", "hard", "monster", "boss", "elite", or "event".
         "monster" is treated identically to "easy"/"hard" (hallway fight).
+        "event" tries the factory map first, then falls back to elite
+        builder with is_elite=False (event elites don't give elite relics).
     encounter_id:
         String identifier from scenario3_encounters (e.g. "cultist",
         "red_slaver", "Lagavulin").
@@ -81,6 +83,24 @@ def build_combat(
         return _build_boss(
             encounter_id, seed, deck, player_hp, player_max_hp, potions,
             relics=relics, gold=gold, relic_state=relic_state,
+        )
+
+    if encounter_type == "event":
+        # Event encounters: try factory map first (e.g. three_fungi_beasts_event),
+        # then fall back to elite builder with is_elite=False (e.g. lagavulin_event).
+        factory = _ENCOUNTER_FACTORY_MAP.get(encounter_id)
+        if factory is not None:
+            combat = factory(seed, deck=deck, player_hp=player_hp)
+            combat._player_max_hp = player_max_hp
+            combat._starting_potions = list(potions)
+            combat._starting_relics = relics
+            combat._starting_gold = gold
+            combat._relic_state = relic_state
+            return combat
+        return _build_elite(
+            encounter_id, seed, deck, player_hp, player_max_hp, potions,
+            relics=relics, gold=gold, is_elite=False,
+            relic_state=relic_state,
         )
 
     # Easy / hard / monster — look up by encounter factory name
@@ -198,4 +218,7 @@ _ENCOUNTER_FACTORY_MAP: dict[str, object] = {
     "slime_boss": enc.slime_boss,
     "guardian": enc.guardian,
     "hexaghost": enc.hexaghost,
+    # Event encounters (same enemies as regular but tracked as event)
+    "three_fungi_beasts_event": enc.three_fungi_beasts_event,
+    "lagavulin_event": enc.lagavulin_event,
 }

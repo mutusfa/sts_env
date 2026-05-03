@@ -150,6 +150,19 @@ def two_fungi_beasts(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp
     return Combat(deck, ["FungiBeast", "FungiBeast"], seed, player_hp)
 
 
+def three_fungi_beasts_event(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
+    """Mushrooms event: three Fungi Beasts."""
+    return Combat(deck, ["FungiBeast", "FungiBeast", "FungiBeast"], seed, player_hp)
+
+
+def lagavulin_event(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
+    """Dead Adventurer event: Lagavulin starts awake (no sleep, no metallicize).
+
+    Much harder than the normal elite Lagavulin which starts sleeping for 3 turns.
+    """
+    return Combat(deck, ["Lagavulin_awake"], seed, player_hp)
+
+
 # ---------------------------------------------------------------------------
 # Three Louses — each independently 50/50 Red/Green
 # ---------------------------------------------------------------------------

@@ -102,3 +102,14 @@ Several areas are stubs or partially implemented (as of the current codebase):
 - Most relics are cosmetic — only `BurningBlood` has a mechanical effect in the combat layer
 - Some complex cards (`DemonForm`, `Corruption`, etc.) are no-op stubs
 - `sts_lightspeed` oracle module is used for validation/comparison, not the primary implementation
+
+## Reference implementation
+
+The `third_party/sts_lightspeed/` directory contains a C++ reimplementation of Slay the Spire (sts_lightspeed by gamerpuppy). This is the authoritative reference for game mechanics. Key locations:
+
+- `include/constants/Events.h` — event enum, IDs, pool definitions per act
+- `src/game/GameContext.cpp` — event setup (`setupEvent`) and resolution (`chooseEventOption`)
+- `include/constants/MonsterEncounters.h` — encounter IDs including event-specific ones (e.g. `MASKED_BANDITS_EVENT`, `MUSHROOMS_EVENT`, `LAGAVULIN_EVENT`)
+- `src/game/Game.cpp`, `src/game/Deck.cpp` — card/deck operations
+
+When implementing or fixing events, always cross-check against `GameContext.cpp::chooseEventOption` for correct outcomes, RNG usage, and edge cases.

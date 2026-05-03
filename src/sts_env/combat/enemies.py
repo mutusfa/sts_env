@@ -946,6 +946,18 @@ def _lagavulin_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # 
 
 register_enemy(_LAGAVULIN, _lagavulin_intent, _lagavulin_pre_battle)
 
+# Event variant: same monster but starts awake (no sleep, no metallicize).
+# Used by Dead Adventurer event — much harder than the elite version.
+_LAGAVULIN_AWAKE = EnemySpec("Lagavulin_awake", hp_min=109, hp_max=111)
+
+
+def _lagavulin_awake_pre_battle(enemy: "EnemyState", state: "CombatState") -> None:
+    """Start awake — no sleep, no metallicize. Immediately aggressive."""
+    pass  # No setup needed — intent picker sees asleep=False and starts attacking
+
+
+register_enemy(_LAGAVULIN_AWAKE, _lagavulin_intent, _lagavulin_awake_pre_battle)
+
 
 # ---------------------------------------------------------------------------
 # Sentry (Elite — appears as group of 3)

@@ -110,7 +110,7 @@ class Character:
             f"HP={self.player_hp}/{self.player_max_hp} "
             f"Gold={self.gold} "
             f"Floor={self.floor} "
-            f"Deck({len(self.deck)}) "
+            f"Deck{self.deck} "
             f"Potions{self.potions} "
             f"Relics{self.relics}"
         )

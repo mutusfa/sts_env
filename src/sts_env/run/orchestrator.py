@@ -128,8 +128,25 @@ class RunAgentProtocol(Protocol):
         """
         ...
 
-    def pick_event_choice(self, event: EventSpec, character: Character) -> int:
-        """Choose an event branch by index."""
+    def pick_event_choice(
+        self, event: EventSpec, character: Character, **kwargs: object,
+    ) -> int:
+        """Choose an event branch by index.
+
+        Keyword arguments may include ``sts_map`` and ``current_position``.
+        """
+        ...
+
+    def pick_card_to_remove(
+        self, character: Character, **kwargs: object,
+    ) -> str | None:
+        """Choose a card to remove from the deck, or None to cancel.
+
+        Called by card-removal events (The Cleric, Wing Statue) and any
+        other mechanic that lets the player purge a card.  The agent
+        should return the ``card_id`` string matching an entry in
+        ``character.deck``, or ``None`` to skip the removal.
+        """
         ...
 
     def shop(self, inventory: ShopInventory, character: Character) -> None:
@@ -303,16 +320,130 @@ def _run_map(
                 event = random_act1_event(encounter_rng, character.seen_events)
                 character.seen_events.append(event.event_id)
                 log.info("FLOOR %d EVENT: %s", floor_num + 1, event.event_id)
-                choice_idx = agent.pick_event_choice(event, character)
-                desc = resolve_event(event.event_id, choice_idx, character, encounter_rng)
-                log.info("  Event result: %s", desc)
+
+                # Set up multi-phase event state if needed
+                if event.multi_phase and event.event_id == "Dead Adventurer":
+                    from .events import _da_state, _dead_adventurer_setup
+                    _da_state.clear()
+                    _da_state.update(_dead_adventurer_setup(encounter_rng))
+
+                # Multi-phase event loop (single iteration for normal events)
+                event_done = False
+                event_damage = 0
+                while not event_done:
+                    choice_idx = agent.pick_event_choice(
+                        event, character,
+                        sts_map=sts_map,
+                        current_position=(floor_num, x_pos),
+                    )
+                    choice_idx = int(choice_idx)
+
+                    desc = resolve_event(
+                        event.event_id, choice_idx, character, encounter_rng,
+                    )
+                    log.info("  Event result: %s", desc)
+
+                    # Card removal: if the choice requires it, ask the agent
+                    choice = event.choices[choice_idx]
+                    if choice.requires_card_removal:
+                        card = agent.pick_card_to_remove(
+                            character,
+                            sts_map=sts_map,
+                            current_position=(floor_num, x_pos),
+                        )
+                        if card and card in character.deck:
+                            character.deck.remove(card)
+                            log.info("  Card removed: %s", card)
+                        else:
+                            log.info("  Card removal skipped (agent returned %s)", card)
+
+                    # Check if event choice triggers combat
+                    if choice.triggers_combat:
+                        # Determine encounter details
+                        combat_enc_type = event.encounter_type or "monster"
+                        combat_enc_id = event.encounter_id or ""
+
+                        # Dead Adventurer: combat details come from phase state
+                        if event.event_id == "Dead Adventurer":
+                            from .events import _da_state as da_st
+                            if da_st.get("combat_needed"):
+                                combat_enc_type = da_st["combat_encounter_type"]
+                                combat_enc_id = da_st["combat_encounter_id"]
+
+                        if combat_enc_id:
+                            combat_seed = seed * 1000 + floor_num
+                            combat = builder.build_combat(
+                                combat_enc_type, combat_enc_id,
+                                combat_seed, character=character,
+                            )
+
+                            damage = agent.run_battle(combat)
+                            event_damage += damage
+                            result.damage_taken_total += damage
+                            result.max_hp_gained_total += combat.max_hp_gained
+
+                            obs = combat.observe()
+                            if obs.player_dead:
+                                log.info("FLOOR %d EVENT COMBAT (%s): DIED (damage=%d)",
+                                         floor_num + 1, combat_enc_id, damage)
+                                character.player_hp = 0
+                                result.final_hp = 0
+                                died = True
+                                result.damage_per_floor.append(event_damage)
+                                break
+                            else:
+                                character.player_hp = obs.player_hp
+                                character.player_max_hp = obs.player_max_hp
+                                character.potions = list(combat._state.potions)
+                                builder.sync_combat_counters(character, combat)
+                                relics_mod.on_combat_end(character)
+                                result.final_hp = character.player_hp
+                                result.max_hp = character.player_max_hp
+
+                                log.info("FLOOR %d EVENT COMBAT (%s): WON (damage=%d, hp=%d/%d)",
+                                         floor_num + 1, combat_enc_id, damage,
+                                         character.player_hp, character.player_max_hp)
+
+                                # Apply Dead Adventurer bonus rewards
+                                if event.event_id == "Dead Adventurer":
+                                    from .events import _da_state as da_st
+                                    if da_st.get("combat_needed"):
+                                        gold_reward = da_st.get("combat_gold_reward", 0)
+                                        character.gold += gold_reward
+                                        log.info("  DA bonus gold: %d", gold_reward)
+                                        if da_st.get("combat_relic_reward"):
+                                            relic = roll_elite_relic(reward_rng, owned=character.relics)
+                                            if relic:
+                                                character.add_relic(relic)
+                                                log.info("  DA bonus relic: %s", relic)
+                                        da_st["combat_needed"] = False
+
+                                # Standard combat rewards (cards, potions, gold)
+                                _apply_combat_rewards(
+                                    character, result, combat_enc_type,
+                                    combat_seed, reward_rng, agent,
+                                    sts_map=sts_map,
+                                    current_position=(floor_num, x_pos),
+                                    remaining_path=path[step_idx + 1:],
+                                )
+
+                    # Check if multi-phase event should continue
+                    if event.multi_phase and event.event_id == "Dead Adventurer":
+                        from .events import _da_state as da_st
+                        if da_st.get("phase", 0) < 3 and not da_st.get("combat_needed"):
+                            event_done = False  # Can loot again
+                        else:
+                            event_done = True
+                    else:
+                        event_done = True
+
                 attrs.update({
                     "event_id": event.event_id,
                     "choice_idx": choice_idx,
                     "event_result": str(desc),
                 })
                 result.encounter_types.append("event")
-                result.damage_per_floor.append(0)
+                result.damage_per_floor.append(event_damage)
                 result.floors_cleared += 1
 
             elif room_type == RoomType.SHOP:

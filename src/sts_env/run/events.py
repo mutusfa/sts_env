@@ -28,7 +28,12 @@ class EventChoice:
     """A single choice in an event."""
 
     label: str  # Human-readable choice text
-    effect: Callable[["Character", RNG], str]  # Returns result description
+    effect: Callable[[Character, RNG], str]  # Returns result description
+    # If True, the orchestrator calls agent.pick_card_to_remove() after
+    # resolving this choice.
+    requires_card_removal: bool = False
+    # If True, choosing this triggers a combat (encounter info on EventSpec).
+    triggers_combat: bool = False
 
 
 @dataclass(frozen=True)
@@ -38,6 +43,16 @@ class EventSpec:
     event_id: str
     description: str
     choices: list[EventChoice]
+    # For events that can trigger combat (Dead Adventurer, Mushrooms, etc.).
+    # Each combat-triggering choice stores encounter info here.
+    encounter_type: str | None = None  # e.g. "event", "monster"
+    encounter_id: str | None = None   # e.g. "three_fungi_beasts_event"
+    # All possible encounter IDs the agent might face if it picks a combat
+    # choice.  Populated for events where the encounter is random or there
+    # are multiple options.  Empty for non-combat events.
+    possible_encounters: tuple[str, ...] = ()
+    # For multi-phase events (Dead Adventurer): tracks current phase and reward schedule.
+    multi_phase: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +81,7 @@ def random_act1_event(rng: RNG, seen_events: list[str] | None = None) -> EventSp
 
 
 def resolve_event(
-    event_id: str, choice_index: int, character: "Character", rng: RNG
+    event_id: str, choice_index: int, character: "Character", rng: RNG,
 ) -> str:
     """Resolve an event choice.  Returns result description string."""
     spec = _EVENTS[event_id]
@@ -251,23 +266,21 @@ register_event(
 # --- The Cleric -------------------------------------------------------------
 
 def _cleric_heal(character: "Character", rng: RNG) -> str:
-    if character.gold < 15:
+    if character.gold < 35:
         return "Not enough gold.  Nothing happens."
-    character.gold -= 15
-    heal_amt = _pct_max_hp(character, 0.20)
+    character.gold -= 35
+    heal_amt = _pct_max_hp(character, 0.25)
     character.heal(heal_amt)
-    return f"Paid 15 gold.  Healed {heal_amt} HP."
+    return f"Paid 35 gold.  Healed {heal_amt} HP."
 
 
 def _cleric_remove(character: "Character", rng: RNG) -> str:
+    """Pay 50 gold for card removal.  The orchestrator handles the actual
+    card pick via ``agent.pick_card_to_remove()``."""
     if character.gold < 50:
         return "Not enough gold.  Nothing happens."
-    worst = _pick_worst_card(character.deck)
-    if worst is None:
-        return "Paid 50 gold but no cards to remove."
     character.gold -= 50
-    character.deck.remove(worst)
-    return f"Paid 50 gold.  Removed {worst} from deck."
+    return "PAID_FOR_REMOVAL"
 
 
 def _cleric_leave(character: "Character", rng: RNG) -> str:
@@ -283,12 +296,13 @@ register_event(
         ),
         choices=[
             EventChoice(
-                label="Pay 15 gold: Heal 20% of max HP.",
+                label="Pay 35 gold: Heal 25% of max HP.",
                 effect=_cleric_heal,
             ),
             EventChoice(
-                label="Pay 50 gold: Remove a card from your deck.",
+                label="Pay 50 gold: Remove a card from your deck (specify which card in your response).",
                 effect=_cleric_remove,
+                requires_card_removal=True,
             ),
             EventChoice(
                 label="Leave.",
@@ -301,18 +315,99 @@ register_event(
 
 # --- Dead Adventurer --------------------------------------------------------
 
-def _dead_adventurer_fight(character: "Character", rng: RNG) -> str:
-    loss = 5
-    character.player_hp = max(0, character.player_hp - loss)
-    # Determine a random reward (simulate double rewards)
-    card_pool_list = (
-        pool(character.character_class, Rarity.COMMON)
-        + pool(character.character_class, Rarity.UNCOMMON)
-    )
-    card = rng.choice(card_pool_list)
-    gold = rng.randint(20, 40)
-    character.gold += gold
-    return f"Took {loss} damage.  Found {gold} gold and {card} on the corpse."
+# Per C++ reference: multi-phase event with escalating elite encounter chance.
+# On setup: 3 shuffled reward slots (0=gold, 1=card, 2=relic) and a random
+# elite encounter chosen from [Three Sentries, Gremlin Nob, lagavulin_event].
+# Each "Loot" attempt: encounter chance = phase * 25 + 25%.
+# If encounter triggers: fight the elite, get combined remaining rewards.
+# If no encounter: collect reward for current phase, increment phase.
+
+# Module-level state for multi-phase event (set during resolve_event).
+_da_state: dict = {}
+
+
+def _dead_adventurer_setup(rng: RNG) -> dict:
+    """Initialize Dead Adventurer event state."""
+    import random
+    rewards = [0, 1, 2]  # 0=gold, 1=card, 2=relic
+    rng.shuffle(rewards)
+    encounter_id = rng.choice(["Three Sentries", "Gremlin Nob", "lagavulin_event"])
+    return {
+        "phase": 0,
+        "rewards": rewards,
+        "encounter_id": encounter_id,
+    }
+
+
+def _dead_adventurer_loot(character: "Character", rng: RNG) -> str:
+    state = _da_state
+    phase = state["phase"]
+    rewards = state["rewards"]
+    encounter_id = state["encounter_id"]
+
+    if phase >= 3:
+        return "There is nothing left to loot."
+
+    # Encounter chance: phase * 25 + 25%
+    encounter_chance = phase * 25 + 25
+    did_encounter = rng.randint(0, 99) < encounter_chance
+
+    if did_encounter:
+        # Fight the elite — collect remaining rewards
+        gold_amt = rng.randint(25, 35)
+        relic_added = False
+
+        for i in range(phase, 3):
+            if rewards[i] == 0:
+                gold_amt += 30
+            elif rewards[i] == 2:
+                relic_added = True
+
+        # Mark combat needed for orchestrator
+        state["combat_needed"] = True
+        state["combat_encounter_type"] = "event"
+        state["combat_encounter_id"] = encounter_id
+        state["combat_gold_reward"] = gold_amt
+        state["combat_relic_reward"] = relic_added
+        state["phase"] = 3  # Event ends after combat
+
+        desc = (
+            f"You are ambushed by {encounter_id}! "
+            f"(Combat reward: {gold_amt} gold"
+        )
+        if relic_added:
+            desc += " + relic"
+        desc += f" + card reward)"
+        return desc
+
+    else:
+        # Safe — collect current reward
+        reward = rewards[phase]
+        result_desc = f"Looted safely (phase {phase + 1}/3). "
+
+        if reward == 0:
+            # GOLD
+            character.gold += 30
+            result_desc += "Found 30 gold."
+        elif reward == 1:
+            # CARD — add to deck
+            card_pool_list = (
+                pool(character.character_class, Rarity.COMMON)
+                + pool(character.character_class, Rarity.UNCOMMON)
+            )
+            card = rng.choice(card_pool_list)
+            character.add_card(card)
+            result_desc += f"Found {card}."
+        elif reward == 2:
+            # RELIC
+            relic = rng.choice(_COMMON_RELICS)
+            character.add_relic(relic)
+            result_desc += f"Found {relic} relic."
+
+        state["phase"] = phase + 1
+        if state["phase"] >= 3:
+            result_desc += " The corpse has been fully looted."
+        return result_desc
 
 
 def _dead_adventurer_leave(character: "Character", rng: RNG) -> str:
@@ -323,19 +418,25 @@ register_event(
     EventSpec(
         event_id="Dead Adventurer",
         description=(
-            "You stumble upon the remains of a fallen adventurer.  You could "
-            "search the body but the area looks dangerous."
+            "You stumble upon the remains of a fallen adventurer.  "
+            "You can repeatedly loot the body for rewards, but each attempt "
+            "risks an encounter with a powerful elite monster (Three Sentries, "
+            "Gremlin Nob, or Lagavulin).  The risk increases with each loot attempt. "
+            "If you are ambushed, you must fight the elite for combined rewards."
         ),
         choices=[
             EventChoice(
-                label="Take 5 damage and loot the corpse for double rewards.",
-                effect=_dead_adventurer_fight,
+                label="Loot the corpse (risk elite encounter, increasing chance).",
+                effect=_dead_adventurer_loot,
+                triggers_combat=True,
             ),
             EventChoice(
                 label="Leave.",
                 effect=_dead_adventurer_leave,
             ),
         ],
+        possible_encounters=("Three Sentries", "Gremlin Nob", "lagavulin_event"),
+        multi_phase=True,
     )
 )
 
@@ -613,5 +714,54 @@ register_event(
                 effect=_wheel_of_change_spin,
             ),
         ],
+    )
+)
+
+
+# --- Hypnotizing Colored Mushrooms -----------------------------------------
+
+# Per C++ reference (Act 1 event, only appears after floor 6):
+# Choice 0: Fight two Fungi Beasts → gold (20-30) + Odd Mushroom relic + card reward
+# Choice 1: Gain 99 gold (non-Asc15) or 50 gold (Asc15)
+
+
+def _mushrooms_fight(character: "Character", rng: RNG) -> str:
+    gold_amt = rng.randint(20, 30)
+    character.gold += gold_amt
+    # Odd Mushroom relic — grants "Mushroom" effect (not yet in relic system)
+    # For now, add as a named relic
+    character.add_relic("Odd Mushroom")
+    desc = f"Fought the mushrooms!  Gained {gold_amt} gold and Odd Mushroom relic."
+    return desc
+
+
+def _mushrooms_gold(character: "Character", rng: RNG) -> str:
+    gold_amt = 99
+    character.gold += gold_amt
+    return f"Took the gold.  Gained {gold_amt} gold."
+
+
+register_event(
+    EventSpec(
+        event_id="Hypnotizing Colored Mushrooms",
+        description=(
+            "Hypnotic colored mushrooms surround you.  You can either eat them "
+            "and fight the mushroom creatures for valuable rewards (Odd Mushroom "
+            "relic + gold + card), or simply gather the gold scattered around them."
+        ),
+        choices=[
+            EventChoice(
+                label="Eat the mushrooms and fight (two Fungi Beasts). Reward: gold + Odd Mushroom relic + card.",
+                effect=_mushrooms_fight,
+                triggers_combat=True,
+            ),
+            EventChoice(
+                label="Take the gold (99 gold) and leave.",
+                effect=_mushrooms_gold,
+            ),
+        ],
+        encounter_type="event",
+        encounter_id="three_fungi_beasts_event",
+        possible_encounters=("three_fungi_beasts_event",),
     )
 )
