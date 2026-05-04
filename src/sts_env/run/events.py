@@ -764,43 +764,168 @@ register_event(
 # --- 12. Match and Keep --------------------------------------------------------
 # C++: complex memory card game. Generates 6 unique cards, duplicates to 12,
 # shuffles into 4×3 grid. Player has 5 attempts to match pairs.
-# Each matched pair adds both copies to deck.
-# Card pool: rare, uncommon, common (character), colorless uncommon, curse, starter.
-# Simplified: generate cards from pools, add them to deck.
+# Each matched pair adds 1 copy to deck.
+# Card pool: rare, uncommon, common (character), colorless uncommon, curse,
+#            starter (Bash/Neutralize/Zap/Eruption).
+#
+# Simplified: no position swaps after reveals (C++ has those; they add 0 info
+# since players remember or take notes). Agent sees revealed cards.
 
-def _match_and_keep_play(character: "Character", rng: RNG) -> str:
-    """Simplified Match and Keep: generate 5 cards from mixed pools."""
-    cards_added: list[str] = []
+from enum import Enum, auto
 
-    # 1 rare from character pool
+
+class _SlotState(Enum):
+    FACE_DOWN = auto()   # not yet revealed
+    REVEALED = auto()    # flipped after a failed match — visible to agent
+    MATCHED = auto()     # matched, card added to deck
+
+
+@dataclass
+class MatchAndKeepSlot:
+    """A single slot in the 4×3 Match and Keep grid.
+
+    Agents see ``card_id`` only when REVEALED or MATCHED.
+    """
+    card_id: str
+    state: _SlotState = _SlotState.FACE_DOWN
+
+    @property
+    def visible_card(self) -> str | None:
+        """Card name visible to the agent, or None if face-down."""
+        if self.state != _SlotState.FACE_DOWN:
+            return self.card_id
+        return None
+
+
+# Starter card per character class (C++: getStartCardForEvent)
+_STARTER_CARD: dict[CardColor, str] = {
+    CardColor.RED:    "Bash",
+    CardColor.GREEN:  "Neutralize",
+    CardColor.BLUE:   "Zap",
+    CardColor.PURPLE: "Eruption",
+}
+
+# Module-level state for the grid (set by setup, consumed by orchestrator loop)
+_mk_grid: list[MatchAndKeepSlot] = []
+_mk_attempts: int = 0
+_mk_extra_context: str = ""
+
+
+def match_and_keep_setup(character: "Character", rng: RNG) -> None:
+    """Generate the 4×3 grid of cards.  C++: setupEvent MATCH_AND_KEEP.
+
+    Card sources (Asc 0–14):
+      0: rare    from character pool
+      1: uncommon from character pool
+      2: common  from character pool
+      3: colorless uncommon
+      4: curse
+      5: starter card for class (Bash / Neutralize / Zap / Eruption)
+
+    Each is duplicated → 12 cards, shuffled by miscRng.
+    No position swaps after reveals (unlike C++).
+    """
+    cards: list[str] = []
+
+    # 0: rare from character pool
     rares = pool(character.character_class, Rarity.RARE)
-    if rares:
-        cards_added.append(rng.choice(rares))
+    cards.append(rng.choice(rares) if rares else "Strike")
 
-    # 1 uncommon from character pool
+    # 1: uncommon from character pool
     uncommons = pool(character.character_class, Rarity.UNCOMMON)
-    if uncommons:
-        cards_added.append(rng.choice(uncommons))
+    cards.append(rng.choice(uncommons) if uncommons else "Defend")
 
-    # 1 common from character pool
+    # 2: common from character pool
     commons = pool(character.character_class, Rarity.COMMON)
-    if commons:
-        cards_added.append(rng.choice(commons))
+    cards.append(rng.choice(commons) if commons else "Strike")
 
-    # 1 colorless uncommon
+    # 3: colorless uncommon
     colorless = colorless_pool(Rarity.UNCOMMON)
-    if colorless:
-        cards_added.append(rng.choice(colorless))
+    cards.append(rng.choice(colorless) if colorless else "Defend")
 
-    # 1 curse
+    # 4: curse
     curses = curse_pool()
-    if curses:
-        cards_added.append(rng.choice(curses))
+    cards.append(rng.choice(curses) if curses else "Injury")
 
-    for card in cards_added:
-        character.add_card(card)
+    # 5: starter card
+    cards.append(_STARTER_CARD.get(character.character_class, "Bash"))
 
-    return f"Obtained {', '.join(cards_added)}."
+    # Duplicate to 12 and shuffle
+    indices = list(range(6)) * 2  # [0,1,2,3,4,5,0,1,2,3,4,5]
+    rng.shuffle(indices)
+
+    _mk_grid.clear()
+    for idx in indices:
+        _mk_grid.append(MatchAndKeepSlot(card_id=cards[idx]))
+
+    global _mk_attempts
+    _mk_attempts = 5
+
+    # Build extra_context: pool composition is open knowledge; only starter is
+    # identified by name.  The actual rare/uncommon/common/colorless/curse cards
+    # are hidden until revealed.
+    starter = _STARTER_CARD.get(character.character_class, "Bash")
+    global _mk_extra_context
+    _mk_extra_context = (
+        f"Match and Keep reward pool (6 unique cards, each duplicated):\n"
+        f"  1 Rare (Ironclad)\n"
+        f"  1 Uncommon (Ironclad)\n"
+        f"  1 Common (Ironclad)\n"
+        f"  1 Colorless Uncommon\n"
+        f"  1 Curse\n"
+        f"  1 Starter: {starter}\n"
+        f"You have 5 attempts to match pairs. Matched cards are added to your deck.\n"
+        f"Avoid matching blindly — the curse is mixed in. Revealed cards stay visible."
+    )
+
+
+def match_and_keep_resolve(idx1: int, idx2: int, character: "Character") -> str:
+    """Resolve one round of the matching game.
+
+    C++: chooseMatchAndKeepCards.  Returns result description.
+    """
+    n = len(_mk_grid)
+    if not (0 <= idx1 < n and 0 <= idx2 < n and idx1 != idx2):
+        return "Invalid selection."
+
+    s1, s2 = _mk_grid[idx1], _mk_grid[idx2]
+
+    # Skip already-matched slots
+    if s1.state == _SlotState.MATCHED or s2.state == _SlotState.MATCHED:
+        return "Already matched."
+
+    global _mk_attempts
+    _mk_attempts -= 1
+
+    if s1.card_id == s2.card_id:
+        # Match — add 1 copy to deck, mark both matched
+        s1.state = _SlotState.MATCHED
+        s2.state = _SlotState.MATCHED
+        character.add_card(s1.card_id)
+        return f"Matched {s1.card_id}!"
+    else:
+        # No match — reveal both (agent remembers for future picks)
+        s1.state = _SlotState.REVEALED
+        s2.state = _SlotState.REVEALED
+        return f"Revealed {s1.card_id} and {s2.card_id}."
+
+
+def match_and_keep_grid_view() -> list[MatchAndKeepSlot]:
+    """Return the current grid state (agent-visible snapshot)."""
+    return list(_mk_grid)
+
+
+def match_and_keep_attempts_remaining() -> int:
+    return _mk_attempts
+
+
+def match_and_keep_done() -> bool:
+    return _mk_attempts <= 0
+
+
+def match_and_keep_extra_context() -> str:
+    """Human-readable pool description for the agent (open knowledge)."""
+    return _mk_extra_context
 
 
 def _match_and_keep_leave(character: "Character", rng: RNG) -> str:
@@ -815,7 +940,7 @@ register_event(
             "of cards to add them to your deck."
         ),
         choices=[
-            EventChoice(label="Play the memory game.", effect=_match_and_keep_play),
+            EventChoice(label="Play the memory game.", effect=lambda c, r: "Grid set up."),
             EventChoice(label="Leave.", effect=_match_and_keep_leave),
         ],
     )

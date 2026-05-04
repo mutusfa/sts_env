@@ -460,21 +460,130 @@ class TestShiningLight:
 
 # ---------------------------------------------------------------------------
 # Match and Keep
-#   choice 0 = play (gain 5 cards from mixed pools)
+#   choice 0 = play (enters grid-based matching loop)
 #   choice 1 = leave
 # ---------------------------------------------------------------------------
 
 class TestMatchAndKeep:
-    def test_play_adds_cards(self, char, rng):
-        old_deck_len = len(char.deck)
-        result = resolve_event("Match and Keep", 0, char, rng)
-        assert len(char.deck) > old_deck_len
-        assert "Obtained" in result
+    def test_setup_creates_12_slots(self, char, rng):
+        """Grid should have 12 slots (6 unique cards × 2)."""
+        from sts_env.run.events import match_and_keep_setup, _mk_grid, _SlotState
+        match_and_keep_setup(char, rng)
+        assert len(_mk_grid) == 12
+        # All start face-down
+        for slot in _mk_grid:
+            assert slot.state == _SlotState.FACE_DOWN
 
-    def test_leave(self, char, rng):
-        old_deck_len = len(char.deck)
+    def test_setup_has_6_unique_cards_duplicated(self, char, rng):
+        """12 slots should contain exactly 6 unique card IDs, each appearing twice."""
+        from sts_env.run.events import match_and_keep_setup, _mk_grid
+        match_and_keep_setup(char, rng)
+        card_ids = [s.card_id for s in _mk_grid]
+        from collections import Counter
+        counts = Counter(card_ids)
+        assert len(counts) == 6
+        assert all(c == 2 for c in counts.values())
+
+    def test_setup_includes_starter_card(self, char, rng):
+        """Ironclad starter card (Bash) should be in the grid."""
+        from sts_env.run.events import match_and_keep_setup, _mk_grid
+        match_and_keep_setup(char, rng)
+        card_ids = [s.card_id for s in _mk_grid]
+        assert "Bash" in card_ids
+
+    def test_match_adds_card_to_deck(self, char, rng):
+        """Matching a pair should add 1 copy to deck."""
+        from sts_env.run.events import (
+            match_and_keep_setup, match_and_keep_resolve, _mk_grid,
+            _SlotState,
+        )
+        match_and_keep_setup(char, rng)
+        # Find a matching pair by looking at card_ids
+        card_to_idx = {}
+        for i, slot in enumerate(_mk_grid):
+            if slot.card_id in card_to_idx:
+                idx1, idx2 = card_to_idx[slot.card_id], i
+                break
+            card_to_idx[slot.card_id] = i
+
+        old_len = len(char.deck)
+        desc = match_and_keep_resolve(idx1, idx2, char)
+        assert "Matched" in desc
+        assert len(char.deck) == old_len + 1
+        assert _mk_grid[idx1].state == _SlotState.MATCHED
+        assert _mk_grid[idx2].state == _SlotState.MATCHED
+
+    def test_no_match_reveals_both(self, char, rng):
+        """Non-matching pair should be revealed, not added to deck."""
+        from sts_env.run.events import (
+            match_and_keep_setup, match_and_keep_resolve, _mk_grid,
+            _SlotState,
+        )
+        match_and_keep_setup(char, rng)
+        # Find two different cards
+        seen = {}
+        idx1 = idx2 = 0
+        for i, slot in enumerate(_mk_grid):
+            if slot.card_id in seen:
+                for j in range(i):
+                    if _mk_grid[j].card_id != slot.card_id:
+                        idx1, idx2 = j, i
+                        break
+                break
+            seen[slot.card_id] = i
+
+        old_len = len(char.deck)
+        desc = match_and_keep_resolve(idx1, idx2, char)
+        assert "Revealed" in desc
+        assert len(char.deck) == old_len
+        assert _mk_grid[idx1].state == _SlotState.REVEALED
+        assert _mk_grid[idx2].state == _SlotState.REVEALED
+
+    def test_five_attempts(self, char, rng):
+        """Event should allow exactly 5 attempts."""
+        from sts_env.run.events import (
+            match_and_keep_setup, match_and_keep_resolve,
+            match_and_keep_done, match_and_keep_attempts_remaining,
+            _mk_grid, _SlotState,
+        )
+        match_and_keep_setup(char, rng)
+        assert match_and_keep_attempts_remaining() == 5
+
+        # Pick non-matching pairs to waste attempts
+        for _ in range(5):
+            assert not match_and_keep_done()
+            available = [i for i in range(12) if _mk_grid[i].state != _SlotState.MATCHED]
+            if len(available) < 2:
+                break
+            a, b = available[0], available[1]
+            if _mk_grid[a].card_id == _mk_grid[b].card_id:
+                for j in range(2, len(available)):
+                    if _mk_grid[available[j]].card_id != _mk_grid[a].card_id:
+                        b = available[j]
+                        break
+            match_and_keep_resolve(a, b, char)
+
+        assert match_and_keep_done()
+        assert match_and_keep_attempts_remaining() == 0
+
+    def test_leave_adds_nothing(self, char, rng):
+        """Leaving should add no cards."""
+        old_len = len(char.deck)
         result = resolve_event("Match and Keep", 1, char, rng)
-        assert len(char.deck) == old_deck_len
+        assert len(char.deck) == old_len
+
+    def test_extra_context_contains_pool_info(self, char, rng):
+        """extra_context should describe the reward pool with starter card name."""
+        from sts_env.run.events import (
+            match_and_keep_setup, match_and_keep_extra_context,
+        )
+        match_and_keep_setup(char, rng)
+        ctx = match_and_keep_extra_context()
+        assert "Rare" in ctx
+        assert "Uncommon" in ctx
+        assert "Curse" in ctx
+        assert "Starter: Bash" in ctx
+        assert "5 attempts" in ctx
 
 
 # ---------------------------------------------------------------------------

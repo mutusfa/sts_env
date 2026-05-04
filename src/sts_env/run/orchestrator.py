@@ -176,6 +176,24 @@ class RunAgentProtocol(Protocol):
         """Interact with a shop (may mutate character.gold / deck / etc.)."""
         ...
 
+    def pick_match_and_keep_pair(
+        self,
+        grid: list,  # list[MatchAndKeepSlot]
+        attempts_remaining: int,
+        extra_context: str = "",
+        **kwargs: object,
+    ) -> tuple[int, int]:
+        """Pick two grid indices to flip in the Match and Keep event.
+
+        Each slot has ``state`` (FACE_DOWN / REVEALED / MATCHED) and
+        ``visible_card`` (str or None).  The agent should return two
+        distinct indices of non-matched slots.
+
+        ``extra_context`` contains the pool composition (open knowledge)
+        for strategic decision-making.
+        """
+        ...
+
     def pick_boss_relic(
         self,
         character: Character,
@@ -370,6 +388,34 @@ def _run_map(
                         event.event_id, choice_idx, character, encounter_rng,
                     )
                     log.info("  Event result: %s", desc)
+
+                    # Match and Keep: if agent chose Play, set up grid and
+                    # run the matching sub-loop.
+                    if event.event_id == "Match and Keep" and choice_idx == 0:
+                        from .events import (
+                            match_and_keep_setup,
+                            match_and_keep_resolve,
+                            match_and_keep_grid_view,
+                            match_and_keep_done,
+                            match_and_keep_attempts_remaining,
+                            match_and_keep_extra_context,
+                        )
+                        match_and_keep_setup(character, encounter_rng)
+                        mk_context = match_and_keep_extra_context()
+
+                        while not match_and_keep_done():
+                            grid = match_and_keep_grid_view()
+                            attempts = match_and_keep_attempts_remaining()
+                            idx1, idx2 = agent.pick_match_and_keep_pair(
+                                grid, attempts,
+                                extra_context=mk_context,
+                                sts_map=sts_map,
+                                current_position=(floor_num, x_pos),
+                            )
+                            desc = match_and_keep_resolve(idx1, idx2, character)
+                            log.info("  M&K: %s", desc)
+
+                        log.info("  M&K complete")
 
                     # Card removal: if the choice requires it, ask the agent
                     choice = event.choices[choice_idx]
