@@ -21,19 +21,19 @@ from sts_env.combat.rng import RNG
 class TestGremlinNob:
     """Test Gremlin Nob elite mechanics."""
 
-    def test_bellow_reduces_energy(self):
-        """Bellow should reduce player energy by 2 on the next turn."""
+    def test_bellow_does_not_drain_energy(self):
+        """Bellow applies Enrage to Nob but does NOT drain player energy."""
         combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["GremlinNob"], 42)
         obs = combat.reset()
         # Turn 0: Nob shows BUFF intent (Bellow)
         assert obs.enemies[0].intent_type == "BUFF"
-        # End turn → Bellow resolves, energy_loss_next_turn = 2
+        # End turn → Bellow resolves (Enrage applied, no energy drain)
         obs, _, _ = combat.step(Action.end_turn())
-        # Turn 1: player should have 3 - 2 = 1 energy
-        assert obs.energy == 1, f"Expected energy=1 after Bellow, got {obs.energy}"
+        # Turn 1: player should have full 3 energy (no drain)
+        assert obs.energy == 3, f"Expected energy=3 after Bellow, got {obs.energy}"
 
     def test_skill_punish_adds_strength(self):
-        """Playing a Skill card should give Nob 2 strength."""
+        """Playing a Skill card should give Nob 2 strength (Enrage)."""
         combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["GremlinNob"], 42)
         obs = combat.reset()
         # End turn 0 (Bellow)
@@ -55,13 +55,13 @@ class TestGremlinNob:
             f"Expected Nob strength >= {nob_str_before + 2} after skill play, got {nob_str_after}"
         )
 
-    def test_attack_does_not_trigger_punish(self):
-        """Playing an Attack card should NOT trigger Nob's skill-punish."""
+    def test_attack_does_not_trigger_enrage(self):
+        """Playing an Attack card should NOT trigger Nob's Enrage."""
         combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["GremlinNob"], 42)
         obs = combat.reset()
         # End turn 0 (Bellow)
         obs, _, _ = combat.step(Action.end_turn())
-        # Find an Attack card that's not Bash (Bash applies vulnerable which triggers Angry)
+        # Find an Attack card that's not Bash (Bash applies vulnerable which is separate)
         nob_str_before = obs.enemies[0].powers["strength"]
         for i, card in enumerate(obs.hand):
             # Handle both dict (new format) and Card (legacy)
@@ -74,9 +74,9 @@ class TestGremlinNob:
                 obs, _, _ = combat.step(Action.play_card(i, 0))
                 break
         nob_str_after = obs.enemies[0].powers["strength"]
-        # Angry fires on attack hit, so Nob gains 1 from Angry but NOT 2 from skill-punish
-        assert nob_str_after == nob_str_before + 1, (
-            f"Expected Nob strength = {nob_str_before + 1} from Angry only, got {nob_str_after}"
+        # No Enrage trigger — strength unchanged
+        assert nob_str_after == nob_str_before, (
+            f"Expected Nob strength = {nob_str_before} (no Enrage), got {nob_str_after}"
         )
 
 
@@ -107,19 +107,18 @@ class TestLagavulin:
         # Player should have taken damage from Lagavulin's attack
         assert obs.player_hp < hp_before, "Lagavulin should attack after being woken"
 
-    def test_sleep_drain_pushes_strength_negative(self):
-        """Lagavulin's sleeping drain should push player strength below 0."""
-        # Create a combat where player starts with 0 strength
+    def test_sleep_does_not_drain_strength(self):
+        """Lagavulin's sleep does NOT drain player strength — only Siphon Soul does."""
         combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["Lagavulin"], 42)
         obs = combat.reset()
-        # Don't attack — let it sleep and drain for multiple turns
+        # Don't attack — let it sleep for 3 turns
         for _ in range(3):
             if obs.done:
                 break
             obs, _, _ = combat.step(Action.end_turn())
-        # Player strength should be negative
-        assert obs.player_powers["strength"] < 0, (
-            f"Expected negative strength from Lagavulin drain, got {obs.player_powers['strength']}"
+        # Player strength should still be 0 (no drain during sleep)
+        assert obs.player_powers["strength"] == 0, (
+            f"Expected strength=0 during sleep, got {obs.player_powers['strength']}"
         )
 
     def test_siphon_pushes_stats_negative(self):
@@ -148,63 +147,37 @@ class TestLagavulin:
 class TestSentry:
     """Test Sentry elite mechanics (Three Sentries)."""
 
-    def test_dazed_goes_to_draw_pile(self):
-        """Bolt intent should add Dazed to draw pile, not discard."""
+    def test_dazed_goes_to_discard_pile(self):
+        """Bolt intent should add 2 Dazed to discard pile (not draw)."""
         combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["Sentry", "Sentry", "Sentry"], 42)
         obs = combat.reset()
-        # End turn 0 (all Sentries play Beam)
+        # End turn 0 (sentries at idx 0,2 play Bolt, idx 1 plays Beam)
         obs, _, _ = combat.step(Action.end_turn())
-        # Turn 1: Sentries play Bolt (add Dazed)
-        obs, _, _ = combat.step(Action.end_turn())
-        # Check draw pile for Dazed
-        draw_dazed = obs.draw_pile.get("Dazed", 0)
-        # Dazed should appear in draw pile or be in hand (if drawn)
+        # After Bolt resolves: 2 Dazed per Bolt sentry, placed in discard
         internal = combat._state
         total_dazed = (
             sum(1 for c in internal.piles.draw if c.card_id == "Dazed")
             + sum(1 for c in internal.piles.hand if c.card_id == "Dazed")
             + sum(1 for c in internal.piles.discard if c.card_id == "Dazed")
         )
-        assert total_dazed > 0, "Dazed cards should exist somewhere after Bolt"
+        # Two Bolt sentries (idx 0,2) each add 2 Dazed = 4 total
+        assert total_dazed == 4, f"Expected 4 Dazed (2 Bolts x 2 each), got {total_dazed}"
 
-    def test_dazed_shuffled_not_topdecked(self):
-        """Bolt Dazed should be shuffled into draw pile, not placed on top.
+    def test_sentry_has_artifact(self):
+        """Each Sentry should start with Artifact 1."""
+        combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["Sentry", "Sentry", "Sentry"], 42)
+        obs = combat.reset()
+        for e in obs.enemies:
+            assert e.powers.get("artifact", 0) == 1, f"Sentry should have Artifact 1, got {e.powers.get('artifact', 0)}"
 
-        With a small draw pile the Dazed are often all drawn into hand, so
-        we can't reliably check the pile after drawing.  Instead we verify
-        the insertion order: shuffled insertion places cards at random
-        positions, so across many seeds the *relative* order of multiple
-        Dazed cards (all same id) inserted in sequence should vary.
-
-        We patch spawn_shuffled_into_draw to record the actual insertion
-        positions and verify they aren't always 0 (top-deck).
-        """
-        from sts_env.combat import deck as deck_mod
-        from unittest.mock import patch
-
-        recorded_positions: list[int] = []
-
-        original_spawn = deck_mod.Piles.spawn_shuffled_into_draw
-
-        def capturing_spawn(self, card, state, rng):
-            pos = rng.randint(0, len(self.draw))
-            recorded_positions.append(pos)
-            self.draw.insert(pos, card)
-            from sts_env.combat.events import emit, Event
-            emit(state, Event.CARD_CREATED, "player", card=card)
-
-        with patch.object(deck_mod.Piles, "spawn_shuffled_into_draw", capturing_spawn):
-            for seed in range(20):
-                combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["Sentry", "Sentry", "Sentry"], seed)
-                obs = combat.reset()
-                obs, _, _ = combat.step(Action.end_turn())
-                obs, _, _ = combat.step(Action.end_turn())
-
-        unique_positions = set(recorded_positions)
-        assert len(unique_positions) > 1, (
-            f"All Dazed inserted at same position(s) {unique_positions} — "
-            f"likely top-decked, not shuffled (recorded: {recorded_positions})"
-        )
+    def test_sentry_first_turn_pattern(self):
+        """Even-indexed Sentries start with Bolt, odd-indexed with Beam."""
+        combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["Sentry", "Sentry", "Sentry"], 42)
+        obs = combat.reset()
+        # idx 0 (even) → Bolt, idx 1 (odd) → Beam, idx 2 (even) → Bolt
+        assert obs.enemies[0].intent_type == "DEBUFF", f"Sentry 0 should start Bolt (DEBUFF), got {obs.enemies[0].intent_type}"
+        assert obs.enemies[1].intent_type == "ATTACK", f"Sentry 1 should start Beam (ATTACK), got {obs.enemies[1].intent_type}"
+        assert obs.enemies[2].intent_type == "DEBUFF", f"Sentry 2 should start Bolt (DEBUFF), got {obs.enemies[2].intent_type}"
 
 
 # ---------------------------------------------------------------------------

@@ -445,6 +445,7 @@ class Combat:
                         "enemy_metallicize": enemy.powers.enemy_metallicize,
                         "spore_cloud": enemy.powers.spore_cloud,
                         "entangled": enemy.powers.entangled,
+                        "artifact": enemy.powers.artifact,
                     },
                     intent_type=intent.intent_type.name if intent else "NONE",
                     intent_damage=intent.damage if intent else 0,
@@ -590,8 +591,8 @@ class Combat:
                     )
                     self._intents[i] = next_intent
                 else:
-                    # Drain 1 player strength while sleeping (can push negative)
-                    state.player_powers.strength -= 1
+                    # Still sleeping — metallicize applies block, but NO player strength drain.
+                    # (Lagavulin only drains str via Siphon Soul when awake.)
                     # Emit enemy TURN_END (Ritual, etc.)
                     emit(state, Event.TURN_END, i)
                     if not enemy.alive or enemy.is_escaping:
@@ -655,7 +656,7 @@ class Combat:
         # Start next player turn
         state.player_block = 0
         state.energy = _ENERGY_PER_TURN
-        # Apply accumulated energy loss (e.g. Gremlin Nob Bellow)
+        # Apply accumulated energy loss at start of player's next turn (if any)
         if state.energy_loss_next_turn > 0:
             state.energy -= state.energy_loss_next_turn
             state.energy = max(0, state.energy)
@@ -754,6 +755,6 @@ class Combat:
                 else:
                     state.piles.spawn_to_discard(Card(intent.status_card_id), state)
 
-        # Energy loss applied at start of player's next turn (e.g. Gremlin Nob Bellow)
+        # Energy loss applied at start of player's next turn (if any intent sets it)
         if intent.energy_loss > 0:
             state.energy_loss_next_turn += intent.energy_loss

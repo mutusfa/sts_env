@@ -869,48 +869,58 @@ register_enemy(_MUGGER, _mugger_intent)
 # ---------------------------------------------------------------------------
 # Gremlin Nob (Elite)
 # ---------------------------------------------------------------------------
-# HP 82-86.  Turn 0: Bellow (lose 2 energy next turn, Nob gains Angry).
-# Turn 1+: Rush (14 dmg).  If player plays a Skill, Nob gains 2 Strength.
-#
-# Simplified: always Rush after turn 0. The "skill played → gain strength"
-# mechanic would require a trigger system; we skip it for now.
-# Source: MonsterSpecific.cpp line ~2363
+# HP 82-86.  Turn 0: Bellow (gain Enrage 2 → +2 str per Skill played).
+# Turn 1+: Rush (14 dmg) or Skull Bash (6 dmg + Vulnerable 2).
+# Move selection: 33% Skull Bash / 67% Rush; cannot Rush 3x in a row.
+# If player plays a Skill, Nob gains 2 Strength (via skill_played_str).
+# Source: MonsterSpecific.cpp line ~755 (actions), ~2407 (rollMove)
 
 _GREMLIN_NOB = EnemySpec("GremlinNob", hp_min=82, hp_max=86)
 
-_GN_BELLOW = Intent(IntentType.BUFF, strength_gain=0, energy_loss=2)  # Angry applied via pre_battle; energy_loss on player next turn
+_GN_BELLOW = Intent(IntentType.BUFF)  # Enrage 2 applied on resolution
 _GN_RUSH = Intent(IntentType.ATTACK, damage=14, hits=1)
+_GN_SKULL_BASH = Intent(IntentType.ATTACK_DEBUFF, damage=6, hits=1, applies_vulnerable=2)
 
 
-def _gremlin_nob_pre_battle(enemy: "EnemyState", state: "CombatState") -> None:
-    """Set skill_played_str so Nob gains 2 Strength each time the player plays a Skill."""
-    enemy.skill_played_str = 2
-
-
-def _gremlin_nob_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
-    if turn == 0:
+def _gremlin_nob_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:
+    if not enemy.move_history:
+        # Turn 0: always Bellow — also apply Enrage 2 here
+        enemy.skill_played_str = 2
         enemy.move_history.append("Bellow")
         return _GN_BELLOW
-    enemy.move_history.append("Rush")
-    return _GN_RUSH
+
+    # Cannot Rush 3x in a row → force Skull Bash
+    if len(enemy.move_history) >= 2 and enemy.move_history[-1] == "Rush" and enemy.move_history[-2] == "Rush":
+        enemy.move_history.append("SkullBash")
+        return _GN_SKULL_BASH
+
+    # 33% Skull Bash, 67% Rush
+    if rng.random() < 0.33:
+        enemy.move_history.append("SkullBash")
+        return _GN_SKULL_BASH
+    else:
+        enemy.move_history.append("Rush")
+        return _GN_RUSH
 
 
-register_enemy(_GREMLIN_NOB, _gremlin_nob_intent, _gremlin_nob_pre_battle)
+register_enemy(_GREMLIN_NOB, _gremlin_nob_intent)
 
 
 # ---------------------------------------------------------------------------
 # Lagavulin (Elite)
 # ---------------------------------------------------------------------------
 # HP 109-111.  Starts asleep for 3 turns (or until attacked).
-# While sleeping: -1 player strength at end of each turn + 8 metallicize (block).
-# Awake cycle: Attack (18 dmg) → Siphon Soul (-1 str, -1 dex to player) → Attack (18 dmg).
-# Source: MonsterSpecific.cpp line ~2483
+# While sleeping: 8 metallicize (block) per turn. No player strength drain.
+# Awake cycle: Attack (18 dmg) → Attack → Siphon Soul (-1 str, -1 dex) → repeat.
+# First awake move after sleep: Attack.
+# Event variant (Lagavulin_awake): starts awake, first move is Siphon Soul.
+# Source: MonsterSpecific.cpp line ~870 (actions), ~2494 (rollMove)
 
 _LAGAVULIN = EnemySpec("Lagavulin", hp_min=109, hp_max=111)
 
 _LAG_SLEEP = Intent(IntentType.DEFEND, block_gain=0)  # block from metallicize
 _LAG_ATTACK = Intent(IntentType.ATTACK, damage=18, hits=1)
-_LAG_SIPHON = Intent(IntentType.DEBUFF)  # -1 str -1 dex applied via context
+_LAG_SIPHON = Intent(IntentType.DEBUFF)  # -1 str -1 dex applied via engine
 
 
 def _lagavulin_pre_battle(enemy: "EnemyState", state: "CombatState") -> None:
@@ -925,20 +935,25 @@ def _lagavulin_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # 
         enemy.move_history.append("Sleep")
         return _LAG_SLEEP
 
-    # Awake cycle: Attack → Siphon → Attack → repeat
-    # Use move history to determine position in cycle
-    # Count awake moves
+    # Awake cycle: Attack → Attack → Siphon → repeat
+    # C++ logic: after Attack, if lastTwoMoves were both Attack → Siphon, else → Attack
+    # After Siphon → always Attack
     awake_moves = [m for m in enemy.move_history if m in ("Attack", "SiphonSoul")]
     if not awake_moves:
-        # First awake move
+        # First awake move after waking from sleep: Attack
         enemy.move_history.append("Attack")
         return _LAG_ATTACK
 
-    last_awake = awake_moves[-1]
-    if last_awake == "Attack":
+    # If last two awake moves were both Attack → Siphon
+    if len(awake_moves) >= 2 and awake_moves[-1] == "Attack" and awake_moves[-2] == "Attack":
         enemy.move_history.append("SiphonSoul")
         return _LAG_SIPHON
+
+    if awake_moves[-1] == "SiphonSoul":
+        enemy.move_history.append("Attack")
+        return _LAG_ATTACK
     else:
+        # Last was Attack but not two in a row → another Attack
         enemy.move_history.append("Attack")
         return _LAG_ATTACK
 
@@ -947,41 +962,71 @@ register_enemy(_LAGAVULIN, _lagavulin_intent, _lagavulin_pre_battle)
 
 # Event variant: same monster but starts awake (no sleep, no metallicize).
 # Used by Dead Adventurer event — much harder than the elite version.
+# C++ uses same MonsterId::LAGAVULIN — firstTurn when not asleep → Siphon Soul.
 _LAGAVULIN_AWAKE = EnemySpec("Lagavulin_awake", hp_min=109, hp_max=111)
 
 
 def _lagavulin_awake_pre_battle(enemy: "EnemyState", state: "CombatState") -> None:
     """Start awake — no sleep, no metallicize. Immediately aggressive."""
-    pass  # No setup needed — intent picker sees asleep=False and starts attacking
+    pass  # No setup needed — intent picker sees asleep=False
 
 
-register_enemy(_LAGAVULIN_AWAKE, _lagavulin_intent, _lagavulin_awake_pre_battle)
+def _lagavulin_awake_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:
+    """Event variant: first move is Siphon Soul, then follows the normal cycle."""
+    if not enemy.move_history:
+        enemy.move_history.append("SiphonSoul")
+        return _LAG_SIPHON
+    return _lagavulin_intent(enemy, rng, turn)
+
+
+register_enemy(_LAGAVULIN_AWAKE, _lagavulin_awake_intent, _lagavulin_awake_pre_battle)
 
 
 # ---------------------------------------------------------------------------
 # Sentry (Elite — appears as group of 3)
 # ---------------------------------------------------------------------------
-# HP 38-42 each.  Cycle: Beam (9 dmg) / Bolt (add 1 Dazed to discard).
-# Each sentry alternates independently.
-# Source: MonsterSpecific.cpp line ~2659
+# HP 38-42 each.  Alternates Beam (9 dmg) ↔ Bolt (add 2 Dazed to discard).
+# First turn: even-indexed sentries (0, 2) start with Bolt, odd (1) starts with Beam.
+# Each sentry has Artifact 1 (blocks one debuff).
+# Source: MonsterSpecific.cpp line ~1034 (actions), ~2643 (rollMove), ~312 (preBattle)
 
 _SENTRY = EnemySpec("Sentry", hp_min=38, hp_max=42)
 
 _SENTRY_BEAM = Intent(IntentType.ATTACK, damage=9, hits=1)
-_SENTRY_BOLT = Intent(IntentType.DEBUFF, status_card_id="Dazed", status_card_count=1, status_to_draw=True)
+_SENTRY_BOLT = Intent(IntentType.DEBUFF, status_card_id="Dazed", status_card_count=2, status_to_draw=False)
 
 
-def _sentry_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
-    history = enemy.move_history
-    if not history or history[-1] == "Bolt":
-        enemy.move_history.append("Beam")
-        return _SENTRY_BEAM
-    else:
+def _sentry_pre_battle(enemy: "EnemyState", state: "CombatState") -> None:
+    """Sentry starts with Artifact 1."""
+    enemy.powers.artifact = 1
+
+
+def _sentry_picker(
+    enemy: "EnemyState",
+    rng: "RNG",  # noqa: ARG001
+    turn: int,  # noqa: ARG001
+    state: "CombatState",  # noqa: ARG001
+    enemy_index: int,
+) -> Intent:
+    if not enemy.move_history:
+        # First turn: even-indexed sentries start Bolt, odd start Beam
+        if enemy_index % 2 == 0:
+            enemy.move_history.append("Bolt")
+            return _SENTRY_BOLT
+        else:
+            enemy.move_history.append("Beam")
+            return _SENTRY_BEAM
+
+    # Alternate: Beam → Bolt → Beam → Bolt
+    if enemy.move_history[-1] == "Beam":
         enemy.move_history.append("Bolt")
         return _SENTRY_BOLT
+    else:
+        enemy.move_history.append("Beam")
+        return _SENTRY_BEAM
 
 
-register_enemy(_SENTRY, _sentry_intent)
+register_enemy(_SENTRY, context_picker=_sentry_picker, pre_battle=_sentry_pre_battle)
 
 
 # ---------------------------------------------------------------------------
