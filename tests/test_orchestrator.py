@@ -65,11 +65,6 @@ class _MockAgent:
     def pick_card_to_remove(self, character, **kwargs):
         return None
 
-    def pick_match_and_keep_pair(self, grid, attempts_remaining, extra_context="", **kwargs):
-        # Pick first two non-matched slots
-        available = [i for i, s in enumerate(grid) if s.state.name != "MATCHED"]
-        return (available[0], available[1]) if len(available) >= 2 else (0, 1)
-
     def shop(self, inventory, character):
         return None
 

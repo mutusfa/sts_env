@@ -130,11 +130,21 @@ class RunAgentProtocol(Protocol):
         ...
 
     def pick_event_choice(
-        self, event: EventSpec, character: Character, **kwargs: object,
+        self,
+        event: EventSpec,
+        character: Character,
+        *,
+        extra_context: str = "",
+        reset_budget: bool = True,
+        **kwargs: object,
     ) -> int:
         """Choose an event branch by index.
 
-        Keyword arguments may include ``sts_map`` and ``current_position``.
+        ``extra_context`` carries open-knowledge context for the decision
+        (e.g. Match and Keep pool composition or grid state).
+        ``reset_budget`` controls whether the agent resets its time budget;
+        pass ``False`` for follow-on picks that share a single event budget.
+        Keyword arguments may also include ``sts_map`` and ``current_position``.
         """
         ...
 
@@ -174,24 +184,6 @@ class RunAgentProtocol(Protocol):
 
     def shop(self, inventory: ShopInventory, character: Character) -> None:
         """Interact with a shop (may mutate character.gold / deck / etc.)."""
-        ...
-
-    def pick_match_and_keep_pair(
-        self,
-        grid: list,  # list[MatchAndKeepSlot]
-        attempts_remaining: int,
-        extra_context: str = "",
-        **kwargs: object,
-    ) -> tuple[int, int]:
-        """Pick two grid indices to flip in the Match and Keep event.
-
-        Each slot has ``state`` (FACE_DOWN / REVEALED / MATCHED) and
-        ``visible_card`` (str or None).  The agent should return two
-        distinct indices of non-matched slots.
-
-        ``extra_context`` contains the pool composition (open knowledge)
-        for strategic decision-making.
-        """
         ...
 
     def pick_boss_relic(
@@ -404,9 +396,14 @@ def _run_map(
                     log.info("  Event result: %s", desc)
 
                     # Match and Keep: if agent chose Play, set up grid and
-                    # run the matching sub-loop.
+                    # run the matching sub-loop.  Each attempt requires two
+                    # slot picks (up to 5 attempts = up to 10 pick_event_choice
+                    # calls).  The budget is started once on the first call and
+                    # shared across all subsequent calls via reset_budget=False.
                     if event.event_id == "Match and Keep" and choice_idx == 0:
                         from .events import (
+                            EventChoice,
+                            EventSpec,
                             match_and_keep_setup,
                             match_and_keep_resolve,
                             match_and_keep_grid_view,
@@ -417,17 +414,75 @@ def _run_map(
                         match_and_keep_setup(character, encounter_rng)
                         mk_context = match_and_keep_extra_context()
 
+                        _noop: EventChoice = EventChoice(label="", effect=lambda c, r: "")
+
+                        def _mk_grid_text(grid: list) -> str:
+                            lines = []
+                            for i, slot in enumerate(grid):
+                                card = slot.visible_card or "?"
+                                state = slot.state.name
+                                lines.append(f"  [{i}] {card} ({state})")
+                            return "\n".join(lines)
+
+                        reset = True
                         while not match_and_keep_done():
                             grid = match_and_keep_grid_view()
                             attempts = match_and_keep_attempts_remaining()
-                            idx1, idx2 = agent.pick_match_and_keep_pair(
-                                grid, attempts,
+                            available = [
+                                i for i, s in enumerate(grid)
+                                if s.state.name != "MATCHED"
+                            ]
+                            grid_text = _mk_grid_text(grid)
+                            description = (
+                                f"Attempts remaining: {attempts}\nGrid:\n{grid_text}"
+                            )
+
+                            # First slot pick
+                            first_event = EventSpec(
+                                event_id="Match and Keep - Pick First",
+                                description=description,
+                                choices=[
+                                    EventChoice(
+                                        label=f"Slot {i}: {grid[i].visible_card or '?'}",
+                                        effect=_noop.effect,
+                                    )
+                                    for i in available
+                                ],
+                            )
+                            c1 = agent.pick_event_choice(
+                                first_event, character,
                                 extra_context=mk_context,
+                                reset_budget=reset,
                                 sts_map=sts_map,
                                 current_position=(floor_num, x_pos),
                             )
+                            idx1 = available[max(0, min(c1, len(available) - 1))]
+
+                            # Second slot pick (budget already running)
+                            remaining = [i for i in available if i != idx1]
+                            second_event = EventSpec(
+                                event_id="Match and Keep - Pick Second",
+                                description=description,
+                                choices=[
+                                    EventChoice(
+                                        label=f"Slot {i}: {grid[i].visible_card or '?'}",
+                                        effect=_noop.effect,
+                                    )
+                                    for i in remaining
+                                ],
+                            )
+                            c2 = agent.pick_event_choice(
+                                second_event, character,
+                                extra_context=mk_context,
+                                reset_budget=False,
+                                sts_map=sts_map,
+                                current_position=(floor_num, x_pos),
+                            )
+                            idx2 = remaining[max(0, min(c2, len(remaining) - 1))]
+
                             desc = match_and_keep_resolve(idx1, idx2, character)
                             log.info("  M&K: %s", desc)
+                            reset = False  # remaining attempts share the same budget
 
                         log.info("  M&K complete")
 
