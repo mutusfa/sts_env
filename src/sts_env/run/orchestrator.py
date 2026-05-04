@@ -202,6 +202,20 @@ class RunAgentProtocol(Protocol):
         """Choose a boss relic from the offered list, or None to skip."""
         ...
 
+    def pick_potion_to_discard(
+        self,
+        character: Character,
+        new_potion: str,
+        **kwargs: object,
+    ) -> str:
+        """Choose which potion to discard when the bag is full.
+
+        Called when a potion reward is offered but all slots are taken.
+        Return the ``potion_id`` of the potion to discard (either from
+        ``character.potions`` or ``new_potion`` itself to decline the offer).
+        """
+        ...
+
 
 # ---------------------------------------------------------------------------
 # Observer protocol
@@ -879,7 +893,19 @@ def _apply_combat_rewards(
             result.potions_gained.append(offer.potion)
             log.info("  Potion reward: %s (slots: %s)", offer.potion, character.potions)
         else:
-            log.info("  Potion reward: %s discarded (no slot)", offer.potion)
+            # Bag full — ask the agent which potion to discard
+            discard = agent.pick_potion_to_discard(character, offer.potion)
+            if discard == offer.potion:
+                log.info("  Potion reward: %s declined (bag full)", offer.potion)
+            elif discard in character.potions:
+                character.potions.remove(discard)
+                character.add_potion(offer.potion)
+                result.potions_gained.append(offer.potion)
+                log.info("  Potion reward: %s (discarded %s, slots: %s)",
+                         offer.potion, discard, character.potions)
+            else:
+                log.info("  Potion reward: %s discarded (invalid discard choice %s)",
+                         offer.potion, discard)
 
     character.gold += offer.gold
 
