@@ -883,8 +883,7 @@ _GN_RUSH = Intent(IntentType.ATTACK, damage=14, hits=1)
 
 
 def _gremlin_nob_pre_battle(enemy: "EnemyState", state: "CombatState") -> None:
-    """Apply Angry 1 on spawn and set skill_played_str for Skill-punish."""
-    enemy.powers.angry = 1
+    """Set skill_played_str so Nob gains 2 Strength each time the player plays a Skill."""
     enemy.skill_played_str = 2
 
 
