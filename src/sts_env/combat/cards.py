@@ -70,6 +70,9 @@ class TargetType(Enum):
 # Custom handler signature: (state, hand_index, target_index, upgraded) -> None
 CardHandler = Callable[["CombatState", int, int, int], None]
 
+# EOT resolve handler: called once per copy in hand at end of player turn
+EotHandler = Callable[["CombatState"], None]
+
 
 @dataclass(frozen=True)
 class CardSpec:
@@ -109,6 +112,9 @@ class CardSpec:
     # Runs AFTER declarative effects.
     custom: CardHandler | None = field(default=None, hash=False, compare=False)
 
+    # Called once per copy in hand at end of player turn (before discard).
+    eot_resolve: EotHandler | None = field(default=None, hash=False, compare=False)
+
 
 _SPECS: dict[str, CardSpec] = {}
 
@@ -143,6 +149,7 @@ def register(
     innate: bool = False,
     upgrade: dict[str, int] | None = None,
     custom: CardHandler | None = None,
+    eot_resolve: EotHandler | None = None,
 ) -> None:
     _SPECS[card_id] = CardSpec(
         card_id=card_id,
@@ -173,6 +180,7 @@ def register(
         innate=innate,
         upgrade=upgrade or {},
         custom=custom,
+        eot_resolve=eot_resolve,
     )
 
 
@@ -708,6 +716,14 @@ register("Bash",   cost=2, card_type=A, target=SE, color=R, rarity=B, attack=8, 
 
 # --- Curse ---
 register("AscendersBane", cost=0, card_type=C, target=NO, color=CU, rarity=B, playable=False)
+
+
+def _doubt_eot(state: "CombatState") -> None:
+    state.player_powers.weak += 1
+
+
+register("Doubt", cost=0, card_type=C, target=NO, color=CU, rarity=B,
+         playable=False, eot_resolve=_doubt_eot)
 
 # --- Status ---
 register("Slimed", cost=1, card_type=ST, target=NO, color=CL, rarity=SP, exhausts=True)

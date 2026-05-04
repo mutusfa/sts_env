@@ -528,6 +528,15 @@ class Combat:
         for card in state.piles.hand:
             card.clear_cost_override()
 
+        # Collect EOT card resolvers while cards are still in hand, fire after
+        # _tick_player_start so freshly-applied stacks aren't immediately
+        # decremented (mirrors STS decrementIfNotJustApplied logic).
+        eot_resolvers = [
+            card.spec.eot_resolve
+            for card in state.piles.hand
+            if card.spec.eot_resolve is not None
+        ]
+
         # Ethereal: cards with ethereal=True that are still in hand are exhausted
         ethereal_in_hand = []
         for card in state.piles.hand:
@@ -545,6 +554,11 @@ class Combat:
         # applied by enemies this turn survive until the next player turn
         # (mirrors sts_lightspeed's decrementIfNotJustApplied logic).
         _tick_player_start(state)
+
+        # Resolve EOT card effects after the tick so freshly-applied stacks
+        # survive until the next player turn (e.g. Doubt → 1 Weak).
+        for resolve in eot_resolvers:
+            resolve(state)
 
         # Each living enemy resolves its stored intent, then picks next intent
         new_intents: list[Intent] = []

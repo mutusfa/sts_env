@@ -76,9 +76,10 @@ class TestCursePool:
     def test_curse_members(self) -> None:
         cards = curse_pool()
         assert "AscendersBane" in cards
+        assert "Doubt" in cards
 
     def test_curse_count(self) -> None:
-        assert len(curse_pool()) == 1
+        assert len(curse_pool()) == 2
 
 
 class TestColorlessPool:

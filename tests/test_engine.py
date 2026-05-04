@@ -830,3 +830,37 @@ def test_red_slaver_encounter_applies_entangle():
         if obs.done:
             break
     assert found_entangle, "Red Slaver never applied Entangle in 10 turns"
+
+
+# ---------------------------------------------------------------------------
+# Doubt curse — EOT resolve
+# ---------------------------------------------------------------------------
+
+class TestDoubt:
+    def test_doubt_applies_weak_at_end_of_turn(self):
+        """Doubt in hand at EOT applies 1 Weak to the player."""
+        from sts_env.combat.card import Card
+        combat = Combat(deck=["Strike"] * 10, enemies=["Cultist"], seed=0)
+        combat.reset()
+        combat._state.piles.hand = [Card("Doubt")]
+        combat.step(Action.end_turn())
+        assert combat._state.player_powers.weak == 1
+
+    def test_doubt_two_copies_applies_two_weak(self):
+        """Two Doubts in hand at EOT apply 2 Weak to the player."""
+        from sts_env.combat.card import Card
+        combat = Combat(deck=["Strike"] * 10, enemies=["Cultist"], seed=0)
+        combat.reset()
+        combat._state.piles.hand = [Card("Doubt"), Card("Doubt")]
+        combat.step(Action.end_turn())
+        assert combat._state.player_powers.weak == 2
+
+    def test_doubt_not_in_hand_no_weak(self):
+        """Doubt in discard (not hand) at EOT does not apply Weak."""
+        from sts_env.combat.card import Card
+        combat = Combat(deck=["Strike"] * 10, enemies=["Cultist"], seed=0)
+        combat.reset()
+        combat._state.piles.hand = []
+        combat._state.piles.discard.append(Card("Doubt"))
+        combat.step(Action.end_turn())
+        assert combat._state.player_powers.weak == 0
