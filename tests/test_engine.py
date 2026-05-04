@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from sts_env.combat import Action, Combat, Observation, encounters
+from sts_env.combat.player_state import PlayerState
 from sts_env.combat.state import ActionType
 
 
@@ -44,22 +45,14 @@ def _play_to_end(combat: Combat, policy=None) -> Observation:
 def test_combat_terminates_enemy_dead():
     """Starter deck should always kill a single low-HP enemy eventually."""
     # Use a very weak enemy by building state directly
-    combat = Combat(
-        deck=["Strike"] * 5 + ["Defend"] * 4 + ["Bash"],
-        enemies=["Cultist"],
-        seed=0,
-    )
+    combat = Combat(PlayerState(deck=["Strike"] * 5 + ["Defend"] * 4 + ["Bash"]), ["Cultist"], 0)
     obs = _play_to_end(combat)
     assert obs.done
     assert all(e.hp <= 0 for e in obs.enemies)
 
 
 def test_combat_damage_taken_tracked():
-    combat = Combat(
-        deck=["Strike"] * 5 + ["Defend"] * 4 + ["Bash"],
-        enemies=["Cultist"],
-        seed=0,
-    )
+    combat = Combat(PlayerState(deck=["Strike"] * 5 + ["Defend"] * 4 + ["Bash"]), ["Cultist"], 0)
     obs = _play_to_end(combat)
     assert combat.damage_taken == 80 - obs.player_hp
 
@@ -67,12 +60,7 @@ def test_combat_damage_taken_tracked():
 def test_combat_player_can_die():
     """If player takes enough damage the combat ends with player_dead."""
     # Put player at 1 HP
-    combat = Combat(
-        deck=["AscendersBane"] * 10,  # can't play anything
-        enemies=["JawWorm"],
-        seed=0,
-        player_hp=1,
-    )
+    combat = Combat(PlayerState(deck=["AscendersBane"] * 10, player_hp=1), ["JawWorm"], 0)
     obs = combat.reset()
     # End turn immediately — enemy will attack and kill player
     obs, _, _ = combat.step(Action.end_turn())
@@ -84,11 +72,7 @@ def test_combat_player_can_die():
 # ---------------------------------------------------------------------------
 
 def test_energy_resets_to_3_each_turn():
-    combat = Combat(
-        deck=["Defend"] * 10,
-        enemies=["Cultist"],
-        seed=0,
-    )
+    combat = Combat(PlayerState(deck=["Defend"] * 10), ["Cultist"], 0)
     obs = combat.reset()
     assert obs.energy == 3
 
@@ -102,11 +86,7 @@ def test_energy_resets_to_3_each_turn():
 
 
 def test_insufficient_energy_raises():
-    combat = Combat(
-        deck=["Bash"] * 10,
-        enemies=["Cultist"],
-        seed=0,
-    )
+    combat = Combat(PlayerState(deck=["Bash"] * 10), ["Cultist"], 0)
     obs = combat.reset()
     # Play two Bashes to drain energy to 3 - 2 - 2 = -1, should fail on second
     obs, _, _ = combat.step(Action.play_card(0))  # uses 2 energy → 1 left
@@ -115,22 +95,14 @@ def test_insufficient_energy_raises():
 
 
 def test_unplayable_card_raises():
-    combat = Combat(
-        deck=["AscendersBane"] * 5,
-        enemies=["Cultist"],
-        seed=0,
-    )
+    combat = Combat(PlayerState(deck=["AscendersBane"] * 5), ["Cultist"], 0)
     combat.reset()
     with pytest.raises(ValueError):
         combat.step(Action.play_card(0))
 
 
 def test_invalid_target_raises():
-    combat = Combat(
-        deck=["Strike"] * 10,
-        enemies=["Cultist"],
-        seed=0,
-    )
+    combat = Combat(PlayerState(deck=["Strike"] * 10), ["Cultist"], 0)
     combat.reset()
     with pytest.raises(ValueError, match="target"):
         combat.step(Action.play_card(0, target_index=5))
@@ -141,21 +113,13 @@ def test_invalid_target_raises():
 # ---------------------------------------------------------------------------
 
 def test_hand_drawn_at_start():
-    combat = Combat(
-        deck=["Strike"] * 10,
-        enemies=["Cultist"],
-        seed=0,
-    )
+    combat = Combat(PlayerState(deck=["Strike"] * 10), ["Cultist"], 0)
     obs = combat.reset()
     assert len(obs.hand) == 5
 
 
 def test_hand_refreshes_each_turn():
-    combat = Combat(
-        deck=["Defend"] * 20,
-        enemies=["Cultist"],
-        seed=0,
-    )
+    combat = Combat(PlayerState(deck=["Defend"] * 20), ["Cultist"], 0)
     obs = combat.reset()
     assert len(obs.hand) == 5
     obs, _, _ = combat.step(Action.end_turn())
@@ -164,11 +128,7 @@ def test_hand_refreshes_each_turn():
 
 
 def test_step_after_done_raises():
-    combat = Combat(
-        deck=["Strike"] * 5 + ["Defend"] * 4 + ["Bash"],
-        enemies=["Cultist"],
-        seed=0,
-    )
+    combat = Combat(PlayerState(deck=["Strike"] * 5 + ["Defend"] * 4 + ["Bash"]), ["Cultist"], 0)
     obs = _play_to_end(combat)
     assert obs.done
     with pytest.raises(RuntimeError):
@@ -176,11 +136,7 @@ def test_step_after_done_raises():
 
 
 def test_step_before_reset_raises():
-    combat = Combat(
-        deck=["Strike"] * 10,
-        enemies=["Cultist"],
-        seed=0,
-    )
+    combat = Combat(PlayerState(deck=["Strike"] * 10), ["Cultist"], 0)
     with pytest.raises(RuntimeError):
         combat.step(Action.end_turn())
 
@@ -196,7 +152,7 @@ def test_seed_snapshot_ironclad_starter_vs_jaw_worm():
     If the value changes, it means a mechanic has changed — investigate before
     updating the snapshot.
     """
-    combat = encounters.jaw_worm(seed=0)
+    combat = encounters.jaw_worm(seed=0, character=PlayerState())
     obs = _play_to_end(combat)
     # Record whatever our engine produces and assert stability
     # (First run: compute and commit. Subsequent runs: must match.)
@@ -205,7 +161,7 @@ def test_seed_snapshot_ironclad_starter_vs_jaw_worm():
 
 
 def test_ironclad_starter_factory():
-    combat = encounters.jaw_worm(seed=42)
+    combat = encounters.jaw_worm(seed=42, character=PlayerState())
     obs = combat.reset()
     assert obs.player_hp == 80
     assert len(obs.enemies) == 1
@@ -215,7 +171,7 @@ def test_ironclad_starter_factory():
 
 def test_reset_restores_state():
     """Calling reset() twice should produce identical first observations."""
-    combat = encounters.cultist(seed=99)
+    combat = encounters.cultist(seed=99, character=PlayerState())
     obs1 = combat.reset()
     obs2 = combat.reset()
     assert obs1.player_hp == obs2.player_hp
@@ -229,11 +185,7 @@ def test_reset_restores_state():
 
 def test_bash_vulnerable_amplifies_next_strike():
     """Bash applies Vulnerable; the next Strike should deal 9 (floor(6*1.5))."""
-    combat = Combat(
-        deck=["Bash", "Strike"] + ["Defend"] * 8,
-        enemies=["JawWorm"],
-        seed=0,
-    )
+    combat = Combat(PlayerState(deck=["Bash", "Strike"] + ["Defend"] * 8), ["JawWorm"], 0)
     obs = combat.reset()
     # Find Bash and Strike in opening hand (seed-dependent; play whatever is there)
     bash_idx = next((i for i, c in enumerate(obs.hand) if c == "Bash"), None)
@@ -263,11 +215,7 @@ def test_turn_counter_increments_once_per_round_with_multiple_enemies():
     With two enemies the old bug incremented turn once per enemy per round,
     causing pick_intent to see stale / wrong turn numbers.
     """
-    combat = Combat(
-        deck=["Defend"] * 20,
-        enemies=["Cultist", "JawWorm"],
-        seed=0,
-    )
+    combat = Combat(PlayerState(deck=["Defend"] * 20), ["Cultist", "JawWorm"], 0)
     obs = combat.reset()
     assert obs.turn == 0
 
@@ -282,11 +230,7 @@ def test_turn_counter_increments_once_per_round_with_multiple_enemies():
 
 def test_anger_copy_can_be_played_next_turn():
     """Anger adds a copy to discard; after a reshuffle it can be drawn and played."""
-    combat = Combat(
-        deck=["Anger"] + ["Defend"] * 9,
-        enemies=["Cultist"],
-        seed=0,
-    )
+    combat = Combat(PlayerState(deck=["Anger"] + ["Defend"] * 9), ["Cultist"], 0)
     obs = combat.reset()
     # Play Anger if in opening hand
     anger_idx = next((i for i, c in enumerate(obs.hand) if c == "Anger"), None)
@@ -305,7 +249,7 @@ def test_anger_copy_can_be_played_next_turn():
 # ---------------------------------------------------------------------------
 
 def test_step_returns_three_tuple():
-    combat = encounters.cultist(seed=0)
+    combat = encounters.cultist(seed=0, character=PlayerState())
     combat.reset()
     result = combat.step(Action.end_turn())
     assert len(result) == 3
@@ -313,11 +257,7 @@ def test_step_returns_three_tuple():
 
 def test_reward_zero_when_no_damage_taken():
     """Cultist turn 0 is Incantation (no attack); reward should be 0."""
-    combat = Combat(
-        deck=["Defend"] * 10,
-        enemies=["Cultist"],
-        seed=0,
-    )
+    combat = Combat(PlayerState(deck=["Defend"] * 10), ["Cultist"], 0)
     obs = combat.reset()
     defend_idx = next(i for i, card in enumerate(obs.hand) if card["card_id"] == "Defend")
     _, r1, _ = combat.step(Action.play_card(defend_idx))
@@ -328,12 +268,7 @@ def test_reward_zero_when_no_damage_taken():
 
 def test_reward_negative_on_damage():
     """Cultist turn 1 is Dark Strike (6 damage); reward should be -6 that step."""
-    combat = Combat(
-        deck=["AscendersBane"] * 10,
-        enemies=["Cultist"],
-        seed=0,
-        player_hp=80,
-    )
+    combat = Combat(PlayerState(deck=["AscendersBane"] * 10, player_hp=80), ["Cultist"], 0)
     combat.reset()
     # Turn 0: Incantation, no damage
     _, r0, _ = combat.step(Action.end_turn())
@@ -349,7 +284,7 @@ def test_reward_negative_on_damage():
 
 def test_observation_has_pile_histograms():
     """After reset, pile counts should match starter deck minus 5 drawn cards."""
-    combat = encounters.cultist(seed=0)
+    combat = encounters.cultist(seed=0, character=PlayerState())
     obs = combat.reset()
 
     total_in_piles = (
@@ -365,7 +300,7 @@ def test_observation_has_pile_histograms():
 
 def test_histogram_card_counts_sum_to_deck_size():
     """Combined histogram counts must always equal full deck size."""
-    combat = encounters.jaw_worm(seed=7)
+    combat = encounters.jaw_worm(seed=7, character=PlayerState())
     obs = combat.reset()
     total = (
         sum(obs.draw_pile.values())
@@ -378,11 +313,7 @@ def test_histogram_card_counts_sum_to_deck_size():
 
 def test_discard_histogram_tracks_anger_copy():
     """Playing Anger adds a copy to discard; histogram should show Anger count = 2."""
-    combat = Combat(
-        deck=["Anger"] + ["Defend"] * 9,
-        enemies=["Cultist"],
-        seed=0,
-    )
+    combat = Combat(PlayerState(deck=["Anger"] + ["Defend"] * 9), ["Cultist"], 0)
     obs = combat.reset()
     anger_idx = next((i for i, c in enumerate(obs.hand) if c == "Anger"), None)
     if anger_idx is None:
@@ -395,7 +326,7 @@ def test_discard_histogram_tracks_anger_copy():
 
 def test_exhaust_pile_reflects_exhausted_cards():
     """Exhaust pile histogram should be empty at start and grow on exhaust effects."""
-    combat = encounters.cultist(seed=0)
+    combat = encounters.cultist(seed=0, character=PlayerState())
     obs = combat.reset()
     assert obs.exhaust_pile == {}
 
@@ -405,7 +336,7 @@ def test_exhaust_pile_reflects_exhausted_cards():
 # ---------------------------------------------------------------------------
 
 def test_valid_actions_includes_end_turn():
-    combat = encounters.cultist(seed=0)
+    combat = encounters.cultist(seed=0, character=PlayerState())
     combat.reset()
     actions = combat.valid_actions()
     assert Action.end_turn() in actions
@@ -413,12 +344,7 @@ def test_valid_actions_includes_end_turn():
 
 def test_valid_actions_empty_when_done():
     """No valid actions after combat ends."""
-    combat = Combat(
-        deck=["AscendersBane"] * 10,
-        enemies=["Cultist"],
-        seed=0,
-        player_hp=1,
-    )
+    combat = Combat(PlayerState(deck=["AscendersBane"] * 10, player_hp=1), ["Cultist"], 0)
     combat.reset()
     # Turn 0: Incantation (no damage). Turn 1: Dark Strike kills the 1-HP player.
     combat.step(Action.end_turn())
@@ -428,11 +354,7 @@ def test_valid_actions_empty_when_done():
 
 def test_valid_actions_filters_unaffordable_bash():
     """After draining energy to 1, Bash (cost 2) should not appear."""
-    combat = Combat(
-        deck=["Bash"] * 10,
-        enemies=["Cultist"],
-        seed=0,
-    )
+    combat = Combat(PlayerState(deck=["Bash"] * 10), ["Cultist"], 0)
     combat.reset()
     # Play one Bash (cost 2): energy drops from 3 → 1
     combat.step(Action.play_card(0))
@@ -443,11 +365,7 @@ def test_valid_actions_filters_unaffordable_bash():
 
 def test_valid_actions_skips_unplayable_curse():
     """AscendersBane (cost=-1) must never appear in valid_actions."""
-    combat = Combat(
-        deck=["AscendersBane"] * 5 + ["Defend"] * 5,
-        enemies=["Cultist"],
-        seed=0,
-    )
+    combat = Combat(PlayerState(deck=["AscendersBane"] * 5 + ["Defend"] * 5), ["Cultist"], 0)
     combat.reset()
     actions = combat.valid_actions()
     for a in actions:
@@ -461,11 +379,7 @@ def test_valid_actions_allows_x_cost_at_zero_energy():
     """X-cost cards are still playable at 0 energy (they spend 0)."""
     from sts_env.combat.cards import Card
 
-    combat = Combat(
-        deck=["Whirlwind"] * 10,
-        enemies=["Cultist"],
-        seed=0,
-    )
+    combat = Combat(PlayerState(deck=["Whirlwind"] * 10), ["Cultist"], 0)
     combat.reset()
     combat._state.energy = 0
     combat._state.piles.hand = [Card("Whirlwind")]
@@ -476,11 +390,7 @@ def test_valid_actions_allows_x_cost_at_zero_energy():
 
 def test_valid_actions_expands_targets_per_live_enemy():
     """Strike with two enemies → two play actions (one per target)."""
-    combat = Combat(
-        deck=["Strike"] * 10,
-        enemies=["Cultist", "JawWorm"],
-        seed=0,
-    )
+    combat = Combat(PlayerState(deck=["Strike"] * 10), ["Cultist", "JawWorm"], 0)
     combat.reset()
     actions = combat.valid_actions()
     # Each Strike in hand expands to two targets
@@ -492,11 +402,7 @@ def test_valid_actions_expands_targets_per_live_enemy():
 
 def test_valid_actions_skips_dead_enemies():
     """After killing one of two enemies, Strike should only target the live one."""
-    combat = Combat(
-        deck=["Strike"] * 10,
-        enemies=["Cultist", "Cultist"],
-        seed=0,
-    )
+    combat = Combat(PlayerState(deck=["Strike"] * 10), ["Cultist", "Cultist"], 0)
     obs = combat.reset()
     # Kill first Cultist with direct state manipulation (hack for test)
     combat._state.enemies[0].hp = 0
@@ -510,11 +416,7 @@ def test_valid_actions_skips_dead_enemies():
 
 def test_valid_actions_cleave_single_action_for_all_enemies():
     """Cleave (ALL_ENEMIES target) emits exactly one action regardless of enemy count."""
-    combat = Combat(
-        deck=["Cleave"] * 10,
-        enemies=["Cultist", "JawWorm"],
-        seed=0,
-    )
+    combat = Combat(PlayerState(deck=["Cleave"] * 10), ["Cultist", "JawWorm"], 0)
     combat.reset()
     actions = combat.valid_actions()
     cleave_actions = [a for a in actions if a.action_type == ActionType.PLAY_CARD]
@@ -529,7 +431,7 @@ def test_valid_actions_cleave_single_action_for_all_enemies():
 
 def test_clone_produces_independent_state():
     """Stepping the original after cloning must not affect the clone."""
-    combat = encounters.jaw_worm(seed=5)
+    combat = encounters.jaw_worm(seed=5, character=PlayerState())
     combat.reset()
     cloned = combat.clone()
 
@@ -547,7 +449,7 @@ def test_clone_produces_independent_state():
 
 def test_clone_preserves_rng_sequence():
     """Cloned and original produce identical observations after the same action sequence."""
-    combat = encounters.jaw_worm(seed=3)
+    combat = encounters.jaw_worm(seed=3, character=PlayerState())
     combat.reset()
     cloned = combat.clone()
 
@@ -569,7 +471,7 @@ def test_clone_preserves_rng_sequence():
 
 def test_clone_before_reset_raises():
     """Cloning before reset is valid (deepcopy), but observe() should raise on the clone."""
-    combat = encounters.cultist(seed=0)
+    combat = encounters.cultist(seed=0, character=PlayerState())
     cloned = combat.clone()
     with pytest.raises(RuntimeError):
         cloned.observe()
@@ -577,7 +479,7 @@ def test_clone_before_reset_raises():
 
 def test_clone_damage_tracking_is_independent():
     """damage_taken on clone and original must be tracked independently."""
-    combat = encounters.cultist(seed=0)
+    combat = encounters.cultist(seed=0, character=PlayerState())
     combat.reset()
     cloned = combat.clone()
 
@@ -602,7 +504,7 @@ _JW_CHOMP_BASE = 11
 
 def test_intent_damage_effective_no_modifiers():
     """With no powers active, effective damage equals base damage."""
-    combat = Combat(deck=["Defend"] * 10, enemies=["JawWorm"], seed=0)
+    combat = Combat(PlayerState(deck=["Defend"] * 10), ["JawWorm"], 0)
     obs = combat.reset()
     enemy = obs.enemies[0]
     assert enemy.intent_damage == _JW_CHOMP_BASE
@@ -611,7 +513,7 @@ def test_intent_damage_effective_no_modifiers():
 
 def test_intent_damage_effective_enemy_strength():
     """Enemy strength adds to effective damage but not base damage."""
-    combat = Combat(deck=["Defend"] * 10, enemies=["JawWorm"], seed=0)
+    combat = Combat(PlayerState(deck=["Defend"] * 10), ["JawWorm"], 0)
     combat.reset()
     combat._state.enemies[0].powers.strength = 4
     obs = combat.observe()
@@ -623,7 +525,7 @@ def test_intent_damage_effective_enemy_strength():
 def test_intent_damage_effective_enemy_weak():
     """Enemy weak reduces effective damage (floor(base * 0.75))."""
     import math
-    combat = Combat(deck=["Defend"] * 10, enemies=["JawWorm"], seed=0)
+    combat = Combat(PlayerState(deck=["Defend"] * 10), ["JawWorm"], 0)
     combat.reset()
     combat._state.enemies[0].powers.weak = 2
     obs = combat.observe()
@@ -635,7 +537,7 @@ def test_intent_damage_effective_enemy_weak():
 def test_intent_damage_effective_player_vulnerable():
     """Player vulnerable scales effective damage up (floor(base * 1.5))."""
     import math
-    combat = Combat(deck=["Defend"] * 10, enemies=["JawWorm"], seed=0)
+    combat = Combat(PlayerState(deck=["Defend"] * 10), ["JawWorm"], 0)
     combat.reset()
     combat._state.player_powers.vulnerable = 2
     obs = combat.observe()
@@ -647,7 +549,7 @@ def test_intent_damage_effective_player_vulnerable():
 def test_intent_damage_effective_strength_and_vulnerable():
     """Strength and player vulnerable both apply: floor((base + str) * 1.5)."""
     import math
-    combat = Combat(deck=["Defend"] * 10, enemies=["JawWorm"], seed=0)
+    combat = Combat(PlayerState(deck=["Defend"] * 10), ["JawWorm"], 0)
     combat.reset()
     combat._state.enemies[0].powers.strength = 3
     combat._state.player_powers.vulnerable = 2
@@ -660,7 +562,7 @@ def test_intent_damage_effective_strength_and_vulnerable():
 def test_intent_damage_effective_non_attack_intent():
     """Non-attack intents (BUFF) report 0 for both damage fields."""
     # Cultist turn 0: Incantation (IntentType.BUFF, no damage)
-    combat = Combat(deck=["Defend"] * 10, enemies=["Cultist"], seed=0)
+    combat = Combat(PlayerState(deck=["Defend"] * 10), ["Cultist"], 0)
     obs = combat.reset()
     enemy = obs.enemies[0]
     assert enemy.intent_type == "BUFF"
@@ -673,7 +575,7 @@ def test_intent_damage_effective_attack_debuff_intent():
     import math
     # FatGremlin always uses ATTACK_DEBUFF (Smash: 4 dmg + Weak 1)
     _FG_SMASH_BASE = 4
-    combat = Combat(deck=["Defend"] * 10, enemies=["FatGremlin"], seed=0)
+    combat = Combat(PlayerState(deck=["Defend"] * 10), ["FatGremlin"], 0)
     obs = combat.reset()
     enemy = obs.enemies[0]
     assert enemy.intent_type == "ATTACK_DEBUFF"
@@ -681,7 +583,7 @@ def test_intent_damage_effective_attack_debuff_intent():
     assert enemy.intent_damage_effective == _FG_SMASH_BASE
 
     # With player vulnerable, effective damage should scale
-    combat2 = Combat(deck=["Defend"] * 10, enemies=["FatGremlin"], seed=0)
+    combat2 = Combat(PlayerState(deck=["Defend"] * 10), ["FatGremlin"], 0)
     combat2.reset()
     combat2._state.player_powers.vulnerable = 2
     obs2 = combat2.observe()
@@ -691,11 +593,11 @@ def test_intent_damage_effective_attack_debuff_intent():
 def test_debuff_intent_damage_is_zero():
     """DEBUFF intents (e.g. Lick) report 0 for both damage fields."""
     # AcidSlimeS always alternates Tackle/Lick; force seed to start with Lick
-    combat = Combat(deck=["Defend"] * 10, enemies=["AcidSlimeS"], seed=0)
+    combat = Combat(PlayerState(deck=["Defend"] * 10), ["AcidSlimeS"], 0)
     obs = combat.reset()
     # Find a seed where turn-0 is Lick
     for seed in range(50):
-        c = Combat(deck=["Defend"] * 10, enemies=["AcidSlimeS"], seed=seed)
+        c = Combat(PlayerState(deck=["Defend"] * 10), ["AcidSlimeS"], seed)
         o = c.reset()
         if o.enemies[0].intent_type == "DEBUFF":
             assert o.enemies[0].intent_damage == 0
@@ -710,7 +612,7 @@ def test_debuff_intent_damage_is_zero():
 
 def test_escaping_enemy_counts_as_done():
     """When the only enemy has escaped, combat is done (player wins)."""
-    combat = Combat(deck=["Defend"] * 10, enemies=["Looter"], seed=0)
+    combat = Combat(PlayerState(deck=["Defend"] * 10), ["Looter"], 0)
     obs = _play_to_end(combat)
     assert obs.done
 
@@ -718,7 +620,7 @@ def test_escaping_enemy_counts_as_done():
 def test_escaping_enemy_not_targetable():
     """An enemy with is_escaping=True should not appear in valid attack targets."""
     from sts_env.combat.state import EnemyState
-    combat = Combat(deck=["Strike"] * 10, enemies=["Looter"], seed=0)
+    combat = Combat(PlayerState(deck=["Strike"] * 10), ["Looter"], 0)
     combat.reset()
     # Manually set is_escaping
     combat._state.enemies[0].is_escaping = True
@@ -735,7 +637,7 @@ def test_escaping_enemy_not_targetable():
 def test_all_enemies_escaped_is_done():
     """Combat is done when all non-Empty enemies have escaped."""
     from sts_env.combat.state import EnemyState
-    combat = Combat(deck=["Defend"] * 10, enemies=["Looter", "Mugger"], seed=0)
+    combat = Combat(PlayerState(deck=["Defend"] * 10), ["Looter", "Mugger"], 0)
     combat.reset()
     combat._state.enemies[0].is_escaping = True
     combat._state.enemies[1].is_escaping = True
@@ -745,7 +647,7 @@ def test_all_enemies_escaped_is_done():
 def test_looter_encounter_terminates():
     """The Looter encounter always terminates (either killed or escaped)."""
     from sts_env.combat import encounters
-    _play_to_end(encounters.looter(seed=0))
+    _play_to_end(encounters.looter(seed=0, character=PlayerState()))
 
 
 # ===========================================================================
@@ -754,7 +656,7 @@ def test_looter_encounter_terminates():
 
 def test_fungi_beast_death_applies_vulnerable():
     """Killing a FungiBeast applies Vulnerable 2 to the player."""
-    combat = Combat(deck=["Strike"] * 10, enemies=["FungiBeast"], seed=0)
+    combat = Combat(PlayerState(deck=["Strike"] * 10), ["FungiBeast"], 0)
     obs = combat.reset()
     # Strike until dead
     obs = _play_to_end(combat)
@@ -762,7 +664,7 @@ def test_fungi_beast_death_applies_vulnerable():
     # We check damage_taken is higher with no block - actually we just check
     # the mechanic fires. We need to inspect mid-combat state.
     # Restart and track vulnerable
-    combat2 = Combat(deck=["Strike"] * 10, enemies=["FungiBeast"], seed=0)
+    combat2 = Combat(PlayerState(deck=["Strike"] * 10), ["FungiBeast"], 0)
     combat2.reset()
     # Force FungiBeast to a near-death state and kill it
     combat2._state.enemies[0].hp = 1
@@ -775,7 +677,7 @@ def test_fungi_beast_death_applies_vulnerable():
 
 def test_fungi_beast_spore_cloud_only_on_death():
     """SporeCloud does not fire if the FungiBeast survives the hit."""
-    combat = Combat(deck=["Strike"] * 10, enemies=["FungiBeast"], seed=0)
+    combat = Combat(PlayerState(deck=["Strike"] * 10), ["FungiBeast"], 0)
     combat.reset()
     combat._state.enemies[0].hp = 10
     combat._state.enemies[0].powers.spore_cloud = 2
@@ -791,7 +693,7 @@ def test_fungi_beast_spore_cloud_only_on_death():
 
 def test_entangle_prevents_skill_cards():
     """When the player is Entangled, Skill cards are not in valid_actions."""
-    combat = Combat(deck=["Defend"] * 5 + ["Strike"] * 5, enemies=["RedSlaver"], seed=0)
+    combat = Combat(PlayerState(deck=["Defend"] * 5 + ["Strike"] * 5), ["RedSlaver"], 0)
     combat.reset()
     combat._state.player_powers.entangled = True
     actions = combat.valid_actions()
@@ -818,7 +720,7 @@ def test_entangle_clears_at_start_of_next_player_turn():
 def test_red_slaver_encounter_applies_entangle():
     """Red Slaver eventually applies Entangle in a real combat."""
     from sts_env.combat import encounters
-    combat = encounters.red_slaver(seed=0)
+    combat = encounters.red_slaver(seed=0, character=PlayerState())
     combat.reset()
     found_entangle = False
     # Let the Red Slaver act for up to 10 turns looking for Entangle
@@ -840,7 +742,7 @@ class TestDoubt:
     def test_doubt_applies_weak_at_end_of_turn(self):
         """Doubt in hand at EOT applies 1 Weak to the player."""
         from sts_env.combat.card import Card
-        combat = Combat(deck=["Strike"] * 10, enemies=["Cultist"], seed=0)
+        combat = Combat(PlayerState(deck=["Strike"] * 10), ["Cultist"], 0)
         combat.reset()
         combat._state.piles.hand = [Card("Doubt")]
         combat.step(Action.end_turn())
@@ -849,7 +751,7 @@ class TestDoubt:
     def test_doubt_two_copies_applies_two_weak(self):
         """Two Doubts in hand at EOT apply 2 Weak to the player."""
         from sts_env.combat.card import Card
-        combat = Combat(deck=["Strike"] * 10, enemies=["Cultist"], seed=0)
+        combat = Combat(PlayerState(deck=["Strike"] * 10), ["Cultist"], 0)
         combat.reset()
         combat._state.piles.hand = [Card("Doubt"), Card("Doubt")]
         combat.step(Action.end_turn())
@@ -858,7 +760,7 @@ class TestDoubt:
     def test_doubt_not_in_hand_no_weak(self):
         """Doubt in discard (not hand) at EOT does not apply Weak."""
         from sts_env.combat.card import Card
-        combat = Combat(deck=["Strike"] * 10, enemies=["Cultist"], seed=0)
+        combat = Combat(PlayerState(deck=["Strike"] * 10), ["Cultist"], 0)
         combat.reset()
         combat._state.piles.hand = []
         combat._state.piles.discard.append(Card("Doubt"))

@@ -3,6 +3,10 @@
 Bundles all player state that persists between combats: deck, HP, potions,
 relics, gold, and floor.  Provides factory methods, mutation helpers, and
 serialisation for the LLM agent.
+
+:class:`Character` extends :class:`~sts_env.combat.player_state.PlayerState`
+with run-level fields (floor, event_bus, etc.) that are not needed by the
+combat layer.
 """
 
 from __future__ import annotations
@@ -14,46 +18,30 @@ from ..combat.cards import CardColor
 # Import the canonical definition from the combat engine.
 # Re-exported here for convenience (``from sts_env.run.character import IRONCLAD_STARTER``).
 from ..combat.engine import IRONCLAD_STARTER  # noqa: F401
+from ..combat.player_state import PlayerState
 
 # Run-layer event bus
 from .bus import RunEventBus, RunEvent, wire_relics as _wire_relics
 
-# Default Ironclad values
-_IRONCLAD_HP = 80
-_IRONCLAD_MAX_HP = 80
-_IRONCLAD_STARTER_RELICS: list[str] = ["BurningBlood"]
-_IRONCLAD_STARTER_GOLD = 99
-_MAX_POTION_SLOTS = 3
-
 
 @dataclass
-class Character:
+class Character(PlayerState):
     """Player state carried across the strategic layer of a run.
 
+    Extends :class:`~sts_env.combat.player_state.PlayerState` with run-only
+    fields that are irrelevant to the combat layer.
+
     Attributes:
-        deck: Current deck list (grows as cards are added from rewards).
-        player_hp: Current HP (carried between combats).
-        player_max_hp: Maximum HP.
-        potions: Current potion slots.
-        max_potion_slots: Maximum number of potion slots (default 3).
-        gold: Gold count.
         floor: Current floor number.
-        relics: Current relics.
+        seen_events: Events already encountered this run.
         event_bus: Run-layer event bus (auto-wired on creation).
+        card_rarity_factor: Persists across rewards — mirrors C++
+            ``GameContext::cardRarityFactor``.
     """
 
-    deck: list[str] = field(default_factory=lambda: list(IRONCLAD_STARTER))
-    player_hp: int = _IRONCLAD_HP
-    player_max_hp: int = _IRONCLAD_MAX_HP
-    potions: list[str] = field(default_factory=list)
-    max_potion_slots: int = _MAX_POTION_SLOTS
-    gold: int = _IRONCLAD_STARTER_GOLD
     floor: int = 0
-    relics: list[str] = field(default_factory=lambda: list(_IRONCLAD_STARTER_RELICS))
-    character_class: CardColor = CardColor.RED
     seen_events: list[str] = field(default_factory=list)
     event_bus: RunEventBus = field(default_factory=RunEventBus)
-    relic_state: dict[str, int] = field(default_factory=dict)  # relic-owned counters (persists across combats)
     # Persists across rewards — mirrors C++ GameContext::cardRarityFactor.
     # Note: a single RNG is used here (unlike C++ which has separate cardRng/merchantRng),
     # so shop pricing rolls will perturb card draws slightly vs the reference.
@@ -110,7 +98,7 @@ class Character:
             f"HP={self.player_hp}/{self.player_max_hp} "
             f"Gold={self.gold} "
             f"Floor={self.floor} "
-            f"Deck{self.deck} "
+            f"Deck({len(self.deck)}) "
             f"Potions{self.potions} "
             f"Relics{self.relics}"
         )
@@ -127,17 +115,4 @@ class Character:
             "floor": self.floor,
             "relics": list(self.relics),
             "seen_events": list(self.seen_events),
-        }
-
-    # ------------------------------------------------------------------
-    # Unpacking support (for builder.build_combat)
-    # ------------------------------------------------------------------
-
-    def combat_kwargs(self) -> dict:
-        """Return kwargs suitable for ``builder.build_combat``."""
-        return {
-            "deck": list(self.deck),
-            "player_hp": self.player_hp,
-            "player_max_hp": self.player_max_hp,
-            "potions": list(self.potions),
         }

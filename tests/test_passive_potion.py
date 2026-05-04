@@ -5,6 +5,7 @@ TDD: These tests fail before implementing the passive potion mechanism.
 import pytest
 
 from sts_env.combat import Action
+from sts_env.combat.player_state import PlayerState
 from sts_env.combat.engine import Combat
 from sts_env.combat.potions import get_spec
 from sts_env.combat.state import ActionType
@@ -42,12 +43,7 @@ def test_fairy_in_a_bottle_not_in_legal_actions():
 
     They should only be discardable.
     """
-    c = Combat(
-        deck=["Strike", "Defend", "Bash"],
-        enemies=["JawWorm"],
-        seed=42,
-        potions=["FairyInABottle"],
-    )
+    c = Combat(PlayerState(deck=["Strike", "Defend", "Bash"], potions=["FairyInABottle"]), ["JawWorm"], 42)
     c.reset()
     legal = c.valid_actions()
 
@@ -61,12 +57,7 @@ def test_fairy_in_a_bottle_not_in_legal_actions():
 
 def test_active_potions_still_work():
     """Non-passive potions should still generate use_potion actions."""
-    c = Combat(
-        deck=["Strike", "Defend", "Bash"],
-        enemies=["JawWorm"],
-        seed=42,
-        potions=["BlockPotion", "FirePotion"],
-    )
+    c = Combat(PlayerState(deck=["Strike", "Defend", "Bash"], potions=["BlockPotion", "FirePotion"]), ["JawWorm"], 42)
     c.reset()
     legal = c.valid_actions()
 

@@ -9,6 +9,7 @@ Covers:
 
 import pytest
 from sts_env.combat import Combat
+from sts_env.combat.player_state import PlayerState
 from sts_env.combat.card import Card
 from sts_env.combat.cards import get_spec
 from sts_env.combat.engine import IRONCLAD_STARTER
@@ -21,7 +22,7 @@ from sts_env.combat.state import Action, ActionType
 # ---------------------------------------------------------------------------
 
 def _make_combat(seed: int = 42) -> Combat:
-    combat = Combat(deck=list(IRONCLAD_STARTER), enemies=["JawWorm"], seed=seed)
+    combat = Combat(PlayerState(deck=list(IRONCLAD_STARTER)), ["JawWorm"], seed)
     combat.reset()
     return combat
 
@@ -29,7 +30,7 @@ def _make_combat(seed: int = 42) -> Combat:
 def _make_combat_with_havoc(seed: int = 42) -> Combat:
     """Create a combat with Havoc in hand and known draw pile."""
     # Use Ironclad starter + extra Strikes to pad the deck
-    combat = Combat(deck=list(IRONCLAD_STARTER), enemies=["JawWorm"], seed=seed)
+    combat = Combat(PlayerState(deck=list(IRONCLAD_STARTER)), ["JawWorm"], seed)
     combat.reset()
     # Inject Havoc into hand
     combat._state.piles.hand.insert(0, Card("Havoc"))
@@ -137,7 +138,7 @@ class TestHavocBurningPactNesting:
 
     def _make_havoc_burning_pact_combat(self, seed: int = 42) -> Combat:
         """Create a combat with Havoc in hand and BurningPact on top of draw."""
-        combat = Combat(deck=list(IRONCLAD_STARTER), enemies=["JawWorm"], seed=seed)
+        combat = Combat(PlayerState(deck=list(IRONCLAD_STARTER)), ["JawWorm"], seed)
         combat.reset()
         # Inject Havoc into hand
         combat._state.piles.hand.insert(0, Card("Havoc"))

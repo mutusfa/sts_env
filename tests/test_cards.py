@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from sts_env.combat.card import Card
+from sts_env.combat.player_state import PlayerState
 from sts_env.combat.cards import get_spec, play_card
 from sts_env.combat.deck import Piles
 from sts_env.combat.powers import Powers
@@ -704,7 +705,7 @@ def test_observation_hand_cost_for_x_card():
     """Observation reports current energy as cost for X-cost cards."""
     from sts_env.combat.engine import Combat, Action, ActionType
 
-    combat = Combat(deck=["Whirlwind"] * 10, enemies=["Cultist"], seed=0)
+    combat = Combat(PlayerState(deck=["Whirlwind"] * 10), ["Cultist"], 0)
     combat.reset()
     combat._state.energy = 3
     combat._state.piles.hand = [Card("Whirlwind")]

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from sts_env.combat.engine import Combat
+from sts_env.combat.player_state import PlayerState
 from sts_env.combat.state import Action, ActionType
 
 
@@ -14,13 +15,7 @@ from sts_env.combat.state import Action, ActionType
 
 def _combat_with_potions(potions: list[str], enemies=("Cultist",), seed=0, player_hp=80) -> Combat:
     """Create a minimal combat pre-loaded with the given potions."""
-    return Combat(
-        deck=["Strike"] * 5 + ["Defend"] * 4 + ["Bash"],
-        enemies=list(enemies),
-        seed=seed,
-        player_hp=player_hp,
-        potions=potions,
-    )
+    return Combat(PlayerState(deck=["Strike"] * 5 + ["Defend"] * 4 + ["Bash"], player_hp=player_hp, potions=potions), list(enemies), seed)
 
 
 def _first_live_enemy_idx(obs) -> int:
@@ -79,12 +74,7 @@ def test_discard_potion_removes_slot():
 def test_potion_slot_cap_respected():
     """Passing too many potions to Combat should raise."""
     with pytest.raises(ValueError):
-        Combat(
-            deck=["Strike"],
-            enemies=["Cultist"],
-            seed=0,
-            potions=["BlockPotion"] * 4,  # default max_potion_slots=3
-        )
+        Combat(PlayerState(deck=["Strike"], potions=["BlockPotion"] * 4), ["Cultist"], 0)
 
 
 def test_max_potion_slots_in_observation():
@@ -250,14 +240,7 @@ def test_blood_potion_heals_20_percent_max_hp():
     import math
     max_hp = 80
     current_hp = 50
-    combat = Combat(
-        deck=["Strike"] * 5 + ["Defend"] * 4 + ["Bash"],
-        enemies=["Cultist"],
-        seed=0,
-        player_hp=current_hp,
-        player_max_hp=max_hp,
-        potions=["BloodPotion"],
-    )
+    combat = Combat(PlayerState(deck=["Strike"] * 5 + ["Defend"] * 4 + ["Bash"], player_hp=current_hp, player_max_hp=max_hp, potions=["BloodPotion"]), ["Cultist"], 0)
     obs = combat.reset()
     assert obs.player_max_hp == max_hp
     hp_before = obs.player_hp
@@ -291,12 +274,7 @@ def test_heart_of_iron_block_applied_before_enemy_attacks():
     # Player at low HP with a single-attack enemy; metallicize block should reduce damage
     # Use a fresh-state check via combat._state to inspect block right after metallicize fires
     # but this is hard without deeper hooks. Instead we verify damage_taken is lower with it.
-    combat_no_met = Combat(
-        deck=["Defend"] * 10,
-        enemies=["Cultist"],
-        seed=0,
-        player_hp=80,
-    )
+    combat_no_met = Combat(PlayerState(deck=["Defend"] * 10, player_hp=80), ["Cultist"], 0)
     combat_with_met = _combat_with_potions(["HeartOfIron"], enemies=["Cultist"], seed=0, player_hp=80)
 
     obs_no = combat_no_met.reset()

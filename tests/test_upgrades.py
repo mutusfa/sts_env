@@ -2,6 +2,7 @@
 
 import pytest
 from sts_env.combat import Combat
+from sts_env.combat.player_state import PlayerState
 from sts_env.combat.card import Card
 from sts_env.combat.cards import play_card, get_spec
 from sts_env.combat.engine import IRONCLAD_STARTER
@@ -9,7 +10,7 @@ from sts_env.combat.engine import IRONCLAD_STARTER
 
 def _make_combat_with_card(card_id: str, upgraded: int = 0) -> Combat:
     """Create a combat with a specific card in hand."""
-    combat = Combat(deck=list(IRONCLAD_STARTER), enemies=["JawWorm"], seed=42)
+    combat = Combat(PlayerState(deck=list(IRONCLAD_STARTER)), ["JawWorm"], 42)
     combat.reset()
     effective_id = card_id + "+" if upgraded else card_id
     test_card = Card(effective_id)
@@ -113,7 +114,7 @@ class TestCardIdSuffix:
     """Test that card_id carries the '+' suffix for upgrades."""
 
     def test_play_card_resolves_plus_suffix_to_upgraded_spec(self):
-        combat = Combat(deck=list(IRONCLAD_STARTER), enemies=["JawWorm"], seed=42)
+        combat = Combat(PlayerState(deck=list(IRONCLAD_STARTER)), ["JawWorm"], 42)
         combat.reset()
         combat._state.piles.hand.insert(0, Card("Strike+"))
         enemy = combat._state.enemies[0]

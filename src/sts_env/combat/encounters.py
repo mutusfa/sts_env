@@ -1,8 +1,8 @@
 """Seeded encounter factories for Act 1 (ascension 0).
 
-Each factory is a plain function returning a configured :class:`Combat`.
-The ``deck`` and ``player_hp`` parameters are keyword-only and default to
-the Ironclad starter deck and 80 HP respectively.
+Each factory takes ``(seed, character)`` and returns a configured
+:class:`Combat`.  ``character`` is a :class:`PlayerState` carrying the
+player's deck, HP, relics, potions, and gold for this encounter.
 
 Composition RNG (for encounters that pick enemies randomly) is seeded
 independently of the combat RNG so that:
@@ -16,56 +16,57 @@ The composition seed is derived as ``seed ^ _COMP_SEED_SALT``.
 from __future__ import annotations
 
 from .engine import Combat, IRONCLAD_STARTER
+from .player_state import PlayerState
 from .rng import RNG
 
 _COMP_SEED_SALT = 0xC0FFEE
 
 
 # ---------------------------------------------------------------------------
-# Single-enemy encounters (replaces Combat.ironclad_starter and friends)
+# Single-enemy encounters
 # ---------------------------------------------------------------------------
 
-def cultist(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
-    return Combat(deck, ["Cultist"], seed, player_hp)
+def cultist(seed: int, character: PlayerState, *, is_elite: bool = False) -> Combat:
+    return Combat(character, ["Cultist"], seed, is_elite)
 
 
-def jaw_worm(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
-    return Combat(deck, ["JawWorm"], seed, player_hp)
+def jaw_worm(seed: int, character: PlayerState, *, is_elite: bool = False) -> Combat:
+    return Combat(character, ["JawWorm"], seed, is_elite)
 
 
-def acid_slime_m(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
-    return Combat(deck, ["AcidSlimeM"], seed, player_hp)
+def acid_slime_m(seed: int, character: PlayerState, *, is_elite: bool = False) -> Combat:
+    return Combat(character, ["AcidSlimeM"], seed, is_elite)
 
 
-def spike_slime_m(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
-    return Combat(deck, ["SpikeSlimeM"], seed, player_hp)
+def spike_slime_m(seed: int, character: PlayerState, *, is_elite: bool = False) -> Combat:
+    return Combat(character, ["SpikeSlimeM"], seed, is_elite)
 
 
-def acid_slime_l(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
+def acid_slime_l(seed: int, character: PlayerState, *, is_elite: bool = False) -> Combat:
     """AcidSlimeL with a pre-allocated Empty slot for the split."""
-    return Combat(deck, ["AcidSlimeL", "Empty"], seed, player_hp)
+    return Combat(character, ["AcidSlimeL", "Empty"], seed, is_elite)
 
 
-def spike_slime_l(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
+def spike_slime_l(seed: int, character: PlayerState, *, is_elite: bool = False) -> Combat:
     """SpikeSlimeL with a pre-allocated Empty slot for the split."""
-    return Combat(deck, ["SpikeSlimeL", "Empty"], seed, player_hp)
+    return Combat(character, ["SpikeSlimeL", "Empty"], seed, is_elite)
 
 
 _LARGE_SLIME_TYPES = ["AcidSlimeL", "SpikeSlimeL"]
 
 
-def large_slime(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
+def large_slime(seed: int, character: PlayerState, *, is_elite: bool = False) -> Combat:
     """A randomly-selected large slime (50/50 AcidSlimeL or SpikeSlimeL) with Empty slot."""
     comp_rng = RNG(seed ^ _COMP_SEED_SALT)
     chosen = _LARGE_SLIME_TYPES[comp_rng.randint(0, 1)]
-    return Combat(deck, [chosen, "Empty"], seed, player_hp)
+    return Combat(character, [chosen, "Empty"], seed, is_elite)
 
 
 # ---------------------------------------------------------------------------
 # Small Slimes — SpikeSlimeS + AcidSlimeS
 # ---------------------------------------------------------------------------
 
-def small_slimes(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
+def small_slimes(seed: int, character: PlayerState, *, is_elite: bool = False) -> Combat:
     """One small + one medium slime: (SpikeSlimeS+AcidSlimeM) or (AcidSlimeS+SpikeSlimeM).
 
     Source: MonsterGroup.cpp SMALL_SLIMES case — randomBoolean picks the pair.
@@ -75,7 +76,7 @@ def small_slimes(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: in
         enemies = ["SpikeSlimeS", "AcidSlimeM"]
     else:
         enemies = ["AcidSlimeS", "SpikeSlimeM"]
-    return Combat(deck, enemies, seed, player_hp)
+    return Combat(character, enemies, seed, is_elite)
 
 
 # ---------------------------------------------------------------------------
@@ -89,11 +90,11 @@ def _pick_louse(rng: RNG) -> str:
     return _LOUSE_TYPES[rng.randint(0, 1)]
 
 
-def two_louses(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
+def two_louses(seed: int, character: PlayerState, *, is_elite: bool = False) -> Combat:
     """Two louses: each independently 50% RedLouse / 50% GreenLouse."""
     comp_rng = RNG(seed ^ _COMP_SEED_SALT)
     enemies = [_pick_louse(comp_rng), _pick_louse(comp_rng)]
-    return Combat(deck, enemies, seed, player_hp)
+    return Combat(character, enemies, seed, is_elite)
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +112,7 @@ _GREMLIN_POOL = [
 ]
 
 
-def gremlin_gang(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
+def gremlin_gang(seed: int, character: PlayerState, *, is_elite: bool = False) -> Combat:
     """Four gremlins drawn without replacement from the STS pool."""
     pool = list(_GREMLIN_POOL)
     comp_rng = RNG(seed ^ _COMP_SEED_SALT)
@@ -122,56 +123,56 @@ def gremlin_gang(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: in
         enemies.append(pool[idx])
         pool.pop(idx)
         last_idx -= 1
-    return Combat(deck, enemies, seed, player_hp)
+    return Combat(character, enemies, seed, is_elite)
 
 
 # ---------------------------------------------------------------------------
 # Single-enemy: Blue Slaver, Red Slaver, Looter
 # ---------------------------------------------------------------------------
 
-def blue_slaver(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
-    return Combat(deck, ["BlueSlaver"], seed, player_hp)
+def blue_slaver(seed: int, character: PlayerState, *, is_elite: bool = False) -> Combat:
+    return Combat(character, ["BlueSlaver"], seed, is_elite)
 
 
-def red_slaver(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
-    return Combat(deck, ["RedSlaver"], seed, player_hp)
+def red_slaver(seed: int, character: PlayerState, *, is_elite: bool = False) -> Combat:
+    return Combat(character, ["RedSlaver"], seed, is_elite)
 
 
-def looter(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
-    return Combat(deck, ["Looter"], seed, player_hp)
+def looter(seed: int, character: PlayerState, *, is_elite: bool = False) -> Combat:
+    return Combat(character, ["Looter"], seed, is_elite)
 
 
 # ---------------------------------------------------------------------------
 # Two Fungi Beasts
 # ---------------------------------------------------------------------------
 
-def two_fungi_beasts(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
+def two_fungi_beasts(seed: int, character: PlayerState, *, is_elite: bool = False) -> Combat:
     """Two Fungi Beasts (both start with SporeCloud 2)."""
-    return Combat(deck, ["FungiBeast", "FungiBeast"], seed, player_hp)
+    return Combat(character, ["FungiBeast", "FungiBeast"], seed, is_elite)
 
 
-def three_fungi_beasts_event(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
+def three_fungi_beasts_event(seed: int, character: PlayerState, *, is_elite: bool = False) -> Combat:
     """Mushrooms event: three Fungi Beasts."""
-    return Combat(deck, ["FungiBeast", "FungiBeast", "FungiBeast"], seed, player_hp)
+    return Combat(character, ["FungiBeast", "FungiBeast", "FungiBeast"], seed, is_elite)
 
 
-def lagavulin_event(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
+def lagavulin_event(seed: int, character: PlayerState, *, is_elite: bool = False) -> Combat:
     """Dead Adventurer event: Lagavulin starts awake (no sleep, no metallicize).
 
     Much harder than the normal elite Lagavulin which starts sleeping for 3 turns.
     """
-    return Combat(deck, ["Lagavulin_awake"], seed, player_hp)
+    return Combat(character, ["Lagavulin_awake"], seed, is_elite)
 
 
 # ---------------------------------------------------------------------------
 # Three Louses — each independently 50/50 Red/Green
 # ---------------------------------------------------------------------------
 
-def three_louse(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
+def three_louse(seed: int, character: PlayerState, *, is_elite: bool = False) -> Combat:
     """Three louses, each independently 50/50 RedLouse / GreenLouse."""
     comp_rng = RNG(seed ^ _COMP_SEED_SALT)
     enemies = [_pick_louse(comp_rng), _pick_louse(comp_rng), _pick_louse(comp_rng)]
-    return Combat(deck, enemies, seed, player_hp)
+    return Combat(character, enemies, seed, is_elite)
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +180,7 @@ def three_louse(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int
 # ---------------------------------------------------------------------------
 # Source: MonsterGroup.cpp LOTS_OF_SLIMES case
 
-def lots_of_slimes(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
+def lots_of_slimes(seed: int, character: PlayerState, *, is_elite: bool = False) -> Combat:
     """Five slimes drawn from [SpikeSlimeS×3, AcidSlimeS×2] in random order."""
     comp_rng = RNG(seed ^ _COMP_SEED_SALT)
     pool = ["SpikeSlimeS", "SpikeSlimeS", "SpikeSlimeS", "AcidSlimeS", "AcidSlimeS"]
@@ -188,7 +189,7 @@ def lots_of_slimes(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: 
         idx = comp_rng.randint(0, i)
         enemies.append(pool[idx])
         pool.pop(idx)
-    return Combat(deck, enemies, seed, player_hp)
+    return Combat(character, enemies, seed, is_elite)
 
 
 # ---------------------------------------------------------------------------
@@ -237,9 +238,7 @@ def _strong_wildlife(comp_rng: RNG) -> str:
     return "FungiBeast" if comp_rng.randint(0, 1) == 0 else "JawWorm"
 
 
-def exordium_thugs(
-    seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80
-) -> Combat:
+def exordium_thugs(seed: int, character: PlayerState, *, is_elite: bool = False) -> Combat:
     """One weak wildlife + one strong humanoid.
 
     Source: MonsterGroup.cpp EXORDIUM_THUGS (createWeakWildlife + createStrongHumanoid).
@@ -247,12 +246,10 @@ def exordium_thugs(
     comp_rng = RNG(seed ^ _COMP_SEED_SALT)
     ww = _weak_wildlife(comp_rng)
     sh = _strong_humanoid(comp_rng)
-    return Combat(deck, [ww, sh], seed, player_hp)
+    return Combat(character, [ww, sh], seed, is_elite)
 
 
-def exordium_wildlife(
-    seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80
-) -> Combat:
+def exordium_wildlife(seed: int, character: PlayerState, *, is_elite: bool = False) -> Combat:
     """One strong wildlife + one weak wildlife.
 
     Source: MonsterGroup.cpp EXORDIUM_WILDLIFE (createStrongWildlife + createWeakWildlife).
@@ -260,34 +257,42 @@ def exordium_wildlife(
     comp_rng = RNG(seed ^ _COMP_SEED_SALT)
     sw = _strong_wildlife(comp_rng)
     ww = _weak_wildlife(comp_rng)
-    return Combat(deck, [sw, ww], seed, player_hp)
+    return Combat(character, [sw, ww], seed, is_elite)
 
 
 # ---------------------------------------------------------------------------
-# Slime Boss — Act 1 boss encounter
+# Elites — Act 1
 # ---------------------------------------------------------------------------
 
-def slime_boss(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
+def gremlin_nob(seed: int, character: PlayerState, *, is_elite: bool = True) -> Combat:
+    return Combat(character, ["GremlinNob"], seed, is_elite)
+
+
+def lagavulin(seed: int, character: PlayerState, *, is_elite: bool = True) -> Combat:
+    return Combat(character, ["Lagavulin"], seed, is_elite)
+
+
+def three_sentries(seed: int, character: PlayerState, *, is_elite: bool = True) -> Combat:
+    return Combat(character, ["Sentry", "Sentry", "Sentry"], seed, is_elite)
+
+
+# ---------------------------------------------------------------------------
+# Bosses — Act 1
+# ---------------------------------------------------------------------------
+
+def slime_boss(seed: int, character: PlayerState, *, is_elite: bool = False) -> Combat:
     """Slime Boss with a pre-allocated Empty slot for the split."""
-    return Combat(deck, ["SlimeBoss", "Empty"], seed, player_hp)
+    return Combat(character, ["SlimeBoss", "Empty"], seed, is_elite)
 
 
-# ---------------------------------------------------------------------------
-# Guardian — Act 1 boss encounter
-# ---------------------------------------------------------------------------
-
-def guardian(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
+def guardian(seed: int, character: PlayerState, *, is_elite: bool = False) -> Combat:
     """Guardian boss: 240 HP, cycles ChargingUp / FierceStrike / VentSteam / Whirlwind."""
-    return Combat(deck, ["Guardian"], seed, player_hp)
+    return Combat(character, ["Guardian"], seed, is_elite)
 
 
-# ---------------------------------------------------------------------------
-# Hexaghost — Act 1 boss encounter
-# ---------------------------------------------------------------------------
-
-def hexaghost(seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80) -> Combat:
+def hexaghost(seed: int, character: PlayerState, *, is_elite: bool = False) -> Combat:
     """Hexaghost boss: 250 HP, 6-turn cycle (Activate/Divider/Sear/Inflate/Sear/Inferno)."""
-    return Combat(deck, ["Hexaghost"], seed, player_hp)
+    return Combat(character, ["Hexaghost"], seed, is_elite)
 
 
 # ---------------------------------------------------------------------------
@@ -319,10 +324,14 @@ _ACT1_STRONG_POOL: list[tuple] = [
 ]
 _ACT1_STRONG_TOTAL = sum(w for _, w in _ACT1_STRONG_POOL)
 
+_ACT1_ELITE_POOL: list[tuple] = [
+    (gremlin_nob,    "Gremlin Nob"),
+    (lagavulin,      "Lagavulin"),
+    (three_sentries, "Three Sentries"),
+]
 
-def act1_weak_encounter(
-    seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80
-) -> Combat:
+
+def act1_weak_encounter(seed: int, character: PlayerState) -> Combat:
     """Pick uniformly from the Act 1 weak (starting) encounter pool.
 
     Pool: Cultist, JawWorm, TwoLouses, SmallSlimes.
@@ -330,12 +339,10 @@ def act1_weak_encounter(
     """
     pool_rng = RNG(seed ^ _ACT1_POOL_SALT)
     factory = _ACT1_WEAK_FACTORIES[pool_rng.randint(0, 3)]
-    return factory(seed, deck=deck, player_hp=player_hp)
+    return factory(seed, character)
 
 
-def act1_strong_encounter(
-    seed: int, *, deck: list[str] = IRONCLAD_STARTER, player_hp: int = 80
-) -> Combat:
+def act1_strong_encounter(seed: int, character: PlayerState) -> Combat:
     """Pick from the Act 1 strong encounter pool using C++ weights.
 
     Weights: GremlinGang/LotsOfSlimes/RedSlaver 1×, ExordiumThugs/Wildlife 1.5×,
@@ -348,5 +355,5 @@ def act1_strong_encounter(
     for factory, weight in _ACT1_STRONG_POOL:
         cumulative += weight
         if r < cumulative:
-            return factory(seed, deck=deck, player_hp=player_hp)
-    return _ACT1_STRONG_POOL[-1][0](seed, deck=deck, player_hp=player_hp)
+            return factory(seed, character)
+    return _ACT1_STRONG_POOL[-1][0](seed, character)

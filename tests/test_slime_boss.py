@@ -2,6 +2,7 @@
 
 import pytest
 from sts_env.combat import Combat
+from sts_env.combat.player_state import PlayerState
 from sts_env.combat.engine import IRONCLAD_STARTER
 from sts_env.combat.state import Action, ActionType
 from sts_env.combat.card import Card
@@ -16,7 +17,7 @@ class TestSlimeBossSpec:
 
     def test_hp_is_140(self):
         """Slime Boss should always have 140 HP."""
-        combat = Combat(deck=IRONCLAD_STARTER, enemies=["SlimeBoss", "Empty"], seed=42)
+        combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["SlimeBoss", "Empty"], 42)
         obs = combat.reset()
         assert obs.enemies[0].name == "SlimeBoss"
         assert obs.enemies[0].hp == 140
@@ -24,14 +25,14 @@ class TestSlimeBossSpec:
 
     def test_second_slot_is_empty(self):
         """Second slot should be Empty (pre-allocated for split)."""
-        combat = Combat(deck=IRONCLAD_STARTER, enemies=["SlimeBoss", "Empty"], seed=42)
+        combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["SlimeBoss", "Empty"], 42)
         obs = combat.reset()
         assert obs.enemies[1].name == "Empty"
         assert obs.enemies[1].hp == 0
 
     def test_first_intent_is_goop_spray(self):
         """Turn 0 intent should be Goop Spray (DEBUFF)."""
-        combat = Combat(deck=IRONCLAD_STARTER, enemies=["SlimeBoss", "Empty"], seed=42)
+        combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["SlimeBoss", "Empty"], 42)
         obs = combat.reset()
         assert obs.enemies[0].intent_type == "DEBUFF"
 
@@ -40,7 +41,7 @@ class TestSlimeBossIntentCycle:
     """Test the Goop Spray → Preparing → Slam intent cycle."""
 
     def _make_combat(self, seed=42):
-        combat = Combat(deck=IRONCLAD_STARTER, enemies=["SlimeBoss", "Empty"], seed=seed)
+        combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["SlimeBoss", "Empty"], seed)
         combat.reset()
         return combat
 
@@ -107,7 +108,7 @@ class TestSlimeBossSplit:
 
     def test_split_triggers_at_50_percent(self):
         """Slime Boss should split into AcidSlimeM + SpikeSlimeM at ≤70 HP."""
-        combat = Combat(deck=IRONCLAD_STARTER, enemies=["SlimeBoss", "Empty"], seed=42)
+        combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["SlimeBoss", "Empty"], 42)
         obs = combat.reset()
 
         # Play attacks each turn until split happens
@@ -156,7 +157,7 @@ class TestSlimeBossSplit:
 
     def test_split_hp_carries_over(self):
         """Split slimes should have HP equal to the boss's remaining HP."""
-        combat = Combat(deck=IRONCLAD_STARTER, enemies=["SlimeBoss", "Empty"], seed=42)
+        combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["SlimeBoss", "Empty"], 42)
         obs = combat.reset()
 
         for _turn in range(30):
@@ -220,7 +221,7 @@ class TestSlimeBossEncounter:
     """Test the encounter factory and builder integration."""
 
     def test_slime_boss_factory(self):
-        combat = slime_boss(seed=42)
+        combat = slime_boss(seed=42, character=PlayerState())
         obs = combat.reset()
         assert obs.enemies[0].name == "SlimeBoss"
         assert obs.enemies[1].name == "Empty"
@@ -228,35 +229,24 @@ class TestSlimeBossEncounter:
 
     def test_slime_boss_factory_with_custom_deck(self):
         custom_deck = ["Strike"] * 10
-        combat = slime_boss(seed=42, deck=custom_deck, player_hp=100)
+        combat = slime_boss(seed=42, character=PlayerState(deck=custom_deck, player_hp=100))
         obs = combat.reset()
         assert obs.player_hp == 100
         assert obs.enemies[0].name == "SlimeBoss"
 
     def test_builder_boss_type(self):
-        combat = builder.build_combat(
-            "boss", "slime_boss", seed=42,
-            deck=list(IRONCLAD_STARTER),
-            player_hp=80,
-            player_max_hp=80,
-        )
+        combat = builder.build_combat("boss", "slime_boss", seed=42)
         obs = combat.reset()
         assert obs.enemies[0].name == "SlimeBoss"
 
     def test_builder_boss_with_potions(self):
-        combat = builder.build_combat(
-            "boss", "slime_boss", seed=42,
-            deck=list(IRONCLAD_STARTER),
-            player_hp=80,
-            player_max_hp=80,
-            potions=["AttackPotion"],
-        )
+        from sts_env.run.character import Character
+        c = Character.ironclad()
+        c.add_potion("AttackPotion")
+        combat = builder.build_combat("boss", "slime_boss", seed=42, character=c)
         obs = combat.reset()
         assert "AttackPotion" in obs.potions
 
     def test_builder_unknown_boss_raises(self):
-        with pytest.raises(ValueError, match="Unknown boss"):
-            builder.build_combat(
-                "boss", "nonexistent_boss", seed=42,
-                deck=list(IRONCLAD_STARTER),
-            )
+        with pytest.raises(ValueError):
+            builder.build_combat("boss", "nonexistent_boss", seed=42)

@@ -22,6 +22,7 @@ import copy
 from collections import Counter
 
 from .cards import play_card as _play_card, CardType, TargetType
+from .player_state import PlayerState
 from .enemies import (
     Intent,
     IntentType,
@@ -137,33 +138,27 @@ class Combat:
 
     def __init__(
         self,
-        deck: list[str],
+        character: PlayerState,
         enemies: list[str],
         seed: int,
-        player_hp: int = _PLAYER_START_HP,
-        player_max_hp: int | None = None,
-        potions: list[str] | None = None,
-        max_potion_slots: int = 3,
-        relics: frozenset[str] | None = None,
-        gold: int = 99,
         is_elite: bool = False,
     ) -> None:
-        potions = list(potions) if potions else []
-        if len(potions) > max_potion_slots:
+        potions = list(character.potions)
+        if len(potions) > character.max_potion_slots:
             raise ValueError(
-                f"Too many potions ({len(potions)}) for max_potion_slots={max_potion_slots}."
+                f"Too many potions ({len(potions)}) for max_potion_slots={character.max_potion_slots}."
             )
-        self._deck = [Card(c) if isinstance(c, str) else c for c in deck]
+        self._deck = [Card(c) if isinstance(c, str) else c for c in character.deck]
         self._enemy_names = list(enemies)
         self._seed = seed
-        self._player_start_hp = player_hp
-        self._player_max_hp = player_max_hp if player_max_hp is not None else player_hp
+        self._player_start_hp = character.player_hp
+        self._player_max_hp = character.player_max_hp
         self._starting_potions = potions
-        self._max_potion_slots = max_potion_slots
-        self._starting_relics = relics if relics is not None else frozenset()
-        self._starting_gold = gold
+        self._max_potion_slots = character.max_potion_slots
+        self._starting_relics = frozenset(character.relics)
+        self._starting_gold = character.gold
         self._is_elite = is_elite
-        self._relic_state: dict[str, int] = {}
+        self._relic_state: dict[str, int] = dict(character.relic_state)
         self._state: CombatState | None = None
         self._damage_taken: int = 0
         self._max_hp_gained: int = 0

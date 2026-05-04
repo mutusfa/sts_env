@@ -6,6 +6,7 @@ import math
 import pytest
 
 from sts_env.combat.engine import Combat
+from sts_env.combat.player_state import PlayerState
 from sts_env.combat.state import CombatState
 from sts_env.combat.powers import Powers
 from sts_env.combat.rng import RNG
@@ -18,14 +19,7 @@ def _combat_with_fairy(
     player_max_hp: int = 80,
     seed: int = 42,
 ) -> Combat:
-    c = Combat(
-        deck=["Strike", "Defend", "Bash"],
-        enemies=["JawWorm"],
-        seed=seed,
-        player_hp=player_hp,
-        player_max_hp=player_max_hp,
-        potions=["FairyInABottle"],
-    )
+    c = Combat(PlayerState(deck=["Strike", "Defend", "Bash"], player_hp=player_hp, player_max_hp=player_max_hp, potions=["FairyInABottle"]), ["JawWorm"], seed)
     c.reset()
     return c
 
@@ -57,14 +51,7 @@ class TestFairyInABottle:
         assert "FairyInABottle" in state.potions
 
     def test_two_fairies_consume_independently(self):
-        c = Combat(
-            deck=["Strike", "Defend", "Bash"],
-            enemies=["JawWorm"],
-            seed=42,
-            player_hp=10,
-            player_max_hp=80,
-            potions=["FairyInABottle", "FairyInABottle"],
-        )
+        c = Combat(PlayerState(deck=["Strike", "Defend", "Bash"], player_hp=10, player_max_hp=80, potions=["FairyInABottle", "FairyInABottle"]), ["JawWorm"], 42)
         c.reset()
         state = c._state
         assert state.potions.count("FairyInABottle") == 2
@@ -83,14 +70,7 @@ class TestFairyInABottle:
         assert "FairyInABottle" not in state.potions
 
     def test_no_revive_without_potion(self):
-        c = Combat(
-            deck=["Strike", "Defend", "Bash"],
-            enemies=["JawWorm"],
-            seed=42,
-            player_hp=10,
-            player_max_hp=80,
-            potions=[],
-        )
+        c = Combat(PlayerState(deck=["Strike", "Defend", "Bash"], player_hp=10, player_max_hp=80, potions=[]), ["JawWorm"], 42)
         c.reset()
         state = c._state
         state.player_hp = 0

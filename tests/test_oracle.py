@@ -36,6 +36,7 @@ import pytest
 import slaythespire as sts
 
 from sts_env.combat.cards import get_spec
+from sts_env.combat.player_state import PlayerState
 from sts_env.combat.engine import Combat, IRONCLAD_STARTER
 from sts_env.combat import encounters
 from sts_env.combat.enemies import EnemySpec, get_spec as get_enemy_spec
@@ -257,7 +258,7 @@ class TestCultistTrajectory:
 
     def test_our_engine_trajectory_matches_sts(self):
         """Our engine must produce the same player HP sequence as sts_lightspeed."""
-        combat = encounters.cultist(seed=0)
+        combat = encounters.cultist(seed=0, character=PlayerState())
         obs = combat.reset()
         traj = [obs.player_hp]
         for _ in range(6):
@@ -289,7 +290,7 @@ class TestCardDeltasJawWorm:
         return bc, bash_idx
 
     def _our_setup(self):
-        combat = encounters.jaw_worm(seed=self._SEED)
+        combat = encounters.jaw_worm(seed=self._SEED, character=PlayerState())
         obs = combat.reset()
         bash_idx = _find_card_our(obs, "Bash")
         assert bash_idx is not None, f"Bash not found in our hand: {obs.hand}"
@@ -347,7 +348,7 @@ class TestCardDeltasJawWorm:
         sts.BattleAction.play_card(defend_idx, 0).execute(bc)
         sts_block = bc.player_block
 
-        combat = encounters.jaw_worm(seed=self._SEED)
+        combat = encounters.jaw_worm(seed=self._SEED, character=PlayerState())
         obs = combat.reset()
         defend_idx = _find_card_our(obs, "Defend")
         assert defend_idx is not None
@@ -391,7 +392,7 @@ class TestAcidSlimeMWeakTiming:
     def test_our_lick_applies_persistent_weak(self):
         """Our engine: after Lick, player_weak=1 and Strike deals 4."""
         # seed=0 AcidSlimeM: uses Lick on turn 0
-        combat = encounters.acid_slime_m(seed=0)
+        combat = encounters.acid_slime_m(seed=0, character=PlayerState())
         obs = combat.reset()
         assert obs.player_powers.get("weak", 0) == 0
 

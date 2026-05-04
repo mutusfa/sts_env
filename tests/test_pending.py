@@ -8,6 +8,7 @@ Covers:
 
 import pytest
 from sts_env.combat import Combat
+from sts_env.combat.player_state import PlayerState
 from sts_env.combat.card import Card
 from sts_env.combat.engine import IRONCLAD_STARTER
 from sts_env.combat.pending import ChoiceFrame, ThunkFrame
@@ -19,7 +20,7 @@ from sts_env.combat.state import Action, ActionType
 # ---------------------------------------------------------------------------
 
 def _make_combat(seed: int = 42) -> Combat:
-    combat = Combat(deck=list(IRONCLAD_STARTER), enemies=["JawWorm"], seed=seed)
+    combat = Combat(PlayerState(deck=list(IRONCLAD_STARTER)), ["JawWorm"], seed)
     combat.reset()
     return combat
 

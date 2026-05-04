@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 
 from sts_env.combat.engine import Combat
+from sts_env.combat.player_state import PlayerState
 from sts_env.combat.state import CombatState
 from sts_env.combat.powers import Powers
 from sts_env.combat.rng import RNG
@@ -16,14 +17,7 @@ def _combat_with_red_skull(
     player_max_hp: int = 80,
     seed: int = 42,
 ) -> Combat:
-    c = Combat(
-        deck=["Strike", "Defend", "Bash"],
-        enemies=["JawWorm"],
-        seed=seed,
-        player_hp=player_hp,
-        player_max_hp=player_max_hp,
-        relics=frozenset(["RedSkull"]),
-    )
+    c = Combat(PlayerState(deck=["Strike", "Defend", "Bash"], player_hp=player_hp, player_max_hp=player_max_hp, relics=frozenset(["RedSkull"])), ["JawWorm"], seed)
     c.reset()
     return c
 
@@ -68,12 +62,6 @@ class TestRedSkull:
         assert c._state.player_powers.strength == 3
 
     def test_bonus_not_active_without_relic(self):
-        c = Combat(
-            deck=["Strike", "Defend", "Bash"],
-            enemies=["JawWorm"],
-            seed=42,
-            player_hp=30,
-            player_max_hp=80,
-        )
+        c = Combat(PlayerState(deck=["Strike", "Defend", "Bash"], player_hp=30, player_max_hp=80), ["JawWorm"], 42)
         c.reset()
         assert c._state.player_powers.strength == 0

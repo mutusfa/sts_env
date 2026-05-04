@@ -3,6 +3,7 @@
 import pytest
 
 from sts_env.run.map import generate_act1_map, RoomType, get_encounter_for_room, MAP_WIDTH, MAP_HEIGHT
+from sts_env.combat.player_state import PlayerState
 from sts_env.run.rooms import rest_heal, rest_upgrade, pick_rest_choice, RestChoice, _best_upgrade_target
 from sts_env.run.character import Character
 from sts_env.combat.rng import RNG
@@ -237,12 +238,7 @@ class TestUpgradeSuffixParsing:
         idx = c.deck.index("Strike")
         c.deck[idx] = "Strike+"
 
-        combat = Combat(
-            deck=list(c.deck),
-            enemies=["JawWorm"],
-            seed=42,
-            player_hp=c.player_hp,
-        )
+        combat = Combat(PlayerState(deck=list(c.deck), player_hp=c.player_hp), ["JawWorm"], 42)
         combat.reset()
         all_cards = (
             combat._state.piles.draw

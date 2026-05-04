@@ -64,10 +64,10 @@ BOSS_POOL: list[str] = ["slime_boss", "guardian", "hexaghost"]
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers
+# Helpers
 # ---------------------------------------------------------------------------
 
-def _weighted_pick(rng: RNG, items: list[str], weights: list[float]) -> str:
+def weighted_pick(rng: RNG, items: list[str], weights: list[float]) -> str:
     """Pick a random item using weighted selection."""
     total = sum(weights)
     roll = rng.random() * total
@@ -95,7 +95,7 @@ def _populate_monster_list(
     target = len(result) + count
     safety = 0
     while len(result) < target and safety < 10_000:
-        pick = _weighted_pick(rng, pool, weights)
+        pick = weighted_pick(rng, pool, weights)
         # No repeat of the last entry
         if result and pick == result[-1]:
             safety += 1
@@ -118,7 +118,7 @@ def _pick_first_strong(rng: RNG, existing: list[str]) -> str:
     """
     last = existing[-1] if existing else None
     while True:
-        pick = _weighted_pick(rng, STRONG_POOL, STRONG_WEIGHTS)
+        pick = weighted_pick(rng, STRONG_POOL, STRONG_WEIGHTS)
         if pick in ("large_slime", "lots_of_slimes") and last == "small_slimes":
             continue
         if pick == "three_louse" and last == "two_louses":

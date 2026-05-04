@@ -2,6 +2,7 @@
 
 import pytest
 from sts_env.combat import Combat
+from sts_env.combat.player_state import PlayerState
 from sts_env.combat.engine import IRONCLAD_STARTER
 from sts_env.combat.state import Action, ActionType
 from sts_env.combat.card import Card
@@ -22,7 +23,7 @@ class TestGremlinNob:
 
     def test_bellow_reduces_energy(self):
         """Bellow should reduce player energy by 2 on the next turn."""
-        combat = Combat(deck=IRONCLAD_STARTER, enemies=["GremlinNob"], seed=42)
+        combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["GremlinNob"], 42)
         obs = combat.reset()
         # Turn 0: Nob shows BUFF intent (Bellow)
         assert obs.enemies[0].intent_type == "BUFF"
@@ -33,7 +34,7 @@ class TestGremlinNob:
 
     def test_skill_punish_adds_strength(self):
         """Playing a Skill card should give Nob 2 strength."""
-        combat = Combat(deck=IRONCLAD_STARTER, enemies=["GremlinNob"], seed=42)
+        combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["GremlinNob"], 42)
         obs = combat.reset()
         # End turn 0 (Bellow)
         obs, _, _ = combat.step(Action.end_turn())
@@ -56,7 +57,7 @@ class TestGremlinNob:
 
     def test_attack_does_not_trigger_punish(self):
         """Playing an Attack card should NOT trigger Nob's skill-punish."""
-        combat = Combat(deck=IRONCLAD_STARTER, enemies=["GremlinNob"], seed=42)
+        combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["GremlinNob"], 42)
         obs = combat.reset()
         # End turn 0 (Bellow)
         obs, _, _ = combat.step(Action.end_turn())
@@ -88,14 +89,14 @@ class TestLagavulin:
 
     def test_starts_asleep(self):
         """Lagavulin should start asleep with metallicize."""
-        combat = Combat(deck=IRONCLAD_STARTER, enemies=["Lagavulin"], seed=42)
+        combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["Lagavulin"], 42)
         obs = combat.reset()
         assert obs.enemies[0].powers.get("asleep", False) is True
         assert obs.enemies[0].powers.get("enemy_metallicize", 0) == 8
 
     def test_wakes_on_attack(self):
         """Lagavulin should wake up when attacked and attack back immediately."""
-        combat = Combat(deck=IRONCLAD_STARTER, enemies=["Lagavulin"], seed=42)
+        combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["Lagavulin"], 42)
         obs = combat.reset()
         # Play Strike to wake Lagavulin
         strike_idx = next(i for i, c in enumerate(obs.hand) if (c["card_id"] if isinstance(c, dict) else c.card_id) == "Strike")
@@ -109,7 +110,7 @@ class TestLagavulin:
     def test_sleep_drain_pushes_strength_negative(self):
         """Lagavulin's sleeping drain should push player strength below 0."""
         # Create a combat where player starts with 0 strength
-        combat = Combat(deck=IRONCLAD_STARTER, enemies=["Lagavulin"], seed=42)
+        combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["Lagavulin"], 42)
         obs = combat.reset()
         # Don't attack — let it sleep and drain for multiple turns
         for _ in range(3):
@@ -123,7 +124,7 @@ class TestLagavulin:
 
     def test_siphon_pushes_stats_negative(self):
         """Siphon Soul should push strength and dexterity below 0."""
-        combat = Combat(deck=IRONCLAD_STARTER, enemies=["Lagavulin"], seed=42)
+        combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["Lagavulin"], 42)
         obs = combat.reset()
         # Wake Lagavulin
         strike_idx = next(i for i, c in enumerate(obs.hand) if (c["card_id"] if isinstance(c, dict) else c.card_id) == "Strike")
@@ -149,7 +150,7 @@ class TestSentry:
 
     def test_dazed_goes_to_draw_pile(self):
         """Bolt intent should add Dazed to draw pile, not discard."""
-        combat = Combat(deck=IRONCLAD_STARTER, enemies=["Sentry", "Sentry", "Sentry"], seed=42)
+        combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["Sentry", "Sentry", "Sentry"], 42)
         obs = combat.reset()
         # End turn 0 (all Sentries play Beam)
         obs, _, _ = combat.step(Action.end_turn())
@@ -194,11 +195,7 @@ class TestSentry:
 
         with patch.object(deck_mod.Piles, "spawn_shuffled_into_draw", capturing_spawn):
             for seed in range(20):
-                combat = Combat(
-                    deck=IRONCLAD_STARTER,
-                    enemies=["Sentry", "Sentry", "Sentry"],
-                    seed=seed,
-                )
+                combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["Sentry", "Sentry", "Sentry"], seed)
                 obs = combat.reset()
                 obs, _, _ = combat.step(Action.end_turn())
                 obs, _, _ = combat.step(Action.end_turn())
@@ -350,9 +347,9 @@ class TestBuilder:
         assert obs.enemies[0].name == "Sentry"
 
     def test_build_with_potions(self):
-        combat = builder.build_combat(
-            "easy", "cultist", seed=42, potions=["FirePotion"]
-        )
+        c = Character.ironclad()
+        c.add_potion("FirePotion")
+        combat = builder.build_combat("easy", "cultist", seed=42, character=c)
         obs = combat.reset()
         assert "FirePotion" in obs.potions
 
@@ -394,7 +391,7 @@ class TestDamageTakenAndMaxHp:
         found_negative = False
         for seed in range(50):
             deck = IRONCLAD_STARTER + ["Feed"]
-            combat = Combat(deck=deck, enemies=["Cultist"], seed=seed)
+            combat = Combat(PlayerState(deck=deck), ["Cultist"], seed)
             obs = combat.reset()
             while not obs.done:
                 actions = combat.valid_actions()
@@ -414,7 +411,7 @@ class TestDamageTakenAndMaxHp:
 
     def test_max_hp_gained_default_zero(self):
         """Without Feed, max_hp_gained should be 0."""
-        combat = Combat(deck=IRONCLAD_STARTER, enemies=["Cultist"], seed=0)
+        combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["Cultist"], 0)
         obs = combat.reset()
         while not obs.done:
             actions = combat.valid_actions()
@@ -435,7 +432,7 @@ class TestCardPotions:
     def _make_combat_with_potion(self, potion_id: str, seed: int = 99):
         """Build a combat with a single potion and a tiny deck."""
         deck = ["Strike", "Defend"]
-        combat = Combat(deck=deck, enemies=["Cultist"], seed=seed)
+        combat = Combat(PlayerState(deck=deck), ["Cultist"], seed)
         combat.reset()
         # Inject the potion directly into state
         combat._state.potions = [potion_id]
@@ -655,18 +652,15 @@ class TestCharacter:
         """IRONCLAD_STARTER from engine.py should still match."""
         assert IRONCLAD_STARTER == CHAR_IRONCLAD_STARTER
 
-    def test_combat_kwargs(self):
-        """combat_kwargs returns the right fields for build_combat."""
+    def test_player_state_fields(self):
+        """Character exposes the PlayerState fields needed for combat."""
         c = Character.ironclad()
         c.player_hp = 60
         c.add_potion("FirePotion")
-        kw = c.combat_kwargs()
-        assert kw == {
-            "deck": list(c.deck),
-            "player_hp": 60,
-            "player_max_hp": 80,
-            "potions": ["FirePotion"],
-        }
+        assert c.player_hp == 60
+        assert c.player_max_hp == 80
+        assert c.potions == ["FirePotion"]
+        assert c.deck == list(c.deck)
 
     def test_build_combat_with_character(self):
         """build_combat accepts a Character object."""
@@ -680,15 +674,11 @@ class TestCharacter:
         assert obs.player_hp == 60
         assert "FirePotion" in obs.potions
 
-    def test_build_combat_character_overrides_kwargs(self):
-        """When character is given, individual kwargs are ignored."""
+    def test_build_combat_character_hp(self):
+        """build_combat uses character's hp directly."""
         c = Character.ironclad()
         c.player_hp = 50
-        combat = builder.build_combat(
-            "easy", "cultist", seed=42,
-            character=c,
-            player_hp=99,  # should be ignored
-        )
+        combat = builder.build_combat("easy", "cultist", seed=42, character=c)
         obs = combat.reset()
         assert obs.player_hp == 50
 
