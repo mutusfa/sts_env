@@ -18,8 +18,10 @@ from typing import Protocol, runtime_checkable, Callable
 
 @runtime_checkable
 class CombatEndTarget(Protocol):
-    """Duck-type accepted by on_combat_end: anything with relics + heal."""
+    """Duck-type accepted by on_combat_end: anything with relics + heal + hp."""
     relics: list[str]
+    player_hp: int
+    player_max_hp: int
 
     def heal(self, amount: int) -> None: ...
 
@@ -70,6 +72,17 @@ def _burning_blood_on_combat_end(run_state: CombatEndTarget) -> None:
 _register(
     RelicSpec("BurningBlood"),
     on_combat_end=_burning_blood_on_combat_end,
+)
+
+# MeatOnTheBone: if HP ≤ 50% max at end of combat, heal 12.
+def _meat_on_the_bone_on_combat_end(run_state: CombatEndTarget) -> None:
+    if run_state.player_hp * 2 <= run_state.player_max_hp:
+        run_state.heal(12)
+
+
+_register(
+    RelicSpec("MeatOnTheBone"),
+    on_combat_end=_meat_on_the_bone_on_combat_end,
 )
 
 # ---------------------------------------------------------------------------
