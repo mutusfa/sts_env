@@ -129,7 +129,7 @@ class Combat:
     Usage::
 
         combat = Combat.ironclad_starter(enemy="JawWorm", seed=42)
-        obs = combat.reset()
+        obs = combat.observe()
         while not obs.done:
             action = my_policy(obs)
             obs, info = combat.step(action)
@@ -148,62 +148,48 @@ class Combat:
             raise ValueError(
                 f"Too many potions ({len(potions)}) for max_potion_slots={character.max_potion_slots}."
             )
-        self._deck = [Card(c) if isinstance(c, str) else c for c in character.deck]
-        self._enemy_names = list(enemies)
-        self._seed = seed
-        self._player_start_hp = character.player_hp
-        self._player_max_hp = character.player_max_hp
-        self._starting_potions = potions
-        self._max_potion_slots = character.max_potion_slots
-        self._starting_relics = frozenset(character.relics)
-        self._starting_gold = character.gold
-        self._is_elite = is_elite
-        self._relic_state: dict[str, int] = dict(character.relic_state)
-        self._state: CombatState | None = None
-        self._damage_taken: int = 0
-        self._max_hp_gained: int = 0
-        self._intents: list[Intent] = []
+        player_start_hp = character.player_hp
+        player_max_hp = character.player_max_hp
+        deck = [Card(c) if isinstance(c, str) else c for c in character.deck]
+        starting_relics = frozenset(character.relics)
+        relic_state: dict[str, int] = dict(character.relic_state)
 
-    # ------------------------------------------------------------------
-    # Public interface
-    # ------------------------------------------------------------------
-
-    def reset(self) -> Observation:
-        """(Re)initialise the combat and return the first observation."""
-        rng = RNG(self._seed)
+        rng = RNG(seed)
 
         # Build piles: shuffle deck into draw pile
-        piles = Piles(draw=list(self._deck))
+        piles = Piles(draw=list(deck))
         rng.shuffle(piles.draw)
 
         # Roll enemy HP; "Empty" slots are inert pre-allocated slots for splits
-        enemies = []
-        for name in self._enemy_names:
+        enemy_list = []
+        for name in enemies:
             if name == "Empty":
-                enemies.append(EnemyState(name="Empty", hp=0, max_hp=0))
+                enemy_list.append(EnemyState(name="Empty", hp=0, max_hp=0))
             else:
                 hp = roll_hp(name, rng)
-                enemies.append(EnemyState(name=name, hp=hp, max_hp=hp))
+                enemy_list.append(EnemyState(name=name, hp=hp, max_hp=hp))
 
-        self._state = CombatState(
-            player_hp=self._player_start_hp,
-            player_max_hp=self._player_max_hp,
+        self._state: CombatState = CombatState(
+            player_hp=player_start_hp,
+            player_max_hp=player_max_hp,
             player_block=0,
             player_powers=Powers(),
             energy=_ENERGY_PER_TURN,
             piles=piles,
-            enemies=enemies,
+            enemies=enemy_list,
             rng=rng,
             turn=0,
-            potions=list(self._starting_potions),
-            max_potion_slots=self._max_potion_slots,
-            relics=self._starting_relics,
-            gold=self._starting_gold,
-            is_elite=self._is_elite,
-            relic_state=dict(self._relic_state),
+            potions=potions,
+            max_potion_slots=character.max_potion_slots,
+            relics=starting_relics,
+            gold=character.gold,
+            is_elite=is_elite,
+            relic_state=relic_state,
         )
-        self._damage_taken = 0
-        self._max_hp_gained = 0
+        self._damage_taken: int = 0
+        self._max_hp_gained: int = 0
+        self._player_start_hp = player_start_hp
+        self._player_max_hp = player_max_hp
 
         # Wire subscriptions for relics
         for relic_name in self._state.relics:
@@ -257,7 +243,7 @@ class Combat:
                 subscribe(self._state, event, handler_name, owner)
 
         # Pick initial intents for all enemies (None sentinel for Empty slots)
-        self._intents = []
+        self._intents: list[Intent] = []
         for i, enemy in enumerate(self._state.enemies):
             if enemy.name == "Empty":
                 self._intents.append(Intent(IntentType.BUFF))  # inert placeholder
@@ -271,16 +257,15 @@ class Combat:
         # Fire COMBAT_START event
         emit(self._state, Event.COMBAT_START, "player")
 
-        return self._observe()
+    # ------------------------------------------------------------------
+    # Public interface
+    # ------------------------------------------------------------------
 
     def step(self, action: Action) -> tuple[Observation, float, dict]:
         """Apply one player action. Returns (observation, reward, info).
 
         reward = hp_after - hp_before (negative when damage is taken, 0 otherwise).
         """
-        if self._state is None:
-            raise RuntimeError("Call reset() before step().")
-
         state = self._state
         hp_before = state.player_hp
 
@@ -333,8 +318,6 @@ class Combat:
     @property
     def gold(self) -> int:
         """Gold remaining after this combat. Read after combat ends to reconcile with Character."""
-        if self._state is None:
-            return self._starting_gold
         return self._state.gold
 
     def valid_actions(self) -> list[Action]:
@@ -344,7 +327,7 @@ class Combat:
         for every (hand_index, target_index) combination — caller is responsible
         for deduplication if needed.  END_TURN is always included when not done.
         """
-        if self._state is None or self._is_done():
+        if self._is_done():
             return []
 
         state = self._state
@@ -405,8 +388,6 @@ class Combat:
 
     def observe(self) -> Observation:
         """Return current observation without advancing state."""
-        if self._state is None:
-            raise RuntimeError("Call reset() before observe().")
         return self._observe()
 
     # ------------------------------------------------------------------
@@ -415,7 +396,6 @@ class Combat:
 
     def _is_done(self) -> bool:
         state = self._state
-        assert state is not None
         all_enemies_done = all(
             not e.alive or e.is_escaping
             for e in state.enemies if e.name != "Empty"
@@ -424,7 +404,6 @@ class Combat:
 
     def _observe(self) -> Observation:
         state = self._state
-        assert state is not None
 
         enemy_obs = []
         for i, enemy in enumerate(state.enemies):
@@ -513,7 +492,6 @@ class Combat:
 
     def _resolve_end_of_player_turn(self) -> None:
         state = self._state
-        assert state is not None
 
         # Emit player TURN_END (Metallicize, strength/dex_loss_eot, etc.)
         emit(state, Event.TURN_END, "player")
@@ -672,7 +650,6 @@ class Combat:
     def _resolve_split(self, enemy: EnemyState, idx: int) -> None:
         """Replace enemy at idx and idx+1 with two fresh medium slimes."""
         state = self._state
-        assert state is not None
 
         split_target = _SPLIT_INTO[enemy.name]
         split_hp = enemy.hp
@@ -695,7 +672,6 @@ class Combat:
         self, enemy: EnemyState, intent: Intent, enemy_index: int
     ) -> None:
         state = self._state
-        assert state is not None
 
         if intent.intent_type == IntentType.SPLIT:
             self._resolve_split(enemy, enemy_index)

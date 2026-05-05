@@ -5,10 +5,8 @@ Each factory takes ``(seed, character)`` and returns a configured
 player's deck, HP, relics, potions, and gold for this encounter.
 
 Composition RNG (for encounters that pick enemies randomly) is seeded
-independently of the combat RNG so that:
-- ``Combat.reset()`` produces the same sequence regardless of which factory
-  built the object.
-- ``Combat.clone()`` remains correct — the enemy list is fixed in ``__init__``.
+independently of the combat RNG so that ``Combat.clone()`` remains correct —
+the enemy list is fixed in ``__init__``.
 
 The composition seed is derived as ``seed ^ _COMP_SEED_SALT``.
 """

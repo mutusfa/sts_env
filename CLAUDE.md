@@ -28,7 +28,7 @@ sts_env concerns itself with game state. There is a sibling project, sts_agent, 
 
 Handles single-combat turn-based battles. The public interface is `Combat`:
 
-- `Combat.reset()` → initializes state, returns `Observation`
+- `Combat(character, enemies, seed)` → constructs and fully initializes combat (ready to observe/step immediately)
 - `Combat.step(action)` → processes one action, returns `Observation`
 - `Combat.observe()` → read-only public snapshot
 

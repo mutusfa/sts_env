@@ -31,7 +31,7 @@ def _first_live_enemy_idx(obs) -> int:
 
 def test_use_potion_consumes_slot():
     combat = _combat_with_potions(["BlockPotion"])
-    obs = combat.reset()
+    obs = combat.observe()
     assert "BlockPotion" in obs.potions
     ti = _first_live_enemy_idx(obs)
     obs, _, _ = combat.step(Action.use_potion(0, ti))
@@ -41,7 +41,7 @@ def test_use_potion_consumes_slot():
 
 def test_potion_no_energy_cost():
     combat = _combat_with_potions(["EnergyPotion"])
-    obs = combat.reset()
+    obs = combat.observe()
     energy_before = obs.energy
     # EnergyPotion grants +2 energy, so energy_after = before + 2 (it doesn't cost any)
     obs, _, _ = combat.step(Action.use_potion(0))
@@ -52,7 +52,7 @@ def test_potion_can_be_used_when_entangled():
     """Entangled prevents SKILL cards; potions are unaffected."""
     from sts_env.combat.state import CombatState
     combat = _combat_with_potions(["BlockPotion"])
-    obs = combat.reset()
+    obs = combat.observe()
     # Manually set entangled
     combat._state.player_powers.entangled = True
     ti = _first_live_enemy_idx(obs)
@@ -62,7 +62,7 @@ def test_potion_can_be_used_when_entangled():
 
 def test_discard_potion_removes_slot():
     combat = _combat_with_potions(["StrengthPotion"])
-    obs = combat.reset()
+    obs = combat.observe()
     hp_before = obs.player_hp
     str_before = obs.player_powers.get("strength", 0)
     obs, _, _ = combat.step(Action.discard_potion(0))
@@ -79,13 +79,13 @@ def test_potion_slot_cap_respected():
 
 def test_max_potion_slots_in_observation():
     combat = _combat_with_potions([])
-    obs = combat.reset()
+    obs = combat.observe()
     assert obs.max_potion_slots == 3
 
 
 def test_potions_in_observation():
     combat = _combat_with_potions(["BlockPotion", "FirePotion"])
-    obs = combat.reset()
+    obs = combat.observe()
     assert obs.potions == ["BlockPotion", "FirePotion"]
 
 
@@ -96,7 +96,7 @@ def test_potions_in_observation():
 def test_fire_potion_ignores_strength_and_weak():
     """Fire Potion deals exactly 20 regardless of player Weak or Strength."""
     combat = _combat_with_potions(["FirePotion"])
-    obs = combat.reset()
+    obs = combat.observe()
     ti = _first_live_enemy_idx(obs)
     # Apply weak + give strength; should make no difference
     combat._state.player_powers.weak = 5
@@ -111,7 +111,7 @@ def test_fire_potion_ignores_strength_and_weak():
 
 def test_explosive_potion_hits_all_enemies():
     combat = _combat_with_potions(["ExplosivePotion"], enemies=["Cultist", "Cultist"])
-    obs = combat.reset()
+    obs = combat.observe()
     hps_before = [e.hp for e in obs.enemies]
     obs, _, _ = combat.step(Action.use_potion(0))
     for i, e in enumerate(obs.enemies):
@@ -121,7 +121,7 @@ def test_explosive_potion_hits_all_enemies():
 
 def test_fear_potion_applies_vulnerable_to_target():
     combat = _combat_with_potions(["FearPotion"])
-    obs = combat.reset()
+    obs = combat.observe()
     ti = _first_live_enemy_idx(obs)
     vuln_before = obs.enemies[ti].powers.get("vulnerable", 0)
     obs, _, _ = combat.step(Action.use_potion(0, ti))
@@ -134,7 +134,7 @@ def test_fear_potion_applies_vulnerable_to_target():
 
 def test_block_potion_grants_block():
     combat = _combat_with_potions(["BlockPotion"])
-    obs = combat.reset()
+    obs = combat.observe()
     block_before = obs.player_block
     obs, _, _ = combat.step(Action.use_potion(0))
     assert obs.player_block > block_before
@@ -143,7 +143,7 @@ def test_block_potion_grants_block():
 def test_block_potion_ignores_frail():
     """Block Potion grants flat 12 even when player is Frail."""
     combat = _combat_with_potions(["BlockPotion"])
-    obs = combat.reset()
+    obs = combat.observe()
     combat._state.player_powers.frail = 5
     block_before = combat._state.player_block
     combat.step(Action.use_potion(0))
@@ -157,7 +157,7 @@ def test_block_potion_ignores_frail():
 
 def test_strength_potion_persists_after_turn_end():
     combat = _combat_with_potions(["StrengthPotion"])
-    obs = combat.reset()
+    obs = combat.observe()
     str_before = obs.player_powers.get("strength", 0)
     obs, _, _ = combat.step(Action.use_potion(0))
     str_after = obs.player_powers.get("strength", 0)
@@ -170,7 +170,7 @@ def test_strength_potion_persists_after_turn_end():
 def test_steroid_potion_lost_at_end_of_turn():
     """Steroid Potion gives +5 strength this turn; lost at end of turn."""
     combat = _combat_with_potions(["SteroidPotion"])
-    obs = combat.reset()
+    obs = combat.observe()
     str_before = obs.player_powers.get("strength", 0)
     obs, _, _ = combat.step(Action.use_potion(0))
     assert obs.player_powers.get("strength", 0) == str_before + 5
@@ -181,7 +181,7 @@ def test_steroid_potion_lost_at_end_of_turn():
 def test_flex_potion_lost_at_end_of_turn():
     """Flex Potion gives +5 strength this turn; lost at end of turn."""
     combat = _combat_with_potions(["FlexPotion"])
-    obs = combat.reset()
+    obs = combat.observe()
     str_before = obs.player_powers.get("strength", 0)
     obs, _, _ = combat.step(Action.use_potion(0))
     assert obs.player_powers.get("strength", 0) == str_before + 5
@@ -192,7 +192,7 @@ def test_flex_potion_lost_at_end_of_turn():
 def test_dexterity_potion_persists():
     """Dexterity Potion grants +2 dexterity permanently (for this combat)."""
     combat = _combat_with_potions(["DexterityPotion"])
-    obs = combat.reset()
+    obs = combat.observe()
     dex_before = obs.player_powers.get("dexterity", 0)
     obs, _, _ = combat.step(Action.use_potion(0))
     assert obs.player_powers.get("dexterity", 0) == dex_before + 2
@@ -203,7 +203,7 @@ def test_dexterity_potion_persists():
 def test_speed_potion_dexterity_lost_at_end_of_turn():
     """Speed Potion gives +5 dexterity this turn; lost at end of turn."""
     combat = _combat_with_potions(["SpeedPotion"])
-    obs = combat.reset()
+    obs = combat.observe()
     dex_before = obs.player_powers.get("dexterity", 0)
     obs, _, _ = combat.step(Action.use_potion(0))
     assert obs.player_powers.get("dexterity", 0) == dex_before + 5
@@ -217,7 +217,7 @@ def test_speed_potion_dexterity_lost_at_end_of_turn():
 
 def test_swift_potion_draws_three():
     combat = _combat_with_potions(["SwiftPotion"])
-    obs = combat.reset()
+    obs = combat.observe()
     hand_size_before = len(obs.hand)
     obs, _, _ = combat.step(Action.use_potion(0))
     assert len(obs.hand) == hand_size_before + 3
@@ -225,7 +225,7 @@ def test_swift_potion_draws_three():
 
 def test_energy_potion_grants_two_energy():
     combat = _combat_with_potions(["EnergyPotion"])
-    obs = combat.reset()
+    obs = combat.observe()
     energy_before = obs.energy
     obs, _, _ = combat.step(Action.use_potion(0))
     assert obs.energy == energy_before + 2
@@ -241,7 +241,7 @@ def test_blood_potion_heals_20_percent_max_hp():
     max_hp = 80
     current_hp = 50
     combat = Combat(PlayerState(deck=["Strike"] * 5 + ["Defend"] * 4 + ["Bash"], player_hp=current_hp, player_max_hp=max_hp, potions=["BloodPotion"]), ["Cultist"], 0)
-    obs = combat.reset()
+    obs = combat.observe()
     assert obs.player_max_hp == max_hp
     hp_before = obs.player_hp
     obs, _, _ = combat.step(Action.use_potion(0))
@@ -252,7 +252,7 @@ def test_blood_potion_heals_20_percent_max_hp():
 def test_heart_of_iron_grants_metallicize_block_at_eot():
     """Heart of Iron gives Metallicize 4: gain 4 block at end of every player turn."""
     combat = _combat_with_potions(["HeartOfIron"])
-    obs = combat.reset()
+    obs = combat.observe()
     obs, _, _ = combat.step(Action.use_potion(0))
     # Confirm metallicize field visible in observation
     assert obs.player_powers.get("metallicize", 0) == 4
@@ -277,8 +277,8 @@ def test_heart_of_iron_block_applied_before_enemy_attacks():
     combat_no_met = Combat(PlayerState(deck=["Defend"] * 10, player_hp=80), ["Cultist"], 0)
     combat_with_met = _combat_with_potions(["HeartOfIron"], enemies=["Cultist"], seed=0, player_hp=80)
 
-    obs_no = combat_no_met.reset()
-    obs_met = combat_with_met.reset()
+    obs_no = combat_no_met.observe()
+    obs_met = combat_with_met.observe()
 
     # Use the potion immediately
     obs_met, _, _ = combat_with_met.step(Action.use_potion(0))
@@ -297,7 +297,7 @@ def test_heart_of_iron_block_applied_before_enemy_attacks():
 
 def test_valid_actions_includes_potion_actions():
     combat = _combat_with_potions(["FirePotion", "BlockPotion"])
-    obs = combat.reset()
+    obs = combat.observe()
     actions = combat.valid_actions()
     use_actions = [a for a in actions if a.action_type == ActionType.USE_POTION]
     discard_actions = [a for a in actions if a.action_type == ActionType.DISCARD_POTION]
@@ -310,7 +310,7 @@ def test_valid_actions_includes_potion_actions():
 
 def test_potion_action_invalid_when_slot_empty():
     combat = _combat_with_potions([])
-    obs = combat.reset()
+    obs = combat.observe()
     actions = combat.valid_actions()
     assert not any(a.action_type == ActionType.USE_POTION for a in actions)
     assert not any(a.action_type == ActionType.DISCARD_POTION for a in actions)

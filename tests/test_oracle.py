@@ -259,7 +259,7 @@ class TestCultistTrajectory:
     def test_our_engine_trajectory_matches_sts(self):
         """Our engine must produce the same player HP sequence as sts_lightspeed."""
         combat = encounters.cultist(seed=0, character=PlayerState())
-        obs = combat.reset()
+        obs = combat.observe()
         traj = [obs.player_hp]
         for _ in range(6):
             obs, _, _ = combat.step(END_TURN)
@@ -291,7 +291,7 @@ class TestCardDeltasJawWorm:
 
     def _our_setup(self):
         combat = encounters.jaw_worm(seed=self._SEED, character=PlayerState())
-        obs = combat.reset()
+        obs = combat.observe()
         bash_idx = _find_card_our(obs, "Bash")
         assert bash_idx is not None, f"Bash not found in our hand: {obs.hand}"
         return combat, obs, bash_idx
@@ -349,7 +349,7 @@ class TestCardDeltasJawWorm:
         sts_block = bc.player_block
 
         combat = encounters.jaw_worm(seed=self._SEED, character=PlayerState())
-        obs = combat.reset()
+        obs = combat.observe()
         defend_idx = _find_card_our(obs, "Defend")
         assert defend_idx is not None
         obs, _, _ = combat.step(Action(ActionType.PLAY_CARD, defend_idx, 0))
@@ -393,7 +393,7 @@ class TestAcidSlimeMWeakTiming:
         """Our engine: after Lick, player_weak=1 and Strike deals 4."""
         # seed=0 AcidSlimeM: uses Lick on turn 0
         combat = encounters.acid_slime_m(seed=0, character=PlayerState())
-        obs = combat.reset()
+        obs = combat.observe()
         assert obs.player_powers.get("weak", 0) == 0
 
         obs, _, _ = combat.step(END_TURN)

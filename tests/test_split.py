@@ -47,7 +47,7 @@ def _make_state_with_enemies(
 
 
 def _play_to_end(combat: Combat) -> None:
-    obs = combat.reset()
+    obs = combat.observe()
     while not obs.done:
         actions = combat.valid_actions()
         obs, _, _ = combat.step(actions[0])
@@ -60,7 +60,7 @@ def _play_to_end(combat: Combat) -> None:
 def test_slimed_added_to_discard_on_flame_tackle():
     """When SpikeSlimeM uses FlameTackle, one Slimed is added to the player discard."""
     combat = Combat(PlayerState(deck=["AscendersBane"] * 10, player_hp=80), ["SpikeSlimeM"], 0)
-    obs = combat.reset()
+    obs = combat.observe()
     # Force SpikeSlimeM's first intent to FlameTackle by picking a seed where
     # that's what it does.  We'll just end-turn and check the discard.
     # We need the first intent to be FlameTackle (30% chance per roll).
@@ -72,7 +72,7 @@ def test_slimed_added_to_discard_on_flame_tackle():
     found_slimed = False
     for seed in range(50):
         c = Combat(PlayerState(deck=["AscendersBane"] * 10, player_hp=80), ["SpikeSlimeM"], seed)
-        o = c.reset()
+        o = c.observe()
         enemy = o.enemies[0]
         if enemy.intent_type == "ATTACK_DEBUFF":  # FlameTackle
             o2, _, _ = c.step(Action.end_turn())
@@ -88,7 +88,7 @@ def test_slimed_added_to_discard_on_flame_tackle():
 def test_slimed_played_goes_to_exhaust():
     """Playing Slimed from hand exhausts it instead of discarding."""
     combat = Combat(PlayerState(deck=["Slimed"] + ["AscendersBane"] * 9), ["Cultist"], 3)
-    obs = combat.reset()
+    obs = combat.observe()
     # hand is now list of dicts
     slimed_idx = next(i for i, c in enumerate(obs.hand) if c["card_id"] == "Slimed")
     assert slimed_idx is not None, "Slimed should be in opening hand for seed=3"
@@ -100,7 +100,7 @@ def test_slimed_played_goes_to_exhaust():
 
 def test_slimed_consumes_energy():
     combat = Combat(PlayerState(deck=["Slimed"] + ["AscendersBane"] * 9), ["Cultist"], 3)
-    obs = combat.reset()
+    obs = combat.observe()
     slimed_idx = next(i for i, c in enumerate(obs.hand) if c["card_id"] == "Slimed")
 
     energy_before = obs.energy
@@ -111,7 +111,7 @@ def test_slimed_consumes_energy():
 def test_slimed_in_valid_actions_when_energy_available():
     """Slimed should appear in valid_actions when energy >= 1."""
     combat = Combat(PlayerState(deck=["Slimed"] * 10), ["Cultist"], 0)
-    obs = combat.reset()
+    obs = combat.observe()
     # Check that Slimed is in hand
     slimed_idx = next((i for i, c in enumerate(obs.hand) if c["card_id"] == "Slimed"), None)
     assert slimed_idx is not None
@@ -131,7 +131,7 @@ def test_slimed_in_valid_actions_when_energy_available():
 def test_empty_slot_not_targetable():
     """An Empty slot should not appear in valid target indices."""
     combat = encounters.acid_slime_l(seed=0, character=PlayerState())
-    obs = combat.reset()
+    obs = combat.observe()
     actions = combat.valid_actions()
     play_actions = [a for a in actions if a.action_type.name == "PLAY_CARD"]
     # The Empty slot is at index 1; it should never be a target
@@ -142,7 +142,7 @@ def test_empty_slot_not_targetable():
 def test_empty_slot_not_counted_for_done():
     """Combat should be done when only the real enemy is dead, not when Empty is 'alive'."""
     combat = encounters.acid_slime_l(seed=0, character=PlayerState())
-    obs = combat.reset()
+    obs = combat.observe()
     # Kill the AcidSlimeL directly — combat should be done now
     combat._state.enemies[0].hp = 0
     assert combat._is_done(), "Combat should be done when AcidSlimeL is dead (Empty ignored)"
@@ -150,14 +150,14 @@ def test_empty_slot_not_counted_for_done():
 
 def test_acid_slime_l_factory_has_two_slots():
     """acid_slime_l encounter should expose 2 slots: AcidSlimeL + Empty."""
-    obs = encounters.acid_slime_l(seed=0, character=PlayerState()).reset()
+    obs = encounters.acid_slime_l(seed=0, character=PlayerState()).observe()
     assert len(obs.enemies) == 2
     assert obs.enemies[0].name == "AcidSlimeL"
     assert obs.enemies[1].name == "Empty"
 
 
 def test_spike_slime_l_factory_has_two_slots():
-    obs = encounters.spike_slime_l(seed=0, character=PlayerState()).reset()
+    obs = encounters.spike_slime_l(seed=0, character=PlayerState()).observe()
     assert len(obs.enemies) == 2
     assert obs.enemies[0].name == "SpikeSlimeL"
     assert obs.enemies[1].name == "Empty"
@@ -178,7 +178,7 @@ def _damage_large_to_half(combat: Combat, large_idx: int, deck: list[str] | None
 def test_acid_slime_l_split_fires_when_at_half_hp():
     """After AcidSlimeL drops to <=50% HP, the next enemy turn spawns 2 AcidSlimeM."""
     combat = Combat(PlayerState(deck=["AscendersBane"] * 10, player_hp=80), ["AcidSlimeL", "Empty"], 0)
-    obs = combat.reset()
+    obs = combat.observe()
     large = combat._state.enemies[0]
     half_hp = large.max_hp // 2
 
@@ -202,7 +202,7 @@ def test_acid_slime_l_split_fires_when_at_half_hp():
 def test_split_hp_equals_large_hp_at_trigger():
     """The split mediums start with the large's HP value at the time of split."""
     combat = Combat(PlayerState(deck=["AscendersBane"] * 10, player_hp=80), ["AcidSlimeL", "Empty"], 0)
-    combat.reset()
+    combat.observe()
     large = combat._state.enemies[0]
     split_hp = large.max_hp // 2
     large.hp = split_hp
@@ -220,7 +220,7 @@ def test_split_no_damage_on_split_turn():
     """The turn the split fires, no attack damage should be dealt to the player."""
     # Give player full health; AcidSlimeL only splits, no attack
     combat = Combat(PlayerState(deck=["AscendersBane"] * 10, player_hp=80), ["AcidSlimeL", "Empty"], 0)
-    combat.reset()
+    combat.observe()
     large = combat._state.enemies[0]
     large.hp = large.max_hp // 2
     large.pending_split = True
@@ -236,7 +236,7 @@ def test_split_no_damage_on_split_turn():
 def test_spike_slime_l_split_spawns_spike_slime_m():
     """SpikeSlimeL should split into 2 SpikeSlimeM."""
     combat = Combat(PlayerState(deck=["AscendersBane"] * 10, player_hp=80), ["SpikeSlimeL", "Empty"], 0)
-    combat.reset()
+    combat.observe()
     large = combat._state.enemies[0]
     large.hp = large.max_hp // 2
     large.pending_split = True
@@ -252,7 +252,7 @@ def test_spike_slime_l_split_spawns_spike_slime_m():
 def test_split_mediums_pick_initial_intent():
     """After split, both mediums should have valid intents for the next player turn."""
     combat = Combat(PlayerState(deck=["AscendersBane"] * 10, player_hp=80), ["AcidSlimeL", "Empty"], 0)
-    combat.reset()
+    combat.observe()
     combat._state.enemies[0].hp = combat._state.enemies[0].max_hp // 2
     combat._state.enemies[0].pending_split = True
 
@@ -277,7 +277,7 @@ def test_spike_slime_l_combat_terminates():
 def test_targeting_valid_after_split():
     """After split, only the live mediums should be valid targets."""
     combat = Combat(PlayerState(deck=["Strike"] * 10, player_hp=80), ["AcidSlimeL", "Empty"], 0)
-    combat.reset()
+    combat.observe()
     combat._state.enemies[0].hp = combat._state.enemies[0].max_hp // 2
     combat._state.enemies[0].pending_split = True
 
@@ -348,8 +348,8 @@ def test_split_reproducible():
     """Same seed should produce same split-moment HP and same sequence after."""
     combat1 = encounters.acid_slime_l(seed=7, character=PlayerState())
     combat2 = encounters.acid_slime_l(seed=7, character=PlayerState())
-    obs1 = combat1.reset()
-    obs2 = combat2.reset()
+    obs1 = combat1.observe()
+    obs2 = combat2.observe()
     assert obs1.enemies[0].hp == obs2.enemies[0].hp
 
     # Drive both to split at same HP

@@ -332,7 +332,7 @@ def _make_combat_state(
 def test_ethereal_sweep_at_end_of_turn():
     """Ethereal cards in hand are exhausted at end of turn."""
     combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["JawWorm"], 42)
-    obs = combat.reset()
+    obs = combat.observe()
     # Inject a Carnage (ethereal) into hand
     combat._state.piles.hand.append(Card("Carnage"))
     combat.step(Action.end_turn())
@@ -344,7 +344,7 @@ def test_ethereal_sweep_at_end_of_turn():
 def test_demon_form_start_of_turn():
     """DemonForm gives strength at start of each turn."""
     combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["JawWorm"], 42)
-    obs = combat.reset()
+    obs = combat.observe()
     combat._state.player_powers.demon_form = 2
     _subscribe_power(combat._state, "demon_form")
     str_before = combat._state.player_powers.strength
@@ -356,7 +356,7 @@ def test_brutality_start_of_turn():
     """Brutality: lose 1 HP at start of turn (in addition to enemy damage)."""
     # With brutality
     combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["JawWorm"], 42)
-    obs = combat.reset()
+    obs = combat.observe()
     combat._state.player_powers.brutality = 1
     _subscribe_power(combat._state, "brutality")
     combat.step(Action.end_turn())
@@ -364,7 +364,7 @@ def test_brutality_start_of_turn():
 
     # Without brutality (same seed)
     combat2 = Combat(PlayerState(deck=IRONCLAD_STARTER), ["JawWorm"], 42)
-    obs2 = combat2.reset()
+    obs2 = combat2.observe()
     combat2.step(Action.end_turn())
     hp_without = combat2._state.player_hp
 
@@ -374,7 +374,7 @@ def test_brutality_start_of_turn():
 def test_berserk_energy_start_of_turn():
     """Berserk grants extra energy at start of turn."""
     combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["JawWorm"], 42)
-    obs = combat.reset()
+    obs = combat.observe()
     combat._state.player_powers.berserk_energy = 2
     _subscribe_power(combat._state, "berserk_energy")
     combat.step(Action.end_turn())
@@ -452,7 +452,7 @@ def test_rage_block_on_attack_play():
 def test_rage_resets_at_end_of_turn():
     """Rage counter resets at end of turn."""
     combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["JawWorm"], 42)
-    obs = combat.reset()
+    obs = combat.observe()
     combat._state.player_powers.rage_block = 3
     combat.step(Action.end_turn())
     assert combat._state.player_powers.rage_block == 0
@@ -461,7 +461,7 @@ def test_rage_resets_at_end_of_turn():
 def test_double_tap_resets_at_end_of_turn():
     """DoubleTap counter resets at end of turn."""
     combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["JawWorm"], 42)
-    obs = combat.reset()
+    obs = combat.observe()
     combat._state.player_powers.double_tap = 1
     combat.step(Action.end_turn())
     assert combat._state.player_powers.double_tap == 0
@@ -478,7 +478,7 @@ def test_metallicize_eot_triggers_juggernaut():
     from sts_env.combat.listeners_powers import POWER_SUBSCRIPTIONS
 
     combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["JawWorm"], 42)
-    obs = combat.reset()
+    obs = combat.observe()
     combat._state.player_powers.juggernaut = 5
     combat._state.player_powers.metallicize = 3
 
@@ -501,7 +501,7 @@ def test_feel_no_pain_triggers_juggernaut():
 
     # Use ShockWave which exhausts on play
     combat = Combat(PlayerState(deck=["ShockWave"]), ["JawWorm"], 42)
-    obs = combat.reset()
+    obs = combat.observe()
     combat._state.player_powers.juggernaut = 5
     combat._state.player_powers.feel_no_pain = 3
 
@@ -526,7 +526,7 @@ def test_block_potion_triggers_juggernaut():
     from sts_env.combat.listeners_powers import POWER_SUBSCRIPTIONS
 
     combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["JawWorm"], 42)
-    obs = combat.reset()
+    obs = combat.observe()
     combat._state.player_powers.juggernaut = 5
 
     # Manually subscribe since we're setting powers after reset
@@ -553,7 +553,7 @@ def test_whirlwind_resolves_all_hits_before_curl_up():
     from sts_env.combat.engine import Combat, IRONCLAD_STARTER
 
     combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["RedLouse"], 99)
-    combat.reset()
+    combat.observe()
     state = combat._state
     enemy = state.enemies[0]
     # Set high HP and a known curl_up value
@@ -581,7 +581,7 @@ def test_curl_up_not_triggered_by_juggernaut():
     from sts_env.combat.engine import Combat, IRONCLAD_STARTER
 
     combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["JawWorm"], 42)
-    combat.reset()
+    combat.observe()
     state = combat._state
     state.enemies[0].powers.curl_up = 5
     state.player_powers.juggernaut = 5
@@ -603,7 +603,7 @@ def test_curl_up_not_triggered_by_fire_potion():
     from sts_env.combat.engine import Combat, IRONCLAD_STARTER
 
     combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["JawWorm"], 42)
-    combat.reset()
+    combat.observe()
     state = combat._state
     state.enemies[0].powers.curl_up = 5
     state.enemies[0].hp = 50

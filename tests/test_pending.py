@@ -21,7 +21,7 @@ from sts_env.combat.state import Action, ActionType
 
 def _make_combat(seed: int = 42) -> Combat:
     combat = Combat(PlayerState(deck=list(IRONCLAD_STARTER)), ["JawWorm"], seed)
-    combat.reset()
+    combat.observe()
     return combat
 
 

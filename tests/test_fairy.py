@@ -20,7 +20,7 @@ def _combat_with_fairy(
     seed: int = 42,
 ) -> Combat:
     c = Combat(PlayerState(deck=["Strike", "Defend", "Bash"], player_hp=player_hp, player_max_hp=player_max_hp, potions=["FairyInABottle"]), ["JawWorm"], seed)
-    c.reset()
+    c.observe()
     return c
 
 
@@ -52,7 +52,7 @@ class TestFairyInABottle:
 
     def test_two_fairies_consume_independently(self):
         c = Combat(PlayerState(deck=["Strike", "Defend", "Bash"], player_hp=10, player_max_hp=80, potions=["FairyInABottle", "FairyInABottle"]), ["JawWorm"], 42)
-        c.reset()
+        c.observe()
         state = c._state
         assert state.potions.count("FairyInABottle") == 2
 
@@ -71,7 +71,7 @@ class TestFairyInABottle:
 
     def test_no_revive_without_potion(self):
         c = Combat(PlayerState(deck=["Strike", "Defend", "Bash"], player_hp=10, player_max_hp=80, potions=[]), ["JawWorm"], 42)
-        c.reset()
+        c.observe()
         state = c._state
         state.player_hp = 0
         emit(state, Event.HP_LOSS, "player", hp_before=10)

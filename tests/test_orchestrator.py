@@ -21,7 +21,7 @@ class _MockAgent:
     """Deterministic stub: always picks first option, ends-turn-spam in combat."""
 
     def run_battle(self, combat: Combat) -> int:
-        obs = combat.reset()
+        obs = combat.observe()
         while not obs.done:
             actions = combat.valid_actions()
             if not actions:

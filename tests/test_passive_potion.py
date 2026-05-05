@@ -44,7 +44,7 @@ def test_fairy_in_a_bottle_not_in_legal_actions():
     They should only be discardable.
     """
     c = Combat(PlayerState(deck=["Strike", "Defend", "Bash"], potions=["FairyInABottle"]), ["JawWorm"], 42)
-    c.reset()
+    c.observe()
     legal = c.valid_actions()
 
     # Should have discard_potion(0)
@@ -58,7 +58,7 @@ def test_fairy_in_a_bottle_not_in_legal_actions():
 def test_active_potions_still_work():
     """Non-passive potions should still generate use_potion actions."""
     c = Combat(PlayerState(deck=["Strike", "Defend", "Bash"], potions=["BlockPotion", "FirePotion"]), ["JawWorm"], 42)
-    c.reset()
+    c.observe()
     legal = c.valid_actions()
 
     # BlockPotion (NONE target) should have use_potion(0)

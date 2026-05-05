@@ -239,7 +239,7 @@ class TestUpgradeSuffixParsing:
         c.deck[idx] = "Strike+"
 
         combat = Combat(PlayerState(deck=list(c.deck), player_hp=c.player_hp), ["JawWorm"], 42)
-        combat.reset()
+        combat.observe()
         all_cards = (
             combat._state.piles.draw
             + combat._state.piles.hand

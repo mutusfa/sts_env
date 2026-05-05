@@ -24,7 +24,7 @@ class TestGremlinNob:
     def test_bellow_does_not_drain_energy(self):
         """Bellow applies Enrage to Nob but does NOT drain player energy."""
         combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["GremlinNob"], 42)
-        obs = combat.reset()
+        obs = combat.observe()
         # Turn 0: Nob shows BUFF intent (Bellow)
         assert obs.enemies[0].intent_type == "BUFF"
         # End turn → Bellow resolves (Enrage applied, no energy drain)
@@ -35,7 +35,7 @@ class TestGremlinNob:
     def test_skill_punish_adds_strength(self):
         """Playing a Skill card should give Nob 2 strength (Enrage)."""
         combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["GremlinNob"], 42)
-        obs = combat.reset()
+        obs = combat.observe()
         # End turn 0 (Bellow)
         obs, _, _ = combat.step(Action.end_turn())
         # Turn 1: find a Skill card in hand
@@ -58,7 +58,7 @@ class TestGremlinNob:
     def test_attack_does_not_trigger_enrage(self):
         """Playing an Attack card should NOT trigger Nob's Enrage."""
         combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["GremlinNob"], 42)
-        obs = combat.reset()
+        obs = combat.observe()
         # End turn 0 (Bellow)
         obs, _, _ = combat.step(Action.end_turn())
         # Find an Attack card that's not Bash (Bash applies vulnerable which is separate)
@@ -90,14 +90,14 @@ class TestLagavulin:
     def test_starts_asleep(self):
         """Lagavulin should start asleep with metallicize."""
         combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["Lagavulin"], 42)
-        obs = combat.reset()
+        obs = combat.observe()
         assert obs.enemies[0].powers.get("asleep", False) is True
         assert obs.enemies[0].powers.get("enemy_metallicize", 0) == 8
 
     def test_wakes_on_attack(self):
         """Lagavulin should wake up when attacked and attack back immediately."""
         combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["Lagavulin"], 42)
-        obs = combat.reset()
+        obs = combat.observe()
         # Play Strike to wake Lagavulin
         strike_idx = next(i for i, c in enumerate(obs.hand) if (c["card_id"] if isinstance(c, dict) else c.card_id) == "Strike")
         obs, _, _ = combat.step(Action.play_card(strike_idx, 0))
@@ -110,7 +110,7 @@ class TestLagavulin:
     def test_sleep_does_not_drain_strength(self):
         """Lagavulin's sleep does NOT drain player strength — only Siphon Soul does."""
         combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["Lagavulin"], 42)
-        obs = combat.reset()
+        obs = combat.observe()
         # Don't attack — let it sleep for 3 turns
         for _ in range(3):
             if obs.done:
@@ -124,7 +124,7 @@ class TestLagavulin:
     def test_siphon_pushes_stats_negative(self):
         """Siphon Soul should push strength and dexterity below 0."""
         combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["Lagavulin"], 42)
-        obs = combat.reset()
+        obs = combat.observe()
         # Wake Lagavulin
         strike_idx = next(i for i, c in enumerate(obs.hand) if (c["card_id"] if isinstance(c, dict) else c.card_id) == "Strike")
         obs, _, _ = combat.step(Action.play_card(strike_idx, 0))
@@ -150,7 +150,7 @@ class TestSentry:
     def test_dazed_goes_to_discard_pile(self):
         """Bolt intent should add 2 Dazed to discard pile (not draw)."""
         combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["Sentry", "Sentry", "Sentry"], 42)
-        obs = combat.reset()
+        obs = combat.observe()
         # End turn 0 (sentries at idx 0,2 play Bolt, idx 1 plays Beam)
         obs, _, _ = combat.step(Action.end_turn())
         # After Bolt resolves: 2 Dazed per Bolt sentry, placed in discard
@@ -166,14 +166,14 @@ class TestSentry:
     def test_sentry_has_artifact(self):
         """Each Sentry should start with Artifact 1."""
         combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["Sentry", "Sentry", "Sentry"], 42)
-        obs = combat.reset()
+        obs = combat.observe()
         for e in obs.enemies:
             assert e.powers.get("artifact", 0) == 1, f"Sentry should have Artifact 1, got {e.powers.get('artifact', 0)}"
 
     def test_sentry_first_turn_pattern(self):
         """Even-indexed Sentries start with Bolt, odd-indexed with Beam."""
         combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["Sentry", "Sentry", "Sentry"], 42)
-        obs = combat.reset()
+        obs = combat.observe()
         # idx 0 (even) → Bolt, idx 1 (odd) → Beam, idx 2 (even) → Bolt
         assert obs.enemies[0].intent_type == "DEBUFF", f"Sentry 0 should start Bolt (DEBUFF), got {obs.enemies[0].intent_type}"
         assert obs.enemies[1].intent_type == "ATTACK", f"Sentry 1 should start Beam (ATTACK), got {obs.enemies[1].intent_type}"
@@ -305,17 +305,17 @@ class TestBuilder:
 
     def test_build_easy_combat(self):
         combat = builder.build_combat("easy", "cultist", seed=42)
-        obs = combat.reset()
+        obs = combat.observe()
         assert obs.enemies[0].name == "Cultist"
 
     def test_build_elite_combat(self):
         combat = builder.build_combat("elite", "Lagavulin", seed=42)
-        obs = combat.reset()
+        obs = combat.observe()
         assert obs.enemies[0].name == "Lagavulin"
 
     def test_build_sentry_combat(self):
         combat = builder.build_combat("elite", "Three Sentries", seed=42)
-        obs = combat.reset()
+        obs = combat.observe()
         assert len(obs.enemies) == 3
         assert obs.enemies[0].name == "Sentry"
 
@@ -323,7 +323,7 @@ class TestBuilder:
         c = Character.ironclad()
         c.add_potion("FirePotion")
         combat = builder.build_combat("easy", "cultist", seed=42, character=c)
-        obs = combat.reset()
+        obs = combat.observe()
         assert "FirePotion" in obs.potions
 
 
@@ -365,7 +365,7 @@ class TestDamageTakenAndMaxHp:
         for seed in range(50):
             deck = IRONCLAD_STARTER + ["Feed"]
             combat = Combat(PlayerState(deck=deck), ["Cultist"], seed)
-            obs = combat.reset()
+            obs = combat.observe()
             while not obs.done:
                 actions = combat.valid_actions()
                 if not actions:
@@ -385,7 +385,7 @@ class TestDamageTakenAndMaxHp:
     def test_max_hp_gained_default_zero(self):
         """Without Feed, max_hp_gained should be 0."""
         combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["Cultist"], 0)
-        obs = combat.reset()
+        obs = combat.observe()
         while not obs.done:
             actions = combat.valid_actions()
             if not actions:
@@ -406,7 +406,7 @@ class TestCardPotions:
         """Build a combat with a single potion and a tiny deck."""
         deck = ["Strike", "Defend"]
         combat = Combat(PlayerState(deck=deck), ["Cultist"], seed)
-        combat.reset()
+        combat.observe()
         # Inject the potion directly into state
         combat._state.potions = [potion_id]
         return combat
@@ -643,7 +643,7 @@ class TestCharacter:
         combat = builder.build_combat(
             "easy", "cultist", seed=42, character=c
         )
-        obs = combat.reset()
+        obs = combat.observe()
         assert obs.player_hp == 60
         assert "FirePotion" in obs.potions
 
@@ -652,7 +652,7 @@ class TestCharacter:
         c = Character.ironclad()
         c.player_hp = 50
         combat = builder.build_combat("easy", "cultist", seed=42, character=c)
-        obs = combat.reset()
+        obs = combat.observe()
         assert obs.player_hp == 50
 
     def test_character_is_mutable(self):

@@ -706,7 +706,7 @@ def test_observation_hand_cost_for_x_card():
     from sts_env.combat.engine import Combat, Action, ActionType
 
     combat = Combat(PlayerState(deck=["Whirlwind"] * 10), ["Cultist"], 0)
-    combat.reset()
+    combat.observe()
     combat._state.energy = 3
     combat._state.piles.hand = [Card("Whirlwind")]
 

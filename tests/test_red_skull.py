@@ -18,7 +18,7 @@ def _combat_with_red_skull(
     seed: int = 42,
 ) -> Combat:
     c = Combat(PlayerState(deck=["Strike", "Defend", "Bash"], player_hp=player_hp, player_max_hp=player_max_hp, relics=frozenset(["RedSkull"])), ["JawWorm"], seed)
-    c.reset()
+    c.observe()
     return c
 
 
@@ -63,5 +63,5 @@ class TestRedSkull:
 
     def test_bonus_not_active_without_relic(self):
         c = Combat(PlayerState(deck=["Strike", "Defend", "Bash"], player_hp=30, player_max_hp=80), ["JawWorm"], 42)
-        c.reset()
+        c.observe()
         assert c._state.player_powers.strength == 0

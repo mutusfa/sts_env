@@ -19,7 +19,7 @@ def _add_corruption_to_hand(combat):
 def test_corruption_stamps_existing_skills():
     """Under Corruption, all existing skills in all piles are stamped."""
     combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["JawWorm"], 42)
-    obs = combat.reset()
+    obs = combat.observe()
 
     # Add Corruption to hand and play it
     obs = _add_corruption_to_hand(combat)
@@ -49,7 +49,7 @@ def test_corruption_stamps_existing_skills():
 def test_corruption_stamps_new_skills_via_card_created():
     """Under Corruption, newly created skills (e.g. from potions) are stamped."""
     combat = Combat(PlayerState(deck=IRONCLAD_STARTER, potions=["SkillPotion"]), ["JawWorm"], 42)
-    obs = combat.reset()
+    obs = combat.observe()
 
     # Add Corruption to hand and play it
     obs = _add_corruption_to_hand(combat)
@@ -76,7 +76,7 @@ def test_corruption_stamps_new_skills_via_card_created():
 def test_corruption_clear_cost_override_skips_corrupted_cards():
     """Clearing cost override at end of turn does NOT affect corruption-stamped cards."""
     combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["JawWorm"], 42)
-    obs = combat.reset()
+    obs = combat.observe()
 
     # Add Corruption to hand and play it
     obs = _add_corruption_to_hand(combat)
@@ -99,7 +99,7 @@ def test_corruption_clear_cost_override_skips_corrupted_cards():
 def test_corruption_observation_visibility():
     """Corruption power is visible in observation and hand shows effective costs."""
     combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["JawWorm"], 42)
-    obs = combat.reset()
+    obs = combat.observe()
 
     # Add Corruption to hand and play it
     obs = _add_corruption_to_hand(combat)
@@ -127,7 +127,7 @@ def test_corruption_observation_visibility():
 def test_corruption_attacks_not_affected():
     """Corruption does NOT affect attack cards."""
     combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["JawWorm"], 42)
-    obs = combat.reset()
+    obs = combat.observe()
 
     # Add Corruption to hand and play it
     obs = _add_corruption_to_hand(combat)
@@ -148,7 +148,7 @@ def test_corruption_attacks_not_affected():
 def test_corruption_skills_cost_zero_and_exhaust():
     """Under Corruption, skills cost 0 to play and are exhausted when played."""
     combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["JawWorm"], 42)
-    obs = combat.reset()
+    obs = combat.observe()
 
     # Add Corruption to hand and play it
     obs = _add_corruption_to_hand(combat)

@@ -557,7 +557,7 @@ def _run_map(
                             result.max_hp_gained_total += combat.max_hp_gained
 
                             obs = combat.observe()
-                            event_enemies_str = ", ".join(n for n in combat._enemy_names if n != "Empty")
+                            event_enemies_str = ", ".join(e.name for e in combat._state.enemies if e.name != "Empty")
                             result.combat_log.append(
                                 f"FLOOR {floor_num+1} (event_combat/{combat_enc_id}): "
                                 f"enemies=[{event_enemies_str}] damage={damage} turns={obs.turn} "
@@ -685,7 +685,7 @@ def _run_map(
                     result.max_hp_gained_total += combat.max_hp_gained
 
                     obs = combat.observe()
-                    enemies_str = ", ".join(n for n in combat._enemy_names if n != "Empty")
+                    enemies_str = ", ".join(e.name for e in combat._state.enemies if e.name != "Empty")
                     attrs.update({
                         "encounter_id": encounter_id,
                         "damage_taken": damage,
@@ -781,7 +781,7 @@ def _run_linear(
             result.max_hp_gained_total += combat.max_hp_gained
 
             obs = combat.observe()
-            enemies_str = ", ".join(n for n in combat._enemy_names if n != "Empty")
+            enemies_str = ", ".join(e.name for e in combat._state.enemies if e.name != "Empty")
             attrs.update({
                 "encounter_id": encounter_id,
                 "damage_taken": damage,
