@@ -1101,12 +1101,26 @@ register_enemy(_HEXAGHOST, _hexaghost_intent)
 # Guardian — Act 1 boss
 # ---------------------------------------------------------------------------
 # HP: 240 (fixed)
-# Attack-stance cycle (repeats):
-#   Charging Up  — DEFEND (gains 9 block)
-#   Fierce Strike — ATTACK 32 damage
-#   Vent Steam   — DEBUFF (2 Weak + 2 Vulnerable to player)
-#   Whirlwind    — ATTACK 5×4 (5 damage, 4 hits)
-# Source: MonsterSpecific.cpp (ascension 0)
+#
+# Normal cycle: ChargingUp → FierceStrike → VentSteam → Whirlwind → repeat
+#
+# Mode Shift mechanic:
+#   Starts with Mode Shift = 30 (tracked in powers.mode_shift).
+#   Each player attack decrements Mode Shift by damage dealt.
+#   When Mode Shift ≤ 0: enter Defensive Mode (interrupt normal cycle).
+#
+# Defensive sub-cycle:
+#   DefensiveMode → RollAttack → TwinSlam → (return to normal at Whirlwind)
+#
+#   DefensiveMode: gain Sharp Hide 3 + 20 block
+#   RollAttack:    9 damage
+#   TwinSlam:      8×2 damage, remove Sharp Hide, miscInfo += 10,
+#                  re-apply Mode Shift(miscInfo)
+#
+# After TwinSlam, the next normal-cycle move is Whirlwind.
+# misc tracks the escalating threshold (30 → 40 → 50 → ...).
+#
+# Source: MonsterSpecific.cpp (ascension 0), Monster.cpp lines 521-532
 
 _GUARDIAN = EnemySpec("Guardian", hp_min=240, hp_max=240)
 
@@ -1114,15 +1128,57 @@ _GU_CHARGING = Intent(IntentType.DEFEND, block_gain=9)
 _GU_FIERCE = Intent(IntentType.ATTACK, damage=32, hits=1)
 _GU_VENT = Intent(IntentType.DEBUFF, applies_weak=2, applies_vulnerable=2)
 _GU_WHIRLWIND = Intent(IntentType.ATTACK, damage=5, hits=4)
+_GU_DEFENSIVE = Intent(IntentType.BUFF)       # Sharp Hide + 20 block (resolved in engine)
+_GU_ROLL_ATTACK = Intent(IntentType.ATTACK, damage=9, hits=1)
+_GU_TWIN_SLAM = Intent(IntentType.ATTACK, damage=8, hits=2)
 
-_GU_CYCLE = [_GU_CHARGING, _GU_FIERCE, _GU_VENT, _GU_WHIRLWIND]
+_GU_NORMAL_CYCLE = [_GU_CHARGING, _GU_FIERCE, _GU_VENT, _GU_WHIRLWIND]
+_GU_NORMAL_NAMES = ["ChargingUp", "FierceStrike", "VentSteam", "Whirlwind"]
+_GU_DEFENSIVE_NAMES = ["DefensiveMode", "RollAttack", "TwinSlam"]
+
+# After TwinSlam, the normal cycle resumes at Whirlwind.
+# We track state via move_history: last move name determines the next move.
+_GU_NEXT_MOVE: dict[str, tuple[str, Intent]] = {
+    # Normal cycle
+    "ChargingUp": ("FierceStrike", _GU_FIERCE),
+    "FierceStrike": ("VentSteam", _GU_VENT),
+    "VentSteam": ("Whirlwind", _GU_WHIRLWIND),
+    "Whirlwind": ("ChargingUp", _GU_CHARGING),
+    # Defensive sub-cycle
+    "DefensiveMode": ("RollAttack", _GU_ROLL_ATTACK),
+    "RollAttack": ("TwinSlam", _GU_TWIN_SLAM),
+    # TwinSlam → back to normal cycle at Whirlwind
+    "TwinSlam": ("Whirlwind", _GU_WHIRLWIND),
+}
 
 
-def _guardian_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
-    idx = turn % len(_GU_CYCLE)
-    names = ["ChargingUp", "FierceStrike", "VentSteam", "Whirlwind"]
-    enemy.move_history.append(names[idx])
-    return _GU_CYCLE[idx]
+def _guardian_pre_battle(enemy: "EnemyState", state: "CombatState") -> None:  # noqa: ARG001
+    """Initialize Guardian with Mode Shift 30 and set misc threshold."""
+    enemy.powers.mode_shift = 30
+    enemy.misc = 30  # escalating threshold
 
 
-register_enemy(_GUARDIAN, _guardian_intent)
+def _guardian_intent(
+    enemy: "EnemyState", rng: "RNG", turn: int,  # noqa: ARG001
+    state: "CombatState", enemy_index: int,  # noqa: ARG001
+) -> Intent:
+    """Pick Guardian's next intent based on mode state and move history."""
+    # First turn: always start with ChargingUp
+    if not enemy.move_history:
+        enemy.move_history.append("ChargingUp")
+        return _GU_CHARGING
+
+    # Check if mode shift was triggered during the player's last turn
+    if enemy.pending_mode_shift:
+        enemy.pending_mode_shift = False
+        enemy.move_history.append("DefensiveMode")
+        return _GU_DEFENSIVE
+
+    # Normal flow: look at last move to determine next
+    last_move = enemy.move_history[-1]
+    next_name, next_intent = _GU_NEXT_MOVE.get(last_move, ("ChargingUp", _GU_CHARGING))
+    enemy.move_history.append(next_name)
+    return next_intent
+
+
+register_enemy(_GUARDIAN, context_picker=_guardian_intent, pre_battle=_guardian_pre_battle)

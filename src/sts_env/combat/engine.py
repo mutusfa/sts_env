@@ -446,6 +446,8 @@ class Combat:
                         "spore_cloud": enemy.powers.spore_cloud,
                         "entangled": enemy.powers.entangled,
                         "artifact": enemy.powers.artifact,
+                        "mode_shift": enemy.powers.mode_shift,
+                        "sharp_hide": enemy.powers.sharp_hide,
                     },
                     intent_type=intent.intent_type.name if intent else "NONE",
                     intent_damage=intent.damage if intent else 0,
@@ -709,6 +711,10 @@ class Combat:
             state.player_powers.dexterity -= 1
             return
 
+        # Guardian DefensiveMode: gain Sharp Hide 3 (block already gained by listener)
+        if enemy.name == "Guardian" and enemy.move_history and enemy.move_history[-1] == "DefensiveMode":
+            enemy.powers.sharp_hide = 3
+
         if intent.intent_type in (IntentType.ATTACK, IntentType.ATTACK_DEFEND, IntentType.ATTACK_DEBUFF):
             for _ in range(intent.hits):
                 raw = calc_damage(intent.damage, enemy.powers, state.player_powers)
@@ -716,6 +722,12 @@ class Combat:
                 emit(state, Event.ATTACK_DAMAGED, "player", damage=raw)
                 if state.player_hp <= 0:
                     return
+
+        # Guardian TwinSlam: remove Sharp Hide, escalate Mode Shift, re-apply
+        if enemy.name == "Guardian" and enemy.move_history and enemy.move_history[-1] == "TwinSlam":
+            enemy.powers.sharp_hide = 0
+            enemy.misc += 10
+            enemy.powers.mode_shift = enemy.misc
 
         # Gold steal (Looter/Mugger Mug)
         if intent.gold_steal > 0:

@@ -29,6 +29,7 @@ class EnemyState:
     move_history: list[str] = field(default_factory=list)
     misc: int = 0  # per-enemy scratch space: louse bite dmg, wizard charge counter, etc.
     pending_split: bool = False  # set when HP crosses <=50% for large slimes
+    pending_mode_shift: bool = False  # Guardian: set when mode_shift depleted by damage
     is_escaping: bool = False    # Looter/Mugger: fled combat; counts as dead for win condition
     skill_played_str: int = 0    # Gremlin Nob: gain this much strength when player plays a Skill
     gold_stolen: int = 0         # Looter/Mugger: gold stolen via Mug; refunded on kill

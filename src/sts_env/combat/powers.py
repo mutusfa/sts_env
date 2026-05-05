@@ -121,6 +121,8 @@ class Powers:
     cards_played_this_turn: int = 0  # counter for Panache etc.
     combust: int = 0               # Combust: stacks (HP loss per turn = this value)
     combust_dmg: int = 0           # Combust: total damage dealt to all enemies per turn
+    mode_shift: int = 0            # Guardian: damage threshold before entering defensive mode
+    sharp_hide: int = 0            # Guardian: deals N damage when player plays an attack
 
     def tick_start_of_turn(self) -> None:
         """Decrement duration-based statuses."""

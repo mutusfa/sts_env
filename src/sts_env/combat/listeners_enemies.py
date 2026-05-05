@@ -63,6 +63,25 @@ def _lagavulin_wake(state: CombatState, owner: Owner, payload: dict) -> None:
         enemy.powers.enemy_metallicize = 0
 
 
+@listener(Event.HP_LOSS, "guardian_mode_shift", subscriptions=[(ENEMY_SUBSCRIPTIONS, "Guardian")])
+def _guardian_mode_shift(state: CombatState, owner: Owner, payload: dict) -> None:
+    """Decrement Guardian's Mode Shift by damage dealt. Trigger defensive mode when depleted."""
+    if not isinstance(owner, int):
+        return
+    enemy = state.enemies[owner]
+    if enemy.powers.mode_shift <= 0:
+        return  # already triggered or not active
+    hp_before = payload.get("hp_before", enemy.hp)
+    damage_dealt = hp_before - enemy.hp
+    if damage_dealt <= 0:
+        return
+    enemy.powers.mode_shift -= damage_dealt
+    if enemy.powers.mode_shift <= 0:
+        enemy.powers.mode_shift = 0
+        enemy.pending_mode_shift = True
+        enemy.block += 20  # gain 20 block immediately on transition
+
+
 @listener(Event.ATTACK_DAMAGED, "curl_up", subscriptions=[])
 def _curl_up(state: CombatState, owner: Owner, payload: dict) -> None:
     if not isinstance(owner, int):
@@ -114,6 +133,25 @@ def _gremlin_nob_skill(state: CombatState, owner: Owner, payload: dict) -> None:
             enemy.powers.strength += enemy.skill_played_str
 
 
+@listener(Event.CARD_PLAYED, "sharp_hide", subscriptions=[])
+def _sharp_hide(state: CombatState, owner: Owner, payload: dict) -> None:
+    """When the player plays an Attack, enemies with Sharp Hide deal damage back."""
+    from .cards import CardType
+    from .powers import apply_damage
+    card = payload.get("card")
+    if card is None or card.spec.card_type != CardType.ATTACK:
+        return
+    for enemy in state.enemies:
+        if enemy.alive and enemy.powers.sharp_hide > 0:
+            hp_before = state.player_hp
+            nb, nhp = apply_damage(enemy.powers.sharp_hide, state.player_block, state.player_hp)
+            state.player_block = nb
+            state.player_hp = nhp
+            if nhp < hp_before:
+                from .events import Event, emit as _emit
+                _emit(state, Event.HP_LOSS, "player", hp_before=hp_before)
+
+
 # ---------------------------------------------------------------------------
 # Condition-based subscriptions (subscribe in Combat.reset if power > 0)
 # key is checked against enemy powers; value is (event, handler_name, owner_override)
@@ -130,4 +168,6 @@ ENEMY_CONDITION_SUBSCRIPTIONS: list[tuple[str, Event, str, str | None]] = [
     ("strength_loss_this_turn", Event.TURN_END, "reset_strength_loss_this_turn", None),
     # Refund stolen gold when Looter/Mugger is killed
     ("gold_stolen", Event.DEATH, "refund_stolen_gold", None),
+    # Guardian: Sharp Hide deals damage when player plays an Attack
+    ("sharp_hide", Event.CARD_PLAYED, "sharp_hide", "player"),
 ]
