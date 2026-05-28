@@ -407,6 +407,7 @@ def _run_map(
                             match_and_keep_setup,
                             match_and_keep_resolve,
                             match_and_keep_grid_view,
+                            match_and_keep_grid_text,
                             match_and_keep_done,
                             match_and_keep_attempts_remaining,
                             match_and_keep_extra_context,
@@ -416,14 +417,6 @@ def _run_map(
 
                         _noop: EventChoice = EventChoice(label="", effect=lambda c, r: "")
 
-                        def _mk_grid_text(grid: list) -> str:
-                            lines = []
-                            for i, slot in enumerate(grid):
-                                card = slot.visible_card or "?"
-                                state = slot.state.name
-                                lines.append(f"  [{i}] {card} ({state})")
-                            return "\n".join(lines)
-
                         reset = True
                         while not match_and_keep_done():
                             grid = match_and_keep_grid_view()
@@ -432,15 +425,15 @@ def _run_map(
                                 i for i, s in enumerate(grid)
                                 if s.state.name != "MATCHED"
                             ]
-                            grid_text = _mk_grid_text(grid)
-                            description = (
-                                f"Attempts remaining: {attempts}\nGrid:\n{grid_text}"
+                            first_description = (
+                                f"Attempts remaining: {attempts}\nGrid:\n"
+                                f"{match_and_keep_grid_text(grid)}"
                             )
 
                             # First slot pick
                             first_event = EventSpec(
                                 event_id="Match and Keep - Pick First",
-                                description=description,
+                                description=first_description,
                                 choices=[
                                     EventChoice(
                                         label=f"Slot {i}: {grid[i].visible_card or '?'}",
@@ -458,11 +451,16 @@ def _run_map(
                             )
                             idx1 = available[max(0, min(c1, len(available) - 1))]
 
-                            # Second slot pick (budget already running)
+                            # Second slot pick: show idx1 as CHOSEN (card revealed)
+                            # so the agent knows what they're trying to match.
                             remaining = [i for i in available if i != idx1]
+                            second_description = (
+                                f"Attempts remaining: {attempts}\nGrid:\n"
+                                f"{match_and_keep_grid_text(grid, chosen_idx=idx1)}"
+                            )
                             second_event = EventSpec(
                                 event_id="Match and Keep - Pick Second",
-                                description=description,
+                                description=second_description,
                                 choices=[
                                     EventChoice(
                                         label=f"Slot {i}: {grid[i].visible_card or '?'}",

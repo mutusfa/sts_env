@@ -915,6 +915,27 @@ def match_and_keep_grid_view() -> list[MatchAndKeepSlot]:
     return list(_mk_grid)
 
 
+def match_and_keep_grid_text(
+    grid: list[MatchAndKeepSlot],
+    chosen_idx: int | None = None,
+) -> str:
+    """Render the 4×3 grid as a human-readable string for agent context.
+
+    When ``chosen_idx`` is given (the first card flipped in the current
+    attempt), that slot is shown as ``CHOSEN`` with its card name revealed —
+    mirroring the actual game where the first flipped card stays face-up
+    while the player picks the second card.
+    """
+    lines = []
+    for i, slot in enumerate(grid):
+        if i == chosen_idx:
+            lines.append(f"  [{i}] {slot.card_id} (CHOSEN)")
+        else:
+            card = slot.visible_card or "?"
+            lines.append(f"  [{i}] {card} ({slot.state.name})")
+    return "\n".join(lines)
+
+
 def match_and_keep_attempts_remaining() -> int:
     return _mk_attempts
 

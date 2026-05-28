@@ -585,6 +585,42 @@ class TestMatchAndKeep:
         assert "Starter: Bash" in ctx
         assert "5 attempts" in ctx
 
+    def test_grid_text_face_down_slot_shows_question_mark(self, char, rng):
+        """FACE_DOWN slots without chosen_idx show '?' in grid text."""
+        from sts_env.run.events import match_and_keep_setup, match_and_keep_grid_text, _mk_grid, _SlotState
+        match_and_keep_setup(char, rng)
+        grid = list(_mk_grid)
+        face_down_idx = next(i for i, s in enumerate(grid) if s.state == _SlotState.FACE_DOWN)
+        text = match_and_keep_grid_text(grid)
+        assert f"[{face_down_idx}] ? (FACE_DOWN)" in text
+
+    def test_grid_text_chosen_idx_reveals_card_and_marks_chosen(self, char, rng):
+        """Grid text with chosen_idx shows card name as CHOSEN even for FACE_DOWN slots."""
+        from sts_env.run.events import match_and_keep_setup, match_and_keep_grid_text, _mk_grid, _SlotState
+        match_and_keep_setup(char, rng)
+        grid = list(_mk_grid)
+        face_down_idx = next(i for i, s in enumerate(grid) if s.state == _SlotState.FACE_DOWN)
+        card_name = grid[face_down_idx].card_id
+        text = match_and_keep_grid_text(grid, chosen_idx=face_down_idx)
+        assert f"[{face_down_idx}] {card_name} (CHOSEN)" in text
+        # Original FACE_DOWN marker should not appear for the chosen slot
+        assert f"[{face_down_idx}] ? (FACE_DOWN)" not in text
+
+    def test_grid_text_chosen_idx_does_not_affect_other_slots(self, char, rng):
+        """Grid text with chosen_idx should leave all other slots unchanged."""
+        from sts_env.run.events import match_and_keep_setup, match_and_keep_grid_text, _mk_grid, _SlotState
+        match_and_keep_setup(char, rng)
+        grid = list(_mk_grid)
+        chosen_idx = 0
+        text_no_chosen = match_and_keep_grid_text(grid)
+        text_with_chosen = match_and_keep_grid_text(grid, chosen_idx=chosen_idx)
+        # All lines except the chosen slot should be identical
+        lines_no = text_no_chosen.splitlines()
+        lines_with = text_with_chosen.splitlines()
+        for i, (no, with_) in enumerate(zip(lines_no, lines_with)):
+            if i != chosen_idx:
+                assert no == with_, f"Line {i} changed unexpectedly"
+
 
 # ---------------------------------------------------------------------------
 # Golden Shrine
