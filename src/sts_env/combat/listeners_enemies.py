@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 # Subscription tables
 # ---------------------------------------------------------------------------
 
-# Name-based subscriptions (subscribe in Combat.reset for matching enemies)
+# Name-based subscriptions (subscribed in Combat.__init__ for matching enemies)
 ENEMY_SUBSCRIPTIONS: dict[str, list[tuple[Event, str]]] = {}
 
 
@@ -153,7 +153,7 @@ def _sharp_hide(state: CombatState, owner: Owner, payload: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Condition-based subscriptions (subscribe in Combat.reset if power > 0)
+# Condition-based subscriptions (subscribed in Combat.__init__ if power > 0)
 # key is checked against enemy powers; value is (event, handler_name, owner_override)
 # owner_override: None means use enemy index; "player" means subscribe to player events
 ENEMY_CONDITION_SUBSCRIPTIONS: list[tuple[str, Event, str, str | None]] = [

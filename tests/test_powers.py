@@ -482,7 +482,7 @@ def test_metallicize_eot_triggers_juggernaut():
     combat._state.player_powers.juggernaut = 5
     combat._state.player_powers.metallicize = 3
 
-    # Manually subscribe since we're setting powers after reset
+    # Manually subscribe since we're setting powers after construction
     for event, handler_name in POWER_SUBSCRIPTIONS.get("juggernaut", []):
         subscribe(combat._state, event, handler_name, "player")
     for event, handler_name in POWER_SUBSCRIPTIONS.get("metallicize", []):
@@ -505,7 +505,7 @@ def test_feel_no_pain_triggers_juggernaut():
     combat._state.player_powers.juggernaut = 5
     combat._state.player_powers.feel_no_pain = 3
 
-    # Manually subscribe since we're setting powers after reset
+    # Manually subscribe since we're setting powers after construction
     for event, handler_name in POWER_SUBSCRIPTIONS.get("juggernaut", []):
         subscribe(combat._state, event, handler_name, "player")
     for event, handler_name in POWER_SUBSCRIPTIONS.get("feel_no_pain", []):
@@ -529,7 +529,7 @@ def test_block_potion_triggers_juggernaut():
     obs = combat.observe()
     combat._state.player_powers.juggernaut = 5
 
-    # Manually subscribe since we're setting powers after reset
+    # Manually subscribe since we're setting powers after construction
     for event, handler_name in POWER_SUBSCRIPTIONS.get("juggernaut", []):
         subscribe(combat._state, event, handler_name, "player")
 

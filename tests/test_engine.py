@@ -267,7 +267,7 @@ def test_reward_negative_on_damage():
 # ---------------------------------------------------------------------------
 
 def test_observation_has_pile_histograms():
-    """After reset, pile counts should match starter deck minus 5 drawn cards."""
+    """At combat start, pile counts should match starter deck minus 5 drawn cards."""
     combat = encounters.cultist(seed=0, character=PlayerState())
     obs = combat.observe()
 

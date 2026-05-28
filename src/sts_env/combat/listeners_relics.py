@@ -1,6 +1,6 @@
 """Relic-triggered event listeners.
 
-Relics subscribe at Combat.reset based on ``state.relics``.
+Relics subscribe during :class:`Combat` construction based on ``state.relics``.
 Per-relic counters live in ``state.relic_state`` (a dict[str, int]).
 """
 

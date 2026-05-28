@@ -126,6 +126,11 @@ IRONCLAD_STARTER: list[str] = (
 class Combat:
     """One combat encounter.
 
+    Construction runs full setup (draw pile, enemy intents, opening hand,
+    ``COMBAT_START``).  For an independent copy at the current state (e.g. a
+    second branch in search, or a replay from a saved snapshot), use
+    ``clone()``.
+
     Usage::
 
         combat = Combat.ironclad_starter(enemy="JawWorm", seed=42)

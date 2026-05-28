@@ -1,7 +1,7 @@
 """Potion-triggered event listeners.
 
-Potions that have passive combat effects subscribe at Combat.reset based
-on ``state.potions``.
+Potions that have passive combat effects subscribe during :class:`Combat`
+construction based on ``state.potions``.
 """
 from __future__ import annotations
 

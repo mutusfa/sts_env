@@ -39,7 +39,10 @@ def build_combat(
 
     Returns
     -------
-    Combat ready for reset().
+    A fully initialized :class:`Combat` (subscriptions, pre-battle hooks, opening
+    hand) ready to ``observe()`` / ``step()``.  No second-phase setup.  For
+    multiple independent runs from the same built instance, use
+    :meth:`Combat.clone`.
     """
     ps: PlayerState = character if character is not None else PlayerState.ironclad_starter()
 

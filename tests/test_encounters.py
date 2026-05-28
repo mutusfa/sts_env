@@ -119,7 +119,7 @@ def test_two_louses_composition_varies_across_seeds():
 
 
 def test_two_louses_curl_up_set():
-    """After reset, each louse must have curl_up > 0 (set by pre_battle)."""
+    """After construction, each louse must have curl_up > 0 (set by pre_battle)."""
     c = encounters.two_louses(seed=0, character=PlayerState())
     c.observe()
     for e in c._state.enemies:
