@@ -32,7 +32,9 @@ class Character(PlayerState):
     fields that are irrelevant to the combat layer.
 
     Attributes:
-        floor: Current floor number.
+        floor: Current floor number (1-indexed).
+        map_x: Horizontal map column at the current floor (0-indexed), or
+            ``None`` before the first floor is entered.
         seen_events: Events already encountered this run.
         event_bus: Run-layer event bus (auto-wired on creation).
         card_rarity_factor: Persists across rewards — mirrors C++
@@ -40,6 +42,7 @@ class Character(PlayerState):
     """
 
     floor: int = 0
+    map_x: int | None = None
     seen_events: list[str] = field(default_factory=list)
     event_bus: RunEventBus = field(default_factory=RunEventBus)
     # Persists across rewards — mirrors C++ GameContext::cardRarityFactor.
@@ -113,6 +116,7 @@ class Character(PlayerState):
             "max_potion_slots": self.max_potion_slots,
             "gold": self.gold,
             "floor": self.floor,
+            "map_x": self.map_x,
             "relics": list(self.relics),
             "seen_events": list(self.seen_events),
         }

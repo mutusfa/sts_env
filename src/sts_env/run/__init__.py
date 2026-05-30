@@ -4,7 +4,7 @@ from .state import RunState
 from .character import Character
 from . import relics, rewards, scenarios, builder
 from .neow import NeowChoice, NeowOption, roll_neow_options, apply_neow
-from .orchestrator import RunResult, RunAgentProtocol, FloorObserver, run_act1
+from .orchestrator import PotionRecord, RunResult, RunAgentProtocol, FloorObserver, run_act1
 
 # Import run-layer listeners so @listener decorators register at package load.
 from . import listeners_relics as _listeners_relics  # noqa: F401
@@ -21,6 +21,7 @@ __all__ = [
     "roll_neow_options",
     "apply_neow",
     "RunResult",
+    "PotionRecord",
     "RunAgentProtocol",
     "FloorObserver",
     "run_act1",

@@ -45,6 +45,16 @@ log = logging.getLogger(__name__)
 # Result
 # ---------------------------------------------------------------------------
 
+
+@dataclass
+class PotionRecord:
+    """Lifecycle of one potion instance acquired during a run."""
+
+    potion_id: str
+    gained_floor: int
+    spent_floor: int | None = None
+
+
 @dataclass
 class RunResult:
     """Result of a completed (or failed) Act 1 run."""
@@ -60,6 +70,7 @@ class RunResult:
     encounter_types: list[str] = field(default_factory=list)
     cards_added: list[str] = field(default_factory=list)
     potions_gained: list[str] = field(default_factory=list)
+    potion_log: list[PotionRecord] = field(default_factory=list)
     combat_log: list[str] = field(default_factory=list)
 
 
@@ -335,6 +346,7 @@ def _run_map(
             continue
 
         character.floor = floor_num + 1
+        character.map_x = x_pos
         room_type = node.room_type
         room_type_str = room_type.name.lower()
 
@@ -607,6 +619,7 @@ def _run_map(
                                 _apply_combat_rewards(
                                     character, result, combat_enc_type,
                                     combat_seed, reward_rng, agent,
+                                    reward_floor=floor_num + 1,
                                     sts_map=sts_map,
                                     current_position=(floor_num, x_pos),
                                     remaining_path=path[step_idx + 1:],
@@ -720,6 +733,7 @@ def _run_map(
                         _apply_combat_rewards(
                             character, result, encounter_type, combat_seed, reward_rng,
                             agent,
+                            reward_floor=floor_num + 1,
                             sts_map=sts_map,
                             current_position=(floor_num, x_pos),
                             remaining_path=path[step_idx + 1:],
@@ -764,6 +778,7 @@ def _run_linear(
 
     for floor_idx, (encounter_type, encounter_id) in enumerate(encounter_list):
         character.floor = floor_idx + 1
+        character.map_x = 0
         result.encounter_types.append(encounter_type)
 
         combat_seed = seed * 1000 + floor_idx
@@ -815,6 +830,7 @@ def _run_linear(
 
             _apply_combat_rewards(
                 character, result, encounter_type, combat_seed, reward_rng, agent,
+                reward_floor=floor_idx + 1,
                 remaining_path=[(floor_idx + 1 + i, 0) for i in range(len(encounter_list) - floor_idx - 1)],
             )
 
@@ -905,6 +921,7 @@ def _apply_combat_rewards(
     reward_rng: RNG,
     agent: RunAgentProtocol,
     *,
+    reward_floor: int | None = None,
     sts_map: StSMap | None = None,
     current_position: tuple[int, int] | None = None,
     remaining_path: list[tuple[int, int]] | None = None,
@@ -941,24 +958,32 @@ def _apply_combat_rewards(
         log.info("  Card reward: skipped %s", offer.card_choices)
 
     if offer.potion is not None:
+        floor_label = f"floor {reward_floor}" if reward_floor is not None else "floor ?"
         if len(character.potions) < character.max_potion_slots:
             character.add_potion(offer.potion)
             result.potions_gained.append(offer.potion)
-            log.info("  Potion reward: %s (slots: %s)", offer.potion, character.potions)
+            log.info(
+                "  Potion reward: %s gained on %s (slots: %s)",
+                offer.potion, floor_label, character.potions,
+            )
         else:
             # Bag full — ask the agent which potion to discard
             discard = agent.pick_potion_to_discard(character, offer.potion)
             if discard == offer.potion:
-                log.info("  Potion reward: %s declined (bag full)", offer.potion)
+                log.info("  Potion reward: %s declined on %s (bag full)", offer.potion, floor_label)
             elif discard in character.potions:
                 character.potions.remove(discard)
                 character.add_potion(offer.potion)
                 result.potions_gained.append(offer.potion)
-                log.info("  Potion reward: %s (discarded %s, slots: %s)",
-                         offer.potion, discard, character.potions)
+                log.info(
+                    "  Potion reward: %s gained on %s (discarded %s, slots: %s)",
+                    offer.potion, floor_label, discard, character.potions,
+                )
             else:
-                log.info("  Potion reward: %s discarded (invalid discard choice %s)",
-                         offer.potion, discard)
+                log.info(
+                    "  Potion reward: %s declined on %s (invalid discard choice %s)",
+                    offer.potion, floor_label, discard,
+                )
 
     character.gold += offer.gold
 

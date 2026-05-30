@@ -100,6 +100,36 @@ class TestRunResult:
         assert r.potions_gained == []
 
 
+class TestCharacterMapPosition:
+    """Orchestrator tracks horizontal map position on Character."""
+
+    def test_character_defaults_map_x_none(self):
+        ch = Character.ironclad()
+        assert ch.map_x is None
+
+    def test_snapshot_includes_map_x(self):
+        ch = Character.ironclad()
+        ch.map_x = 2
+        assert ch.snapshot()["map_x"] == 2
+
+    @pytest.mark.slow
+    def test_map_x_set_during_map_run(self):
+        from contextlib import contextmanager
+
+        positions: list[tuple[int, int | None]] = []
+
+        class _Observer:
+            @contextmanager
+            def floor_scope(self, floor, room_type, character):
+                positions.append((floor, character.map_x))
+                yield {}
+
+        agent = _MockAgent()
+        run_act1(42, agent, use_map=True, observer=_Observer())
+        assert positions, "expected at least one floor"
+        assert all(map_x is not None for _, map_x in positions)
+
+
 class TestRunAct1Map:
     """Integration tests for run_act1 with the map-based loop."""
 
