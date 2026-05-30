@@ -120,6 +120,141 @@ class StSMap:
                 dfs(0, node.x, [])
         return paths
 
+    def render_edges(
+        self,
+        current_floor: int | None = None,
+        current_x: int | None = None,
+        reachable_only: bool = False,
+    ) -> str:
+        """Render map as an explicit edge list for LLM consumption.
+
+        Format: F{floor}C{col}[type] → F{f2}C{x2}[type2] ...
+        """
+        symbols = {
+            RoomType.MONSTER: "M", RoomType.ELITE: "E", RoomType.REST: "R",
+            RoomType.BOSS: "B", RoomType.EVENT: "?", RoomType.SHOP: "$",
+            RoomType.TREASURE: "T",
+        }
+        visible: set[tuple[int, int]] | None = None
+        if reachable_only and current_floor is not None and current_x is not None:
+            visible = self._forward_reachable(current_floor, current_x)
+
+        lines: list[str] = []
+        if current_floor is not None and current_x is not None:
+            node = self.get_node(current_floor, current_x)
+            sym = "@" if node else "?"
+            lines.append(f"Current: F{current_floor}C{current_x}[{sym}]")
+
+        for floor in range(MAP_HEIGHT):
+            for x in range(MAP_WIDTH):
+                node = self.get_node(floor, x)
+                if node is None:
+                    continue
+                if not node.edges:
+                    continue
+                if visible is not None and (floor, x) not in visible:
+                    continue
+
+                src = f"F{floor}C{x}[{symbols.get(node.room_type, '?')}]"
+                targets: list[str] = []
+                for edge in node.edges:
+                    if isinstance(edge, tuple):
+                        nf, nx = edge
+                    else:
+                        nf, nx = floor + 1, edge
+                    if visible is not None and (nf, nx) not in visible:
+                        continue
+                    dst_node = self.get_node(nf, nx)
+                    dsym = symbols.get(dst_node.room_type, "?") if dst_node else "?"
+                    targets.append(f"F{nf}C{nx}[{dsym}]")
+
+                if targets:
+                    lines.append(f"{src} → {' '.join(targets)}")
+
+        return "\n".join(lines)
+
+    def render_paths(
+        self,
+        current_floor: int | None = None,
+        current_x: int | None = None,
+    ) -> str:
+        """Enumerate all forward paths from current position to boss.
+
+        Each path is shown as a room-type sequence with a stats summary.
+        """
+        symbols = {
+            RoomType.MONSTER: "M", RoomType.ELITE: "E", RoomType.REST: "R",
+            RoomType.BOSS: "B", RoomType.EVENT: "?", RoomType.SHOP: "$",
+            RoomType.TREASURE: "T",
+        }
+        count_types = {RoomType.ELITE, RoomType.REST, RoomType.EVENT, RoomType.SHOP}
+
+        # Get paths starting from current position (or all from floor 0)
+        if current_floor is not None and current_x is not None:
+            starts = [(current_floor, current_x)]
+        else:
+            starts = [
+                (0, n.x) for n in self.nodes.get(0, []) if n.edges
+            ]
+
+        all_paths: list[list[tuple[int, int]]] = []
+        for sf, sx in starts:
+            stack: list[tuple[int, int, list[tuple[int, int]]]] = [(sf, sx, [])]
+            while stack:
+                f, x, path = stack.pop()
+                node = self.get_node(f, x)
+                if node is None:
+                    continue
+                path = path + [(f, x)]
+                if f == 15:
+                    all_paths.append(path)
+                    continue
+                for edge in node.edges:
+                    if isinstance(edge, tuple):
+                        nf, nx = edge
+                    else:
+                        nf, nx = f + 1, edge
+                    stack.append((nf, nx, path))
+
+        if not all_paths:
+            return "No paths to boss from current position."
+
+        lines: list[str] = []
+        if current_floor is not None and current_x is not None:
+            lines.append(f"Paths from F{current_floor}C{current_x} to boss:")
+
+        for i, path in enumerate(all_paths):
+            rooms = []
+            counts: dict[RoomType, int] = {}
+            for f, x in path:
+                node = self.get_node(f, x)
+                if node is None:
+                    continue
+                sym = symbols.get(node.room_type, "?")
+                if f == current_floor and x == current_x:
+                    sym = "@"
+                rooms.append(sym)
+                if node.room_type in count_types:
+                    counts[node.room_type] = counts.get(node.room_type, 0) + 1
+
+            seq = " → ".join(rooms)
+            names = {
+                RoomType.ELITE: "elite", RoomType.REST: "rest",
+                RoomType.EVENT: "event", RoomType.SHOP: "shop",
+            }
+            stats_parts = []
+            for rt in [RoomType.ELITE, RoomType.REST, RoomType.EVENT, RoomType.SHOP]:
+                c = counts.get(rt, 0)
+                if c:
+                    stats_parts.append(f"{names[rt]}={c}")
+            stats = " ".join(stats_parts)
+            label = chr(65 + i) if i < 26 else str(i)
+            lines.append(f"Path {label} ({len(path)} rooms): {seq}")
+            if stats:
+                lines.append(f"  {stats}")
+
+        return "\n".join(lines)
+
     def __str__(self) -> str:
         return self.render_ascii()
 
