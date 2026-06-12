@@ -22,6 +22,7 @@ from ..combat.player_state import PlayerState
 
 # Run-layer event bus
 from .bus import RunEventBus, RunEvent, wire_relics as _wire_relics
+from .changelog import CharacterSnapshot, RoomRecord, finish_room, snapshot_from_character
 
 
 @dataclass
@@ -90,6 +91,24 @@ class Character(PlayerState):
     def heal(self, amount: int) -> None:
         """Heal the player, capped at max_hp."""
         self.player_hp = min(self.player_max_hp, self.player_hp + amount)
+
+    # ------------------------------------------------------------------
+    # Room change logging
+    # ------------------------------------------------------------------
+
+    def snapshot_for_log(self) -> CharacterSnapshot:
+        """Capture log-relevant state at room entry."""
+        return snapshot_from_character(self)
+
+    def finish_room(
+        self,
+        before: CharacterSnapshot,
+        *,
+        floor: int,
+        room_type: str,
+    ) -> RoomRecord:
+        """Diff against a room-entry snapshot and return a room record."""
+        return finish_room(before, self, floor=floor, room_type=room_type)
 
     # ------------------------------------------------------------------
     # Serialisation

@@ -19,13 +19,19 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Iterator, Protocol, runtime_checkable
 
 from .character import Character
+from .changelog import RoomRecord
 from .map import generate_act1_map, get_encounter_for_room, RoomType
 from .rooms import RestChoice, RestResult, rest_heal, rest_upgrade, _best_upgrade_target
 from .events import random_act1_event, resolve_event
 from .shop import generate_shop
 from .treasure import open_treasure
 from .neow import roll_neow_options, apply_neow
-from .rewards import Room as _RewardRoom, roll_combat_reward_offer, roll_elite_relic, roll_boss_relic_choices
+from .rewards import (
+    Room as _RewardRoom,
+    roll_combat_reward_offer,
+    roll_elite_relic,
+    roll_boss_relic_choices,
+)
 from .encounter_queue import EncounterQueue
 from . import relics as relics_mod
 from . import builder
@@ -72,11 +78,13 @@ class RunResult:
     potions_gained: list[str] = field(default_factory=list)
     potion_log: list[PotionRecord] = field(default_factory=list)
     combat_log: list[str] = field(default_factory=list)
+    room_log: list[RoomRecord] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
 # Agent protocol
 # ---------------------------------------------------------------------------
+
 
 @runtime_checkable
 class RunAgentProtocol(Protocol):
@@ -101,6 +109,25 @@ class RunAgentProtocol(Protocol):
         seed: int,
     ) -> list[tuple[int, int]]:
         """Return a full path through the map as (floor, x) pairs."""
+        ...
+
+    def pick_map_start(
+        self,
+        sts_map: StSMap,
+        character: Character,
+        seed: int,
+    ) -> tuple[int, int]:
+        """Pick the starting map node at floor 0."""
+        ...
+
+    def pick_branch(
+        self,
+        sts_map: StSMap,
+        character: Character,
+        current: tuple[int, int],
+        seed: int,
+    ) -> tuple[int, int]:
+        """Pick the next map step when standing at a fork."""
         ...
 
     def pick_card(
@@ -160,7 +187,9 @@ class RunAgentProtocol(Protocol):
         ...
 
     def pick_card_to_remove(
-        self, character: Character, **kwargs: object,
+        self,
+        character: Character,
+        **kwargs: object,
     ) -> str | None:
         """Choose a card to remove from the deck, or None to cancel.
 
@@ -172,7 +201,9 @@ class RunAgentProtocol(Protocol):
         ...
 
     def pick_card_to_transform(
-        self, character: Character, **kwargs: object,
+        self,
+        character: Character,
+        **kwargs: object,
     ) -> str | None:
         """Choose a card to transform, or None to cancel.
 
@@ -183,7 +214,9 @@ class RunAgentProtocol(Protocol):
         ...
 
     def pick_card_to_upgrade(
-        self, character: Character, **kwargs: object,
+        self,
+        character: Character,
+        **kwargs: object,
     ) -> str | None:
         """Choose a card to upgrade, or None to cancel.
 
@@ -224,6 +257,7 @@ class RunAgentProtocol(Protocol):
 # Observer protocol
 # ---------------------------------------------------------------------------
 
+
 class FloorObserver(Protocol):
     """Optional per-floor observability hook.
 
@@ -259,6 +293,7 @@ class FloorObserver(Protocol):
 # Entry point
 # ---------------------------------------------------------------------------
 
+
 def run_act1(
     seed: int,
     agent: RunAgentProtocol,
@@ -292,18 +327,60 @@ def run_act1(
 
     neow_options = roll_neow_options(neow_rng)
     neow_pick = agent.pick_neow(neow_options)
+    neow_before = character.snapshot_for_log()
     neow_desc = apply_neow(neow_pick, character, neow_rng)
     log.info("NEOW: %s", neow_desc)
+    neow_record = character.finish_room(neow_before, floor=0, room_type="neow")
 
     if use_map:
-        return _run_map(seed, agent, character, reward_rng, observer=observer)
+        return _run_map(
+            seed,
+            agent,
+            character,
+            reward_rng,
+            observer=observer,
+            neow_record=neow_record,
+        )
     else:
-        return _run_linear(seed, agent, character, reward_rng, observer=observer)
+        return _run_linear(
+            seed,
+            agent,
+            character,
+            reward_rng,
+            observer=observer,
+            neow_record=neow_record,
+        )
+
+
+def _normalize_map_edge(floor: int, edge: int | tuple[int, int]) -> tuple[int, int]:
+    if isinstance(edge, tuple):
+        return edge
+    return floor + 1, edge
+
+
+def _agent_remaining_path(
+    agent: RunAgentProtocol,
+    sts_map: StSMap,
+    character: Character,
+    current_position: tuple[int, int],
+    path: list[tuple[int, int]],
+    step_idx: int,
+) -> list[tuple[int, int]]:
+    if hasattr(agent, "provisional_remaining_path"):
+        return agent.provisional_remaining_path(
+            sts_map,
+            character,
+            current_position,
+        )
+    if step_idx + 1 < len(path):
+        return path[step_idx + 1 :]
+    return []
 
 
 # ---------------------------------------------------------------------------
 # Map-based loop
 # ---------------------------------------------------------------------------
+
 
 def _run_map(
     seed: int,
@@ -312,6 +389,7 @@ def _run_map(
     reward_rng: RNG,
     *,
     observer: FloorObserver | None,
+    neow_record: RoomRecord,
 ) -> RunResult:
     sts_map = generate_act1_map(seed)
     encounter_rng = RNG(seed ^ 0xCAFE)
@@ -321,29 +399,42 @@ def _run_map(
     hallway_seen: list[str] = []
     elites_seen: list[str] = []
 
-    path = agent.plan_route(sts_map, character, seed)
-    total_floors = len(path)
+    path: list[tuple[int, int]] = []
 
-    # Give the agent references to encounter state so it can compute
-    # possible_encounters fresh on every call (lists are shared refs).
     if hasattr(agent, "set_encounter_tracking"):
         agent.set_encounter_tracking(encounter_queue, hallway_seen, elites_seen)
+    if hasattr(agent, "begin_map_run"):
+        agent.begin_map_run(sts_map, seed)
+
+    current = agent.pick_map_start(sts_map, character, seed)
 
     result = RunResult(
         victory=False,
         floors_cleared=0,
-        total_floors=total_floors,
+        total_floors=0,
         final_hp=character.player_hp,
         max_hp=character.player_max_hp,
         damage_taken_total=0,
         max_hp_gained_total=0,
     )
+    result.room_log.append(neow_record)
 
-    for step_idx, (floor_num, x_pos) in enumerate(path):
+    step_idx = 0
+    while True:
+        floor_num, x_pos = current
+        path.append(current)
+        if hasattr(agent, "on_map_step"):
+            agent.on_map_step(current)
+
         node = sts_map.get_node(floor_num, x_pos)
         if node is None:
-            log.warning("Path step %d: no node at (%d, %d), skipping", step_idx, floor_num, x_pos)
-            continue
+            log.warning(
+                "Path step %d: no node at (%d, %d), skipping",
+                step_idx,
+                floor_num,
+                x_pos,
+            )
+            break
 
         character.floor = floor_num + 1
         character.map_x = x_pos
@@ -352,23 +443,40 @@ def _run_map(
 
         died = False
         with _floor_scope(observer, floor_num + 1, room_type_str, character) as attrs:
+            room_before = character.snapshot_for_log()
 
             if room_type == RoomType.REST:
                 rest_result = _execute_rest_choice(
-                    agent, character,
+                    agent,
+                    character,
                     sts_map=sts_map,
                     current_position=(floor_num, x_pos),
                 )
                 if rest_result.choice == RestChoice.REST:
-                    log.info("FLOOR %d REST: healed %d HP (hp=%d/%d)",
-                             floor_num + 1, rest_result.hp_healed,
-                             character.player_hp, character.player_max_hp)
-                    attrs.update({"rest_choice": "rest", "hp_healed": rest_result.hp_healed})
+                    log.info(
+                        "FLOOR %d REST: healed %d HP (hp=%d/%d)",
+                        floor_num + 1,
+                        rest_result.hp_healed,
+                        character.player_hp,
+                        character.player_max_hp,
+                    )
+                    attrs.update(
+                        {"rest_choice": "rest", "hp_healed": rest_result.hp_healed}
+                    )
                 else:
-                    log.info("FLOOR %d REST: upgraded %s (hp=%d/%d)",
-                             floor_num + 1, rest_result.card_upgraded,
-                             character.player_hp, character.player_max_hp)
-                    attrs.update({"rest_choice": "upgrade", "card_upgraded": str(rest_result.card_upgraded)})
+                    log.info(
+                        "FLOOR %d REST: upgraded %s (hp=%d/%d)",
+                        floor_num + 1,
+                        rest_result.card_upgraded,
+                        character.player_hp,
+                        character.player_max_hp,
+                    )
+                    attrs.update(
+                        {
+                            "rest_choice": "upgrade",
+                            "card_upgraded": str(rest_result.card_upgraded),
+                        }
+                    )
                 result.encounter_types.append("rest")
                 result.damage_per_floor.append(0)
                 result.floors_cleared += 1
@@ -383,10 +491,12 @@ def _run_map(
                 # Set up multi-phase event state if needed
                 if event.multi_phase and event.event_id == "Dead Adventurer":
                     from .events import _da_state, _dead_adventurer_setup
+
                     _da_state.clear()
                     _da_state.update(_dead_adventurer_setup(encounter_rng))
                 elif event.multi_phase and event.event_id == "Scrap Ooze":
                     from .events import _ooze_state, _scrap_ooze_setup
+
                     _ooze_state.clear()
                     _ooze_state.update(_scrap_ooze_setup())
 
@@ -396,14 +506,18 @@ def _run_map(
                 event_enemies_str = ""
                 while not event_done:
                     choice_idx = agent.pick_event_choice(
-                        event, character,
+                        event,
+                        character,
                         sts_map=sts_map,
                         current_position=(floor_num, x_pos),
                     )
                     choice_idx = int(choice_idx)
 
                     desc = resolve_event(
-                        event.event_id, choice_idx, character, encounter_rng,
+                        event.event_id,
+                        choice_idx,
+                        character,
+                        encounter_rng,
                     )
                     log.info("  Event result: %s", desc)
 
@@ -424,17 +538,21 @@ def _run_map(
                             match_and_keep_attempts_remaining,
                             match_and_keep_extra_context,
                         )
+
                         match_and_keep_setup(character, encounter_rng)
                         mk_context = match_and_keep_extra_context()
 
-                        _noop: EventChoice = EventChoice(label="", effect=lambda c, r: "")
+                        _noop: EventChoice = EventChoice(
+                            label="", effect=lambda c, r: ""
+                        )
 
                         reset = True
                         while not match_and_keep_done():
                             grid = match_and_keep_grid_view()
                             attempts = match_and_keep_attempts_remaining()
                             available = [
-                                i for i, s in enumerate(grid)
+                                i
+                                for i, s in enumerate(grid)
                                 if s.state.name != "MATCHED"
                             ]
                             first_description = (
@@ -455,7 +573,8 @@ def _run_map(
                                 ],
                             )
                             c1 = agent.pick_event_choice(
-                                first_event, character,
+                                first_event,
+                                character,
                                 extra_context=mk_context,
                                 reset_budget=reset,
                                 sts_map=sts_map,
@@ -482,7 +601,8 @@ def _run_map(
                                 ],
                             )
                             c2 = agent.pick_event_choice(
-                                second_event, character,
+                                second_event,
+                                character,
                                 extra_context=mk_context,
                                 reset_budget=False,
                                 sts_map=sts_map,
@@ -519,10 +639,13 @@ def _run_map(
                         )
                         if card and card in character.deck:
                             from .events import transform_card
+
                             new_card = transform_card(character, card, encounter_rng)
                             log.info("  Card transformed: %s -> %s", card, new_card)
                         else:
-                            log.info("  Card transform skipped (agent returned %s)", card)
+                            log.info(
+                                "  Card transform skipped (agent returned %s)", card
+                            )
 
                     # Card upgrade: if the choice requires it, ask the agent
                     if choice.requires_card_upgrade:
@@ -535,7 +658,11 @@ def _run_map(
                             idx = character.deck.index(card)
                             if not card.endswith("+"):
                                 character.deck[idx] = card + "+"
-                                log.info("  Card upgraded: %s -> %s", card, character.deck[idx])
+                                log.info(
+                                    "  Card upgraded: %s -> %s",
+                                    card,
+                                    character.deck[idx],
+                                )
                             else:
                                 log.info("  Card already upgraded: %s", card)
                         else:
@@ -550,6 +677,7 @@ def _run_map(
                         # Dead Adventurer: combat details come from phase state
                         if event.event_id == "Dead Adventurer":
                             from .events import _da_state as da_st
+
                             if da_st.get("combat_needed"):
                                 combat_enc_type = da_st["combat_encounter_type"]
                                 combat_enc_id = da_st["combat_encounter_id"]
@@ -557,8 +685,10 @@ def _run_map(
                         if combat_enc_id:
                             combat_seed = seed * 1000 + floor_num
                             combat = builder.build_combat(
-                                combat_enc_type, combat_enc_id,
-                                combat_seed, character=character,
+                                combat_enc_type,
+                                combat_enc_id,
+                                combat_seed,
+                                character=character,
                             )
 
                             damage = agent.run_battle(combat)
@@ -567,15 +697,23 @@ def _run_map(
                             result.max_hp_gained_total += combat.max_hp_gained
 
                             obs = combat.observe()
-                            event_enemies_str = ", ".join(e.name for e in combat._state.enemies if e.name != "Empty")
+                            event_enemies_str = ", ".join(
+                                e.name
+                                for e in combat._state.enemies
+                                if e.name != "Empty"
+                            )
                             result.combat_log.append(
-                                f"FLOOR {floor_num+1} (event_combat/{combat_enc_id}): "
+                                f"FLOOR {floor_num + 1} (event_combat/{combat_enc_id}): "
                                 f"enemies=[{event_enemies_str}] damage={damage} turns={obs.turn} "
                                 f"outcome={'died' if obs.player_dead else 'won'}"
                             )
                             if obs.player_dead:
-                                log.info("FLOOR %d EVENT COMBAT (%s): DIED (damage=%d)",
-                                         floor_num + 1, combat_enc_id, damage)
+                                log.info(
+                                    "FLOOR %d EVENT COMBAT (%s): DIED (damage=%d)",
+                                    floor_num + 1,
+                                    combat_enc_id,
+                                    damage,
+                                )
                                 character.player_hp = 0
                                 result.final_hp = 0
                                 died = True
@@ -590,19 +728,27 @@ def _run_map(
                                 result.final_hp = character.player_hp
                                 result.max_hp = character.player_max_hp
 
-                                log.info("FLOOR %d EVENT COMBAT (%s): WON (damage=%d, hp=%d/%d)",
-                                         floor_num + 1, combat_enc_id, damage,
-                                         character.player_hp, character.player_max_hp)
+                                log.info(
+                                    "FLOOR %d EVENT COMBAT (%s): WON (damage=%d, hp=%d/%d)",
+                                    floor_num + 1,
+                                    combat_enc_id,
+                                    damage,
+                                    character.player_hp,
+                                    character.player_max_hp,
+                                )
 
                                 # Apply Dead Adventurer bonus rewards
                                 if event.event_id == "Dead Adventurer":
                                     from .events import _da_state as da_st
+
                                     if da_st.get("combat_needed"):
                                         gold_reward = da_st.get("combat_gold_reward", 0)
                                         character.gold += gold_reward
                                         log.info("  DA bonus gold: %d", gold_reward)
                                         if da_st.get("combat_relic_reward"):
-                                            relic = roll_elite_relic(reward_rng, owned=character.relics)
+                                            relic = roll_elite_relic(
+                                                reward_rng, owned=character.relics
+                                            )
                                             if relic:
                                                 character.add_relic(relic)
                                                 log.info("  DA bonus relic: %s", relic)
@@ -613,37 +759,55 @@ def _run_map(
                                     gold_reward = encounter_rng.randint(20, 30)
                                     character.gold += gold_reward
                                     character.add_relic("Odd Mushroom")
-                                    log.info("  Mushrooms reward: %d gold + Odd Mushroom", gold_reward)
+                                    log.info(
+                                        "  Mushrooms reward: %d gold + Odd Mushroom",
+                                        gold_reward,
+                                    )
 
                                 # Standard combat rewards (cards, potions, gold)
                                 _apply_combat_rewards(
-                                    character, result, combat_enc_type,
-                                    combat_seed, reward_rng, agent,
+                                    character,
+                                    result,
+                                    combat_enc_type,
+                                    combat_seed,
+                                    reward_rng,
+                                    agent,
                                     reward_floor=floor_num + 1,
                                     sts_map=sts_map,
                                     current_position=(floor_num, x_pos),
-                                    remaining_path=path[step_idx + 1:],
+                                    remaining_path=_agent_remaining_path(
+                                        agent,
+                                        sts_map,
+                                        character,
+                                        (floor_num, x_pos),
+                                        path,
+                                        step_idx,
+                                    ),
                                 )
 
                     # Check if multi-phase event should continue
                     if event.multi_phase and event.event_id == "Dead Adventurer":
                         from .events import _da_state as da_st
+
                         if da_st.get("phase", 0) < 3 and not da_st.get("combat_needed"):
                             event_done = False  # Can loot again
                         else:
                             event_done = True
                     elif event.multi_phase and event.event_id == "Scrap Ooze":
                         from .events import _ooze_state as ooze_st
+
                         event_done = ooze_st.get("done", True)
                     else:
                         event_done = True
 
-                attrs.update({
-                    "event_id": event.event_id,
-                    "choice_idx": choice_idx,
-                    "event_result": str(desc),
-                    "enemies": event_enemies_str,
-                })
+                attrs.update(
+                    {
+                        "event_id": event.event_id,
+                        "choice_idx": choice_idx,
+                        "event_result": str(desc),
+                        "enemies": event_enemies_str,
+                    }
+                )
                 result.encounter_types.append("event")
                 result.damage_per_floor.append(event_damage)
                 result.floors_cleared += 1
@@ -660,10 +824,12 @@ def _run_map(
                 log.info("FLOOR %d TREASURE", floor_num + 1)
                 tres = open_treasure(character, encounter_rng)
                 log.info("  Found %d gold and %s", tres.gold_found, tres.relic_found)
-                attrs.update({
-                    "gold_found": tres.gold_found,
-                    "relic_found": tres.relic_found,
-                })
+                attrs.update(
+                    {
+                        "gold_found": tres.gold_found,
+                        "relic_found": tres.relic_found,
+                    }
+                )
                 result.encounter_types.append("treasure")
                 result.damage_per_floor.append(0)
                 result.floors_cleared += 1
@@ -672,8 +838,11 @@ def _run_map(
                 # Combat rooms: MONSTER / ELITE / BOSS
                 encounter_id = get_encounter_for_room(room_type, encounter_queue)
                 if encounter_id is None:
-                    log.warning("FLOOR %d %s: no encounter assigned, skipping",
-                                floor_num + 1, room_type.name)
+                    log.warning(
+                        "FLOOR %d %s: no encounter assigned, skipping",
+                        floor_num + 1,
+                        room_type.name,
+                    )
                 else:
                     encounter_type = room_type_str
                     result.encounter_types.append(encounter_type)
@@ -687,7 +856,10 @@ def _run_map(
 
                     combat_seed = seed * 1000 + floor_num
                     combat = builder.build_combat(
-                        encounter_type, encounter_id, combat_seed, character=character,
+                        encounter_type,
+                        encounter_id,
+                        combat_seed,
+                        character=character,
                     )
 
                     damage = agent.run_battle(combat)
@@ -696,24 +868,33 @@ def _run_map(
                     result.max_hp_gained_total += combat.max_hp_gained
 
                     obs = combat.observe()
-                    enemies_str = ", ".join(e.name for e in combat._state.enemies if e.name != "Empty")
-                    attrs.update({
-                        "encounter_id": encounter_id,
-                        "damage_taken": damage,
-                        "max_hp_gained": combat.max_hp_gained,
-                        "survived": not obs.player_dead,
-                        "turns": obs.turn,
-                        "enemies": enemies_str,
-                    })
+                    enemies_str = ", ".join(
+                        e.name for e in combat._state.enemies if e.name != "Empty"
+                    )
+                    attrs.update(
+                        {
+                            "encounter_id": encounter_id,
+                            "damage_taken": damage,
+                            "max_hp_gained": combat.max_hp_gained,
+                            "survived": not obs.player_dead,
+                            "turns": obs.turn,
+                            "enemies": enemies_str,
+                        }
+                    )
                     result.combat_log.append(
-                        f"FLOOR {floor_num+1} ({encounter_type}/{encounter_id}): "
+                        f"FLOOR {floor_num + 1} ({encounter_type}/{encounter_id}): "
                         f"enemies=[{enemies_str}] damage={damage} turns={obs.turn} "
                         f"outcome={'died' if obs.player_dead else 'won'}"
                     )
 
                     if obs.player_dead:
-                        log.info("FLOOR %d (%s/%s): DIED (damage=%d)",
-                                 floor_num + 1, encounter_type, encounter_id, damage)
+                        log.info(
+                            "FLOOR %d (%s/%s): DIED (damage=%d)",
+                            floor_num + 1,
+                            encounter_type,
+                            encounter_id,
+                            damage,
+                        )
                         character.player_hp = 0
                         result.final_hp = 0
                         died = True
@@ -726,24 +907,59 @@ def _run_map(
                         result.final_hp = character.player_hp
                         result.max_hp = character.player_max_hp
 
-                        log.info("FLOOR %d (%s/%s): WON (damage=%d, hp=%d/%d)",
-                                 floor_num + 1, encounter_type, encounter_id, damage,
-                                 character.player_hp, character.player_max_hp)
+                        log.info(
+                            "FLOOR %d (%s/%s): WON (damage=%d, hp=%d/%d)",
+                            floor_num + 1,
+                            encounter_type,
+                            encounter_id,
+                            damage,
+                            character.player_hp,
+                            character.player_max_hp,
+                        )
 
                         _apply_combat_rewards(
-                            character, result, encounter_type, combat_seed, reward_rng,
+                            character,
+                            result,
+                            encounter_type,
+                            combat_seed,
+                            reward_rng,
                             agent,
                             reward_floor=floor_num + 1,
                             sts_map=sts_map,
                             current_position=(floor_num, x_pos),
-                            remaining_path=path[step_idx + 1:],
+                            remaining_path=_agent_remaining_path(
+                                agent,
+                                sts_map,
+                                character,
+                                (floor_num, x_pos),
+                                path,
+                                step_idx,
+                            ),
                         )
 
                         result.floors_cleared += 1
 
+            room_record = character.finish_room(
+                room_before,
+                floor=floor_num + 1,
+                room_type=room_type_str,
+            )
+            result.room_log.append(room_record)
+            attrs["character_changes"] = room_record.changes
+
         if died:
+            result.total_floors = len(path)
             return result
 
+        step_idx += 1
+        if node.room_type == RoomType.BOSS or not node.edges:
+            break
+        if len(node.edges) == 1:
+            current = _normalize_map_edge(floor_num, node.edges[0])
+        else:
+            current = agent.pick_branch(sts_map, character, (floor_num, x_pos), seed)
+
+    result.total_floors = len(path)
     result.victory = True
     result.final_hp = character.player_hp
     result.max_hp = character.player_max_hp
@@ -754,6 +970,7 @@ def _run_map(
 # Linear loop (legacy 8-floor fixed encounter list)
 # ---------------------------------------------------------------------------
 
+
 def _run_linear(
     seed: int,
     agent: RunAgentProtocol,
@@ -761,6 +978,7 @@ def _run_linear(
     reward_rng: RNG,
     *,
     observer: FloorObserver | None,
+    neow_record: RoomRecord,
 ) -> RunResult:
     from .scenarios import act1_encounters
 
@@ -775,6 +993,7 @@ def _run_linear(
         damage_taken_total=0,
         max_hp_gained_total=0,
     )
+    result.room_log.append(neow_record)
 
     for floor_idx, (encounter_type, encounter_id) in enumerate(encounter_list):
         character.floor = floor_idx + 1
@@ -784,8 +1003,13 @@ def _run_linear(
         combat_seed = seed * 1000 + floor_idx
 
         with _floor_scope(observer, floor_idx + 1, encounter_type, character) as attrs:
+            room_before = character.snapshot_for_log()
+
             combat = builder.build_combat(
-                encounter_type, encounter_id, combat_seed, character=character,
+                encounter_type,
+                encounter_id,
+                combat_seed,
+                character=character,
             )
 
             damage = agent.run_battle(combat)
@@ -794,26 +1018,42 @@ def _run_linear(
             result.max_hp_gained_total += combat.max_hp_gained
 
             obs = combat.observe()
-            enemies_str = ", ".join(e.name for e in combat._state.enemies if e.name != "Empty")
-            attrs.update({
-                "encounter_id": encounter_id,
-                "damage_taken": damage,
-                "max_hp_gained": combat.max_hp_gained,
-                "survived": not obs.player_dead,
-                "turns": obs.turn,
-                "enemies": enemies_str,
-            })
+            enemies_str = ", ".join(
+                e.name for e in combat._state.enemies if e.name != "Empty"
+            )
+            attrs.update(
+                {
+                    "encounter_id": encounter_id,
+                    "damage_taken": damage,
+                    "max_hp_gained": combat.max_hp_gained,
+                    "survived": not obs.player_dead,
+                    "turns": obs.turn,
+                    "enemies": enemies_str,
+                }
+            )
             result.combat_log.append(
-                f"FLOOR {floor_idx+1} ({encounter_type}/{encounter_id}): "
+                f"FLOOR {floor_idx + 1} ({encounter_type}/{encounter_id}): "
                 f"enemies=[{enemies_str}] damage={damage} turns={obs.turn} "
                 f"outcome={'died' if obs.player_dead else 'won'}"
             )
 
             if obs.player_dead:
-                log.info("FLOOR %d (%s/%s): DIED (damage=%d)",
-                         floor_idx + 1, encounter_type, encounter_id, damage)
+                log.info(
+                    "FLOOR %d (%s/%s): DIED (damage=%d)",
+                    floor_idx + 1,
+                    encounter_type,
+                    encounter_id,
+                    damage,
+                )
                 character.player_hp = 0
                 result.final_hp = 0
+                room_record = character.finish_room(
+                    room_before,
+                    floor=floor_idx + 1,
+                    room_type=encounter_type,
+                )
+                result.room_log.append(room_record)
+                attrs["character_changes"] = room_record.changes
                 return result
 
             character.player_hp = obs.player_hp
@@ -824,17 +1064,39 @@ def _run_linear(
             result.final_hp = character.player_hp
             result.max_hp = character.player_max_hp
 
-            log.info("FLOOR %d (%s/%s): WON (damage=%d, hp=%d/%d)",
-                     floor_idx + 1, encounter_type, encounter_id, damage,
-                     character.player_hp, character.player_max_hp)
+            log.info(
+                "FLOOR %d (%s/%s): WON (damage=%d, hp=%d/%d)",
+                floor_idx + 1,
+                encounter_type,
+                encounter_id,
+                damage,
+                character.player_hp,
+                character.player_max_hp,
+            )
 
             _apply_combat_rewards(
-                character, result, encounter_type, combat_seed, reward_rng, agent,
+                character,
+                result,
+                encounter_type,
+                combat_seed,
+                reward_rng,
+                agent,
                 reward_floor=floor_idx + 1,
-                remaining_path=[(floor_idx + 1 + i, 0) for i in range(len(encounter_list) - floor_idx - 1)],
+                remaining_path=[
+                    (floor_idx + 1 + i, 0)
+                    for i in range(len(encounter_list) - floor_idx - 1)
+                ],
             )
 
             result.floors_cleared += 1
+
+            room_record = character.finish_room(
+                room_before,
+                floor=floor_idx + 1,
+                room_type=encounter_type,
+            )
+            result.room_log.append(room_record)
+            attrs["character_changes"] = room_record.changes
 
     result.victory = True
     result.final_hp = character.player_hp
@@ -845,6 +1107,7 @@ def _run_linear(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 @contextmanager
 def _floor_scope(
@@ -928,12 +1191,15 @@ def _apply_combat_rewards(
 ) -> None:
     """Roll and apply post-combat rewards, delegating card pick to the agent."""
     room = (
-        _RewardRoom.ELITE if encounter_type == "elite"
-        else _RewardRoom.BOSS if encounter_type == "boss"
+        _RewardRoom.ELITE
+        if encounter_type == "elite"
+        else _RewardRoom.BOSS
+        if encounter_type == "boss"
         else _RewardRoom.MONSTER
     )
     offer, new_factor = roll_combat_reward_offer(
-        reward_rng, room,
+        reward_rng,
+        room,
         card_rarity_factor=character.card_rarity_factor,
         event_bus=character.event_bus,
     )
@@ -964,25 +1230,36 @@ def _apply_combat_rewards(
             result.potions_gained.append(offer.potion)
             log.info(
                 "  Potion reward: %s gained on %s (slots: %s)",
-                offer.potion, floor_label, character.potions,
+                offer.potion,
+                floor_label,
+                character.potions,
             )
         else:
             # Bag full — ask the agent which potion to discard
             discard = agent.pick_potion_to_discard(character, offer.potion)
             if discard == offer.potion:
-                log.info("  Potion reward: %s declined on %s (bag full)", offer.potion, floor_label)
+                log.info(
+                    "  Potion reward: %s declined on %s (bag full)",
+                    offer.potion,
+                    floor_label,
+                )
             elif discard in character.potions:
                 character.potions.remove(discard)
                 character.add_potion(offer.potion)
                 result.potions_gained.append(offer.potion)
                 log.info(
                     "  Potion reward: %s gained on %s (discarded %s, slots: %s)",
-                    offer.potion, floor_label, discard, character.potions,
+                    offer.potion,
+                    floor_label,
+                    discard,
+                    character.potions,
                 )
             else:
                 log.info(
                     "  Potion reward: %s declined on %s (invalid discard choice %s)",
-                    offer.potion, floor_label, discard,
+                    offer.potion,
+                    floor_label,
+                    discard,
                 )
 
     character.gold += offer.gold

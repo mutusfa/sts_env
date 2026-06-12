@@ -9,7 +9,7 @@ from sts_env.combat.rng import RNG
 from sts_env.combat.state import Action
 from sts_env.run.character import Character
 from sts_env.run.rooms import RestChoice, RestResult
-from sts_env.run.orchestrator import RunResult, run_act1, _apply_combat_rewards
+from sts_env.run.orchestrator import RunResult, run_act1, _apply_combat_rewards, _normalize_map_edge
 from sts_env.run.rewards import ALL_RELICS, BOSS_RELICS
 
 
@@ -33,23 +33,34 @@ class _MockAgent:
     def pick_neow(self, options):
         return options[0].choice
 
-    def plan_route(self, sts_map, character, seed):
-        path = []
+    def pick_map_start(self, sts_map, character, seed):
         floor0_nodes = sts_map.nodes.get(0, [])
         candidates = [n for n in floor0_nodes if n.edges]
         if not candidates:
-            return path
-        current = (0, candidates[0].x)
+            return (0, 0)
+        return (0, candidates[0].x)
+
+    def pick_branch(self, sts_map, character, current, seed):
+        f, x = current
+        node = sts_map.get_node(f, x)
+        if node is None or not node.edges:
+            return current
+        return _normalize_map_edge(f, node.edges[0])
+
+    def plan_route(self, sts_map, character, seed):
+        path = []
+        current = self.pick_map_start(sts_map, character, seed)
         path.append(current)
         while True:
             f, x = current
             node = sts_map.get_node(f, x)
             if node is None or not node.edges:
                 break
-            next_coord = node.edges[0]
+            if len(node.edges) == 1:
+                next_coord = _normalize_map_edge(f, node.edges[0])
+            else:
+                next_coord = self.pick_branch(sts_map, character, current, seed)
             path.append(next_coord)
-            if next_coord[0] == 14:
-                break
             current = next_coord
         return path
 
@@ -98,6 +109,7 @@ class TestRunResult:
         assert r.encounter_types == []
         assert r.cards_added == []
         assert r.potions_gained == []
+        assert r.room_log == []
 
 
 class TestCharacterMapPosition:
@@ -226,6 +238,34 @@ class TestFloorObserver:
         # Combat floors should have damage_taken in attrs
         combat_attrs = [a for a in received_attrs if "damage_taken" in a]
         assert len(combat_attrs) > 0
+        # Combat floors should include character change records
+        combat_changes = [a for a in received_attrs if "character_changes" in a]
+        assert len(combat_changes) > 0
+
+
+class TestRoomLog:
+    @pytest.mark.slow
+    def test_linear_run_populates_room_log(self):
+        agent = _MockAgent()
+        result = run_act1(42, agent, use_map=False)
+        assert len(result.room_log) >= 2
+        assert result.room_log[0].room_type == "neow"
+        assert result.room_log[0].floor == 0
+        assert all(r.floor >= 1 for r in result.room_log[1:])
+
+    @pytest.mark.slow
+    def test_combat_room_includes_hp_change(self):
+        agent = _MockAgent()
+        result = run_act1(42, agent, use_map=False)
+        combat_rooms = [
+            r for r in result.room_log
+            if r.room_type in ("monster", "elite", "boss")
+        ]
+        assert combat_rooms, "expected at least one combat room log"
+        assert any(
+            any(c.field == "hp" and c.delta != 0 for c in r.changes)
+            for r in combat_rooms
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +289,13 @@ class TestApplyCombatRewardsRelics:
         new_relics = [r for r in character.relics if r not in initial]
         assert len(new_relics) == 1
         assert new_relics[0] in ALL_RELICS
+
+    def test_apply_combat_rewards_logs_card_added(self):
+        character = Character.ironclad()
+        before = character.snapshot_for_log()
+        _apply_combat_rewards(character, _base_result(), "monster", 42, RNG(42), _MockAgent())
+        record = character.finish_room(before, floor=1, room_type="monster")
+        assert any(c.field == "card_added" for c in record.changes)
 
     def test_boss_calls_pick_boss_relic_and_adds_it(self):
         picked: list[str] = []
