@@ -189,6 +189,38 @@ def get_spec(card_id: str) -> CardSpec:
     return _SPECS[base]
 
 
+def is_upgradable(card_id: str) -> bool:
+    """Return whether a card can receive another smith/upgrade.
+
+    Matches sts_lightspeed Card::canUpgrade(): attacks are re-smithable
+    when base id is SearingBlow; curses/statuses never upgrade.
+    """
+    base = card_id.rstrip("+")
+    try:
+        spec = get_spec(base)
+    except KeyError:
+        return False
+    if spec.card_type in (CardType.CURSE, CardType.STATUS):
+        return False
+    if base == "SearingBlow":
+        return True
+    return not card_id.endswith("+")
+
+
+def apply_upgrade(card_id: str) -> str:
+    """Return card_id with one additional upgrade level (+ suffix)."""
+    return card_id + "+"
+
+
+def find_upgrade_index(deck: list[str], target: str) -> int | None:
+    """Find deck index of an upgradable copy matching target (base or exact id)."""
+    base = target.rstrip("+")
+    for i, cid in enumerate(deck):
+        if cid.rstrip("+") == base and is_upgradable(cid):
+            return i
+    return None
+
+
 def all_specs() -> dict[str, CardSpec]:
     """Return a shallow copy of the full spec registry."""
     return dict(_SPECS)
@@ -653,20 +685,20 @@ def _armaments_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -
         for card in state.piles.hand:
             spec = _SPECS.get(card.card_id.rstrip("+"))
             if spec and spec.card_type not in (CardType.STATUS, CardType.CURSE):
-                if spec.card_id == "SearingBlow" or not card.upgraded:
-                    card.card_id = card.card_id.rstrip("+") + "+" * (card.card_id.count("+") + 1)
+                if is_upgradable(card.card_id):
+                    card.card_id = apply_upgrade(card.card_id)
     else:
         # Base Armaments: present upgradable cards as choices
         choices = []
         for card in state.piles.hand:
             spec = _SPECS.get(card.card_id.rstrip("+"))
             if spec and spec.card_type not in (CardType.STATUS, CardType.CURSE):
-                if spec.card_id == "SearingBlow" or not card.upgraded:
+                if is_upgradable(card.card_id):
                     choices.append(card)
         if choices:
 
             def on_choose(s: "CombatState", card: Card) -> None:
-                card.card_id = card.card_id.rstrip("+") + "+" * (card.card_id.count("+") + 1)
+                card.card_id = apply_upgrade(card.card_id)
 
             state.pending_stack.append(
                 ChoiceFrame(choices=choices, kind="armaments", on_choose=on_choose)

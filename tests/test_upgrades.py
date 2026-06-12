@@ -4,7 +4,7 @@ import pytest
 from sts_env.combat import Combat
 from sts_env.combat.player_state import PlayerState
 from sts_env.combat.card import Card
-from sts_env.combat.cards import play_card, get_spec
+from sts_env.combat.cards import play_card, get_spec, is_upgradable, apply_upgrade
 from sts_env.combat.engine import IRONCLAD_STARTER
 
 
@@ -108,6 +108,31 @@ class TestUpgradedCost:
         assert spec.cost == 3
         assert spec.upgrade.get("cost", 0) == -1
         assert spec.cost + spec.upgrade.get("cost", 0) == 2
+
+
+class TestIsUpgradable:
+    def test_strike_base_upgradable(self):
+        assert is_upgradable("Strike")
+
+    def test_strike_plus_not_upgradable(self):
+        assert not is_upgradable("Strike+")
+
+    def test_searing_blow_always_upgradable(self):
+        assert is_upgradable("SearingBlow")
+        assert is_upgradable("SearingBlow+")
+        assert is_upgradable("SearingBlow+++")
+
+    def test_curse_and_status_not_upgradable(self):
+        assert not is_upgradable("Wound")
+        assert not is_upgradable("Dazed")
+
+    def test_rampage_empty_upgrade_dict_still_upgradable_once(self):
+        assert is_upgradable("Rampage")
+        assert not is_upgradable("Rampage+")
+
+    def test_apply_upgrade_appends_plus(self):
+        assert apply_upgrade("Strike") == "Strike+"
+        assert apply_upgrade("SearingBlow+") == "SearingBlow++"
 
 
 class TestCardIdSuffix:

@@ -156,13 +156,15 @@ def _damage_player(character: "Character", amount: int) -> None:
 
 
 def _upgrade_random_card(character: "Character", rng: RNG) -> str | None:
-    """Upgrade a random non-upgraded card in the deck.  Returns card id or None."""
-    upgradable = [c for c in character.deck if not c.endswith("+")]
+    """Upgrade a random upgradable card in the deck.  Returns card id or None."""
+    from ..combat.cards import apply_upgrade, is_upgradable
+
+    upgradable = [c for c in character.deck if is_upgradable(c)]
     if not upgradable:
         return None
     card = rng.choice(upgradable)
     idx = character.deck.index(card)
-    character.deck[idx] = card + "+"
+    character.deck[idx] = apply_upgrade(character.deck[idx])
     return character.deck[idx]
 
 

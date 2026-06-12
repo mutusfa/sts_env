@@ -643,17 +643,22 @@ def _run_map(
                             sts_map=sts_map,
                             current_position=(floor_num, x_pos),
                         )
-                        if card and card in character.deck:
-                            idx = character.deck.index(card)
-                            if not card.endswith("+"):
-                                character.deck[idx] = card + "+"
+                        if card:
+                            from ..combat.cards import apply_upgrade, find_upgrade_index
+
+                            idx = find_upgrade_index(character.deck, card)
+                            if idx is not None:
+                                before = character.deck[idx]
+                                character.deck[idx] = apply_upgrade(before)
                                 log.info(
                                     "  Card upgraded: %s -> %s",
-                                    card,
+                                    before,
                                     character.deck[idx],
                                 )
                             else:
-                                log.info("  Card already upgraded: %s", card)
+                                log.info(
+                                    "  Card upgrade skipped (agent returned %s)", card
+                                )
                         else:
                             log.info("  Card upgrade skipped (agent returned %s)", card)
 
@@ -1141,11 +1146,12 @@ def _execute_rest_choice(
 
     if result.choice == RestChoice.UPGRADE and result.card_upgraded:
         target = result.card_upgraded
-        # Verify the card is actually upgradeable in the deck
-        if target in character.deck and not target.endswith("+"):
+        from ..combat.cards import find_upgrade_index
+
+        if find_upgrade_index(character.deck, target) is not None:
             rest_upgrade(character, target)
             return _RestExecResult(RestChoice.UPGRADE, card_upgraded=target)
-        # Card not found or already upgraded — fall through to heal
+        # Card not found or not upgradeable — fall through to heal
 
     healed = rest_heal(character)
     return _RestExecResult(RestChoice.REST, hp_healed=healed)

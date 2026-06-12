@@ -169,6 +169,14 @@ class TestRestUpgrade:
         rest_upgrade(c, "NonExistentCard")
         assert c.deck == deck_before
 
+    def test_searing_blow_multi_upgrade(self):
+        c = Character.ironclad()
+        c.deck = ["SearingBlow"]
+        rest_upgrade(c, "SearingBlow")
+        assert c.deck == ["SearingBlow+"]
+        rest_upgrade(c, "SearingBlow")
+        assert c.deck == ["SearingBlow++"]
+
 
 class TestPickRestChoice:
     def test_heals_when_hurt(self):
@@ -217,6 +225,12 @@ class TestBestUpgradeTarget:
         c.deck = [card + "+" for card in c.deck]
         target = _best_upgrade_target(c)
         assert target is None
+
+    def test_searing_blow_still_target_when_rest_upgraded(self):
+        c = Character.ironclad()
+        c.deck = [card + "+" for card in c.deck] + ["SearingBlow+"]
+        target = _best_upgrade_target(c)
+        assert target == "SearingBlow+"
 
 
 # =========================================================================

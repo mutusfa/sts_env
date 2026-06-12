@@ -55,16 +55,18 @@ def rest_heal(character: Character) -> int:
 def rest_upgrade(character: Character, card_id: str) -> None:
     """Upgrade a card in the character's deck.
 
-    Finds the first non-upgraded copy of card_id and replaces it
-    with the upgraded version (appends '+' suffix to the card ID).
+    Finds the first upgradable copy matching card_id (base or deck entry)
+    and appends one '+' suffix.
     """
-    # Find first non-upgraded copy
-    for i, card in enumerate(character.deck):
-        if card == card_id:
-            character.deck[i] = card_id + "+"
-            log.info("  Upgraded %s → %s", card_id, card_id + "+")
-            return
-    log.warning("  Tried to upgrade %s but no unupgraded copy found", card_id)
+    from ..combat.cards import apply_upgrade, find_upgrade_index
+
+    idx = find_upgrade_index(character.deck, card_id)
+    if idx is None:
+        log.warning("  Tried to upgrade %s but no upgradable copy found", card_id)
+        return
+    before = character.deck[idx]
+    character.deck[idx] = apply_upgrade(before)
+    log.info("  Upgraded %s → %s", before, character.deck[idx])
 
 
 def pick_rest_choice(
@@ -143,9 +145,9 @@ def _best_upgrade_target(character: Character) -> str | None:
     """Pick the best card to upgrade from the deck.
 
     Priority: Bash > attacks > defends > others.
-    Only considers cards that haven't been upgraded yet (no '+' suffix).
+    Only considers cards that are currently upgradable.
     """
-    from ..combat.cards import _SPECS as _CARD_SPECS
+    from ..combat.cards import is_upgradable
 
     # Priority order of card IDs to upgrade
     upgrade_priority = [
@@ -172,19 +174,15 @@ def _best_upgrade_target(character: Character) -> str | None:
         "Rage",
     ]
 
-    # Collect unupgraded cards in deck
-    unupgraded = {c for c in character.deck if not c.endswith("+")}
-    # Also filter to cards that have upgrade bonuses defined
-    upgradeable = {
-        c for c in unupgraded
-        if c in _CARD_SPECS and _CARD_SPECS[c].upgrade
-    }
+    upgradeable = [c for c in character.deck if is_upgradable(c)]
+    upgradeable_bases = {c.rstrip("+") for c in upgradeable}
 
     for card_id in upgrade_priority:
-        if card_id in upgradeable:
-            return card_id
+        if card_id in upgradeable_bases:
+            for c in upgradeable:
+                if c.rstrip("+") == card_id:
+                    return c
 
-    # Fallback: any unupgraded card with an upgrade bonus
     if upgradeable:
         return sorted(upgradeable)[0]
 
