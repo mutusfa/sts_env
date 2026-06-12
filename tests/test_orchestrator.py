@@ -33,36 +33,18 @@ class _MockAgent:
     def pick_neow(self, options):
         return options[0].choice
 
-    def pick_map_start(self, sts_map, character, seed):
-        floor0_nodes = sts_map.nodes.get(0, [])
-        candidates = [n for n in floor0_nodes if n.edges]
-        if not candidates:
-            return (0, 0)
-        return (0, candidates[0].x)
-
     def pick_branch(self, sts_map, character, current, seed):
+        if current is None:
+            floor0_nodes = sts_map.nodes.get(0, [])
+            candidates = [n for n in floor0_nodes if n.edges]
+            if not candidates:
+                return (0, 0)
+            return (0, candidates[0].x)
         f, x = current
         node = sts_map.get_node(f, x)
         if node is None or not node.edges:
             return current
         return _normalize_map_edge(f, node.edges[0])
-
-    def plan_route(self, sts_map, character, seed):
-        path = []
-        current = self.pick_map_start(sts_map, character, seed)
-        path.append(current)
-        while True:
-            f, x = current
-            node = sts_map.get_node(f, x)
-            if node is None or not node.edges:
-                break
-            if len(node.edges) == 1:
-                next_coord = _normalize_map_edge(f, node.edges[0])
-            else:
-                next_coord = self.pick_branch(sts_map, character, current, seed)
-            path.append(next_coord)
-            current = next_coord
-        return path
 
     def pick_card(self, character, card_choices, upcoming_encounters, seed, **kwargs):
         return card_choices[0] if card_choices else None

@@ -102,32 +102,17 @@ class RunAgentProtocol(Protocol):
         """Choose a Neow blessing from the given options."""
         ...
 
-    def plan_route(
-        self,
-        sts_map: StSMap,
-        character: Character,
-        seed: int,
-    ) -> list[tuple[int, int]]:
-        """Return a full path through the map as (floor, x) pairs."""
-        ...
-
-    def pick_map_start(
-        self,
-        sts_map: StSMap,
-        character: Character,
-        seed: int,
-    ) -> tuple[int, int]:
-        """Pick the starting map node at floor 0."""
-        ...
-
     def pick_branch(
         self,
         sts_map: StSMap,
         character: Character,
-        current: tuple[int, int],
+        current: tuple[int, int] | None,
         seed: int,
     ) -> tuple[int, int]:
-        """Pick the next map step when standing at a fork."""
+        """Pick the next map step when standing at a fork.
+
+        Pass ``current=None`` after Neow to choose the first map column.
+        """
         ...
 
     def pick_card(
@@ -406,7 +391,7 @@ def _run_map(
     if hasattr(agent, "begin_map_run"):
         agent.begin_map_run(sts_map, seed)
 
-    current = agent.pick_map_start(sts_map, character, seed)
+    current = agent.pick_branch(sts_map, character, None, seed)
 
     result = RunResult(
         victory=False,
