@@ -42,20 +42,13 @@ class TestRedSkull:
         assert state.relic_state.get("red_skull_active", 0)
 
     def test_bonus_removes_on_heal_above_half(self):
+        from sts_env.combat.healing import heal_player
+
         c = _combat_with_red_skull(player_hp=38, player_max_hp=80)
         assert c._state.player_powers.strength == 3
-        state = c._state
-        state.player_hp = 45
-        emit(state, Event.HP_LOSS, "player", hp_before=38)
-        # HP went up but HP_LOSS fired; RedSkull checks current HP
-        # Actually, healing wouldn't emit HP_LOSS. The check happens on
-        # HP_LOSS events, and we should test that when HP crosses back above
-        # the threshold the bonus is removed.
-        # RedSkull should deactivate when hp > max_hp // 2
-        # This would happen on a future HP_LOSS event where HP is somehow
-        # above the threshold. Let's just test the state directly.
-        assert state.player_powers.strength == 0
-        assert not state.relic_state.get("red_skull_active", 0)
+        heal_player(c._state, 10)
+        assert c._state.player_powers.strength == 0
+        assert not c._state.relic_state.get("red_skull_active", 0)
 
     def test_bonus_stays_at_exactly_half(self):
         c = _combat_with_red_skull(player_hp=40, player_max_hp=80)

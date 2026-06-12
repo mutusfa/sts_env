@@ -289,7 +289,17 @@ def generate_shop(
 
     final_prices = [_apply_discounts(p) for p in raw_prices]
 
-    card_entries: list[str] = [atk0, atk1, skl0, skl1, pwr_id, cl_unc_id, cl_rare_id]
+    from .relic_hooks import apply_egg_upgrade
+
+    card_entries: list[str] = [
+        apply_egg_upgrade(atk0, owned_relics),
+        apply_egg_upgrade(atk1, owned_relics),
+        apply_egg_upgrade(skl0, owned_relics),
+        apply_egg_upgrade(skl1, owned_relics),
+        apply_egg_upgrade(pwr_id, owned_relics),
+        apply_egg_upgrade(cl_unc_id, owned_relics),
+        apply_egg_upgrade(cl_rare_id, owned_relics),
+    ]
     cards = [(cid or None, fp) for cid, fp in zip(card_entries, final_prices)]
 
     # -----------------------------------------------------------------------
@@ -377,7 +387,9 @@ def buy_card(inventory: ShopInventory, index: int, character: "Character") -> st
     if character.gold < price:
         return None
 
-    character.gold -= price
+    from .relic_hooks import spend_gold_at_shop
+
+    spend_gold_at_shop(character, price)
     character.add_card(card_id)
     inventory.cards[index] = (None, price)
     return card_id
@@ -404,7 +416,9 @@ def buy_potion(inventory: ShopInventory, index: int, character: "Character") -> 
     if len(character.potions) >= character.max_potion_slots:
         return None
 
-    character.gold -= price
+    from .relic_hooks import spend_gold_at_shop
+
+    spend_gold_at_shop(character, price)
     character.add_potion(potion_id)
     inventory.potions[index] = (None, price)
     return potion_id
@@ -427,7 +441,9 @@ def buy_relic(inventory: ShopInventory, index: int, character: "Character") -> s
     if character.gold < price:
         return None
 
-    character.gold -= price
+    from .relic_hooks import spend_gold_at_shop
+
+    spend_gold_at_shop(character, price)
     character.add_relic(relic_id)
     inventory.relics[index] = None
     return relic_id
@@ -445,7 +461,9 @@ def remove_card(character: "Character", card_id: str) -> bool:
     if character.gold < REMOVE_CARD_COST:
         return False
 
-    character.gold -= REMOVE_CARD_COST
+    from .relic_hooks import spend_gold_at_shop
+
+    spend_gold_at_shop(character, REMOVE_CARD_COST)
     character.deck.remove(card_id)
     return True
 

@@ -104,6 +104,7 @@ def roll_card_rewards(
     room: Room = Room.MONSTER,
     card_rarity_factor: int = 0,
     event_bus: "RunEventBus | None" = None,
+    relics: list[str] | None = None,
 ) -> tuple[list[str], int]:
     """Return (card_ids, new_card_rarity_factor) for one reward screen.
 
@@ -138,6 +139,11 @@ def roll_card_rewards(
             card = rng.choice(card_pool)
             attempts += 1
         rewards.append(card)
+
+    if relics:
+        from .relic_hooks import apply_egg_upgrade
+
+        rewards = [apply_egg_upgrade(c, relics) for c in rewards]
 
     return rewards, factor
 
@@ -196,74 +202,35 @@ class RelicTier(Enum):
     SHOP = auto()
 
 
-# Ironclad-specific pools drawn from sts_lightspeed/include/constants/RelicPools.h.
+# Ironclad pools aligned with C++ RelicPools.h::Ironclad (33 common / 30 uncommon /
+# 28 rare / 22 boss). Previously Python used a 60-ID subset with several tier
+# misplacements (e.g. Shuriken/Sundial as common, PenNib as uncommon).
 COMMON_RELICS: list[str] = [
-    "RedSkull",
-    "CentennialPuzzle",
-    "JuzuBracelet",
-    "Orichalcum",
-    "CeramicFish",
-    "Anchor",
-    "BagOfMarbles",
-    "BloodVial",
-    "BronzeScales",
-    "HappyFlower",
-    "Lantern",
-    "Nunchaku",
-    "OrnamentalFan",
-    "PreservedInsect",
-    "Shuriken",
-    "Sundial",
-    "Vajra",
-    "WarPaint",
-    "Whetstone",
-    "TheBoot",
-    "Strawberry",
-    "RegalPillow",
+    "Whetstone", "TheBoot", "BloodVial", "MealTicket", "PenNib", "Akabeko",
+    "Lantern", "RegalPillow", "BagOfPreparation", "AncientTeaSet", "SmilingMask",
+    "PotionBelt", "PreservedInsect", "Omamori", "MawBank", "ArtOfWar",
+    "ToyOrnithopter", "CeramicFish", "Vajra", "CentennialPuzzle", "Strawberry",
+    "HappyFlower", "OddlySmoothStone", "WarPaint", "BronzeScales", "JuzuBracelet",
+    "DreamCatcher", "Nunchaku", "TinyChest", "Orichalcum", "Anchor",
+    "BagOfMarbles", "RedSkull",
 ]
 
 UNCOMMON_RELICS: list[str] = [
-    "DreamCatcher",
-    "MealTicket",
-    "MawBank",
-    "ToyOrnithopter",
-    "Pantograph",
-    "FrozenEgg",
-    "InkBottle",
-    "PenNib",
-    "QuestionCard",
-    "SmilingMask",
-    "TinyChest",
-    "BagOfPreparation",
-    "BlueCandle",
+    "BottledTornado", "Sundial", "Kunai", "Pear", "BlueCandle", "EternalFeather",
+    "StrikeDummy", "SingingBowl", "Matryoshka", "InkBottle", "TheCourier",
+    "FrozenEgg", "OrnamentalFan", "BottledLightning", "GremlinHorn", "HornCleat",
+    "ToxicEgg", "LetterOpener", "QuestionCard", "BottledFlame", "Shuriken",
+    "MoltenEgg", "MeatOnTheBone", "DarkstonePeriapt", "MummifiedHand",
+    "Pantograph", "WhiteBeastStatue", "MercuryHourglass", "SelfFormingClay",
+    "PaperPhrog",
 ]
 
 RARE_RELICS: list[str] = [
-    "Ginger",
-    "OldCoin",
-    "BirdFacedUrn",
-    "UnceasingTop",
-    "Torii",
-    "StoneCalendar",
-    "Shovel",
-    "WingBoots",
-    "ThreadAndNeedle",
-    "Turnip",
-    "IceCream",
-    "Calipers",
-    "LizardTail",
-    "PrayerWheel",
-    "Girya",
-    "DeadBranch",
-    "DuVuDoll",
-    "Pocketwatch",
-    "Mango",
-    "IncenseBurner",
-    "GamblingChip",
-    "PeacePipe",
-    "CaptainsWheel",
-    "FossilizedHelix",
-    "TungstenRod",
+    "Ginger", "OldCoin", "BirdFacedUrn", "UnceasingTop", "Torii", "StoneCalendar",
+    "Shovel", "WingBoots", "ThreadAndNeedle", "Turnip", "IceCream", "Calipers",
+    "LizardTail", "PrayerWheel", "Girya", "DeadBranch", "DuVuDoll", "Pocketwatch",
+    "Mango", "IncenseBurner", "GamblingChip", "PeacePipe", "CaptainsWheel",
+    "FossilizedHelix", "TungstenRod", "MagicFlower", "CharonsAshes", "ChampionBelt",
 ]
 
 ALL_RELICS = COMMON_RELICS + UNCOMMON_RELICS + RARE_RELICS
@@ -275,11 +242,11 @@ _RELIC_POOL: dict[RelicTier, list[str]] = {
 }
 
 BOSS_RELICS: list[str] = [
-    "TinyHouse",
-    "BustedCrown",
-    "CoffeeDripper",
-    "FusionHammer",
-    "RingOfSerpents",
+    "FusionHammer", "VelvetChoker", "RunicDome", "SlaversCollar", "SneckoEye",
+    "PandorasBox", "CursedKey", "BustedCrown", "Ectoplasm", "TinyHouse", "Sozu",
+    "PhilosophersStone", "Astrolabe", "BlackStar", "SacredBark", "EmptyCage",
+    "RunicPyramid", "CallingBell", "CoffeeDripper", "BlackBlood", "MarkOfPain",
+    "RunicCube",
 ]
 
 
@@ -372,6 +339,7 @@ def roll_combat_reward_offer(
     room: Room,
     card_rarity_factor: int = 0,
     event_bus: "RunEventBus | None" = None,
+    relics: list[str] | None = None,
 ) -> tuple[CombatRewardOffer, int]:
     """Roll a complete post-combat reward offer and return (offer, new_card_rarity_factor).
 
@@ -384,6 +352,7 @@ def roll_combat_reward_offer(
         room=room,
         card_rarity_factor=card_rarity_factor,
         event_bus=event_bus,
+        relics=relics,
     )
     potion = roll_potion_reward(rng)
     gold = COMBAT_GOLD.get(room, COMBAT_GOLD[Room.MONSTER])

@@ -217,7 +217,9 @@ def _apply_spec(
     # 1b. Player heal (clamped to max HP)
     if spec.heal:
         heal_amt = spec.heal + u.get("heal", 0)
-        state.player_hp = min(state.player_max_hp, state.player_hp + heal_amt)
+        from .healing import heal_player
+
+        heal_player(state, heal_amt)
 
     # 2. Energy gain
     if spec.energy:
@@ -372,7 +374,7 @@ def _havoc_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> N
     if not state.piles.draw:
         if not state.piles.discard:
             return  # nothing to play
-        state.piles.shuffle_draw_from_discard(state.rng)
+        state.piles.shuffle_draw_from_discard(state.rng, state=state)
     if not state.piles.draw:
         return
 
@@ -558,7 +560,9 @@ def _reaper_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> N
             enemy.hp = nhp
             heal_amount += pre_hp - enemy.hp
     if heal_amount > 0:
-        state.player_hp = min(state.player_max_hp, state.player_hp + heal_amount)
+        from .healing import heal_player
+
+        heal_player(state, heal_amount)
     for ei, hpb in hp_before.items():
         e = state.enemies[ei]
         if 0 < e.hp < hpb:
@@ -615,10 +619,10 @@ def _burning_pact_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int
                 s.piles.hand.remove(card)
             s.piles.move_to_exhaust(card)
             _emit(s, Event.CARD_EXHAUSTED, "player", card=card)
-            s.piles.draw_cards(draw_n, s.rng)
+            s.piles.draw_cards(draw_n, s.rng, state=s)
 
         def on_skip(s: "CombatState") -> None:
-            s.piles.draw_cards(draw_n, s.rng)
+            s.piles.draw_cards(draw_n, s.rng, state=s)
 
         state.pending_stack.append(
             ChoiceFrame(choices=choices, kind="burningpact",
@@ -909,7 +913,7 @@ def _blind_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> No
 
 def _deep_breath_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
     if state.piles.discard:
-        state.piles.shuffle_draw_from_discard(state.rng)
+        state.piles.shuffle_draw_from_discard(state.rng, state=state)
     draw_n = 1 + (1 if upgraded else 0)
     state.piles.draw_cards(draw_n, state.rng)
 

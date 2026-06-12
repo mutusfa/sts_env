@@ -58,16 +58,21 @@ def build_combat(
     if factory is None:
         raise ValueError(f"Unknown encounter: {encounter_type}/{encounter_id}")
 
-    return factory(seed, ps, is_elite=is_elite)
+    combat = factory(seed, ps, is_elite=is_elite)
+    if encounter_type == "boss" and combat._state is not None:
+        combat._state.is_boss = True
+    return combat
 
 
 def sync_combat_counters(character: Character, combat: Combat) -> None:
-    """Sync relic_state from CombatState back to Character.
+    """Sync relic_state and relic_data from CombatState back to Character.
 
     Call after combat ends to persist per-run relic counters across fights.
     """
     if combat._state is not None:
-        character.relic_state = dict(combat._state.relic_state)
+        from .relic_state import sync_relic_data_to_character
+
+        sync_relic_data_to_character(character, combat._state)
 
 
 # Map encounter_id strings to encounter factory functions.

@@ -38,20 +38,35 @@ class Piles:
     # Mutations
     # ------------------------------------------------------------------
 
-    def shuffle_draw_from_discard(self, rng: RNG) -> None:
+    def shuffle_draw_from_discard(
+        self,
+        rng: RNG,
+        *,
+        state: "CombatState | None" = None,
+    ) -> None:
         """Move all discard cards into draw pile (shuffled) and clear discard."""
         self.draw.extend(self.discard)
         self.discard.clear()
         rng.shuffle(self.draw)
+        if state is not None:
+            from .events import Event, emit
 
-    def draw_cards(self, n: int, rng: RNG) -> list[Card]:
+            emit(state, Event.DECK_SHUFFLED, "player")
+
+    def draw_cards(
+        self,
+        n: int,
+        rng: RNG,
+        *,
+        state: "CombatState | None" = None,
+    ) -> list[Card]:
         """Draw up to *n* cards into hand; triggers reshuffle if needed."""
         drawn: list[Card] = []
         for _ in range(n):
             if not self.draw:
                 if not self.discard:
                     break
-                self.shuffle_draw_from_discard(rng)
+                self.shuffle_draw_from_discard(rng, state=state)
             if self.draw:
                 card = self.draw.pop(0)
                 self.hand.append(card)

@@ -149,7 +149,7 @@ def _speed_potion(state: "CombatState", _ti: int) -> None:
 @potion("SwiftPotion", TargetType.NONE)
 def _swift_potion(state: "CombatState", _ti: int) -> None:
     """Draw 3 cards."""
-    state.piles.draw_cards(3, state.rng)
+    state.piles.draw_cards(3, state.rng, state=state)
 
 
 @potion("FearPotion", TargetType.SINGLE_ENEMY)
@@ -166,7 +166,9 @@ def _fear_potion(state: "CombatState", ti: int) -> None:
 def _blood_potion(state: "CombatState", _ti: int) -> None:
     """Heal floor(20% of max HP)."""
     heal = math.floor(state.player_max_hp * 0.20)
-    state.player_hp = min(state.player_max_hp, state.player_hp + heal)
+    from .healing import heal_player
+
+    heal_player(state, heal)
 
 
 @potion("HeartOfIron", TargetType.NONE)

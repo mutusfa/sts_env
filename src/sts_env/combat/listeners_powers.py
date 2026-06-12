@@ -83,7 +83,7 @@ def _sentinel(state: CombatState, owner: Owner, payload: dict) -> None:
 def _dark_embrace(state: CombatState, owner: Owner, payload: dict) -> None:
     if state.player_powers.dark_embrace <= 0:
         return
-    state.piles.draw_cards(state.player_powers.dark_embrace, state.rng)
+    state.piles.draw_cards(state.player_powers.dark_embrace, state.rng, state=state)
 
 
 @listener(Event.CARD_EXHAUSTED, "feel_no_pain", subscriptions=[(POWER_SUBSCRIPTIONS, "feel_no_pain")])
@@ -143,7 +143,7 @@ def _brutality(state: CombatState, owner: Owner, payload: dict) -> None:
     # Only player has HP to lose
     if owner == "player":
         state.player_hp = max(0, state.player_hp - 1)
-        state.piles.draw_cards(1, state.rng)
+        state.piles.draw_cards(1, state.rng, state=state)
 
 
 @listener(Event.TURN_START, "berserk", subscriptions=[(POWER_SUBSCRIPTIONS, "berserk_energy")])
@@ -280,7 +280,7 @@ def _mayhem(state: CombatState, owner: Owner, payload: dict) -> None:
     if not state.piles.draw:
         if not state.piles.discard:
             return
-        state.piles.shuffle_draw_from_discard(state.rng)
+        state.piles.shuffle_draw_from_discard(state.rng, state=state)
     if not state.piles.draw:
         return
     from .cards import get_spec, _apply_spec, _SPECS, CardType

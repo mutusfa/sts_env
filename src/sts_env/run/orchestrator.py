@@ -424,6 +424,10 @@ def _run_map(
         character.floor = floor_num + 1
         character.map_x = x_pos
         room_type = node.room_type
+
+        from .relic_hooks import relics_on_enter_room
+
+        relics_on_enter_room(character, room_type)
         room_type_str = room_type.name.lower()
 
         died = False
@@ -1187,6 +1191,7 @@ def _apply_combat_rewards(
         room,
         card_rarity_factor=character.card_rarity_factor,
         event_bus=character.event_bus,
+        relics=character.relics,
     )
     character.card_rarity_factor = new_factor
 

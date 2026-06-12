@@ -93,6 +93,7 @@ class Powers:
     spore_cloud: int = 0         # enemy: on death, apply this many Vulnerable stacks to player
     entangled: bool = False      # player: cannot play Skill or Power cards this turn
     dexterity: int = 0           # player: flat bonus to all block gains
+    thorns: int = 0              # player: deal this much damage when hit unblocked
     metallicize: int = 0         # player: gain this much block at end of each player turn
     strength_loss_eot: int = 0   # player: lose this much strength at end of turn (Steroid/Flex)
     dexterity_loss_eot: int = 0  # player: lose this much dexterity at end of turn (Speed)

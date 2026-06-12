@@ -31,6 +31,7 @@ Owner = Union[str, int]
 
 
 class Event(Enum):
+    COMBAT_START_PRE_DRAW = auto()  # before opening hand draw (Anchor, Lantern, etc.)
     COMBAT_START = auto()
     TURN_START = auto()
     TURN_END = auto()
@@ -39,7 +40,9 @@ class Event(Enum):
     CARD_CREATED = auto()
     BLOCK_GAINED = auto()
     HP_LOSS = auto()
+    HP_GAIN = auto()
     ATTACK_DAMAGED = auto()
+    DECK_SHUFFLED = auto()
     DEATH = auto()
     DEBUFF_APPLIED = auto()
     POTION_USED = auto()       # payload: potion_id — fired when a potion is consumed

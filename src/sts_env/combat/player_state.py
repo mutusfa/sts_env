@@ -38,6 +38,7 @@ class PlayerState:
         relics: Relic IDs the player carries.
         gold: Current gold (used by relics like Midas Blood).
         relic_state: Per-relic mutable counters (persists across combats).
+        relic_data: Run-persistent relic charges/enable flags (C++ RelicInstance.data).
         character_class: Colour/class of the player character.
     """
 
@@ -49,6 +50,7 @@ class PlayerState:
     relics: list[str] = field(default_factory=lambda: list(_IRONCLAD_STARTER_RELICS))
     gold: int = _IRONCLAD_STARTER_GOLD
     relic_state: dict[str, int] = field(default_factory=dict)
+    relic_data: dict[str, int] = field(default_factory=dict)
     character_class: CardColor = CardColor.RED
 
     @classmethod

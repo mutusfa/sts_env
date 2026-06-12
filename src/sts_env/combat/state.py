@@ -63,6 +63,9 @@ class CombatState:
     relics: frozenset[str] = frozenset()
     is_elite: bool = False         # True if this is an elite encounter (for PreservedInsect etc.)
     relic_state: dict[str, int] = field(default_factory=dict)  # relic-owned counters/flags
+    relic_data: dict[str, int] = field(default_factory=dict)  # run-persistent charges (synced back)
+    relic_combat_disabled: set[str] = field(default_factory=set)  # per-combat suppressions
+    is_boss: bool = False          # True for boss fights (Pantograph etc.)
 
 
 # ---------------------------------------------------------------------------

@@ -147,6 +147,7 @@ class Combat:
         enemies: list[str],
         seed: int,
         is_elite: bool = False,
+        is_boss: bool = False,
     ) -> None:
         potions = list(character.potions)
         if len(potions) > character.max_potion_slots:
@@ -158,6 +159,11 @@ class Combat:
         deck = [Card(c) if isinstance(c, str) else c for c in character.deck]
         starting_relics = frozenset(character.relics)
         relic_state: dict[str, int] = dict(character.relic_state)
+        from .relic_state import default_relic_data
+
+        relic_data = dict(character.relic_data)
+        for rid in character.relics:
+            relic_data.setdefault(rid, default_relic_data(rid))
 
         rng = RNG(seed)
 
@@ -189,24 +195,23 @@ class Combat:
             relics=starting_relics,
             gold=character.gold,
             is_elite=is_elite,
+            is_boss=is_boss,
             relic_state=relic_state,
+            relic_data=relic_data,
         )
         self._damage_taken: int = 0
         self._max_hp_gained: int = 0
         self._player_start_hp = player_start_hp
         self._player_max_hp = player_max_hp
 
-        # Wire subscriptions for relics
-        for relic_name in self._state.relics:
-            for event, handler_name in RELIC_SUBSCRIPTIONS.get(relic_name, []):
-                subscribe(self._state, event, handler_name, "player")
-
-        # Wire subscriptions for potions
-        # Potions can stack (e.g. two FairyInABottle), so we append one
-        # subscriber per potion instance (bypassing idempotency).
+        # Wire potions before relics so Fairy triggers before Lizard Tail on HP_LOSS.
         for potion_id in self._state.potions:
             for event, handler_name in POTION_SUBSCRIPTIONS.get(potion_id, []):
                 self._state.subscribers[event]["player"].append(handler_name)
+
+        for relic_name in self._state.relics:
+            for event, handler_name in RELIC_SUBSCRIPTIONS.get(relic_name, []):
+                subscribe(self._state, event, handler_name, "player")
 
         # Wire subscriptions for player powers.
         # Duration-tick listeners for the player are NOT subscribed here because
@@ -256,10 +261,15 @@ class Combat:
                 intent = pick_intent_with_state(enemy, rng, turn=0, state=self._state, enemy_index=i)
                 self._intents.append(intent)
 
-        # Draw opening hand
-        self._state.piles.draw_cards(_CARDS_PER_DRAW, rng)
+        from .relic_state import clear_combat_disabled
 
-        # Fire COMBAT_START event
+        clear_combat_disabled(self._state)
+        emit(self._state, Event.COMBAT_START_PRE_DRAW, "player")
+
+        # Draw opening hand
+        self._state.piles.draw_cards(_CARDS_PER_DRAW, rng, state=self._state)
+
+        # Fire COMBAT_START event (post-draw relics like Bag of Marbles)
         emit(self._state, Event.COMBAT_START, "player")
 
     # ------------------------------------------------------------------
@@ -650,7 +660,7 @@ class Combat:
         # Emit player TURN_START (Demon Form, Brutality, Berserk, vulnerable/weak/frail tick)
         emit(state, Event.TURN_START, "player")
 
-        state.piles.draw_cards(_CARDS_PER_DRAW, state.rng)
+        state.piles.draw_cards(_CARDS_PER_DRAW, state.rng, state=state)
 
     def _resolve_split(self, enemy: EnemyState, idx: int) -> None:
         """Replace enemy at idx and idx+1 with two fresh medium slimes."""
@@ -699,8 +709,21 @@ class Combat:
         if intent.intent_type in (IntentType.ATTACK, IntentType.ATTACK_DEFEND, IntentType.ATTACK_DEBUFF):
             for _ in range(intent.hits):
                 raw = calc_damage(intent.damage, enemy.powers, state.player_powers)
+                hp_before_hit = state.player_hp
                 damage_player(state, raw)
                 emit(state, Event.ATTACK_DAMAGED, "player", damage=raw)
+                if (
+                    state.player_powers.thorns > 0
+                    and hp_before_hit > state.player_hp
+                ):
+                    from .powers import attack_enemy
+
+                    attack_enemy(
+                        state,
+                        enemy,
+                        state.player_powers.thorns,
+                        enemy_index,
+                    )
                 if state.player_hp <= 0:
                     return
 

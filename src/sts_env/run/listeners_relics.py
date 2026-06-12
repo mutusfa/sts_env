@@ -27,3 +27,8 @@ def _ceramic_fish(payload: dict) -> None:
 @listener(RunEvent.CARD_REWARD_COUNT, "busted_crown", subscriptions=[(RELI_RUN_SUBSCRIPTIONS, "BustedCrown")])
 def _busted_crown(payload: dict) -> None:
     payload["count"] = max(1, payload["count"] - 2)
+
+
+@listener(RunEvent.CARD_REWARD_COUNT, "question_card", subscriptions=[(RELI_RUN_SUBSCRIPTIONS, "QuestionCard")])
+def _question_card(payload: dict) -> None:
+    payload["count"] = payload.get("count", 3) + 1

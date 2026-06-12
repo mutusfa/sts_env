@@ -44,7 +44,9 @@ class RestResult:
 
 def rest_heal(character: Character) -> int:
     """Heal 30% of max HP at a rest site. Returns amount healed."""
-    heal_amount = character.player_max_hp * 30 // 100  # integer division, like real StS
+    heal_amount = character.player_max_hp * 30 // 100
+    if "RegalPillow" in character.relics:
+        heal_amount += 15
     hp_before = character.player_hp
     character.heal(heal_amount)
     return character.player_hp - hp_before

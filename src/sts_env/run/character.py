@@ -70,12 +70,21 @@ class Character(PlayerState):
 
     def add_card(self, card_id: str) -> None:
         """Add a card to the deck (from card rewards, events, shops, etc.)."""
-        self.deck.append(card_id)
-        self.event_bus.emit(RunEvent.CARD_ADDED, character=self, card_id=card_id)
+        from .relic_hooks import apply_egg_upgrade
+
+        final_id = apply_egg_upgrade(card_id, self.relics)
+        self.deck.append(final_id)
+        self.event_bus.emit(RunEvent.CARD_ADDED, character=self, card_id=final_id)
 
     def add_relic(self, relic_id: str) -> None:
         """Add a relic and wire its event handlers into the bus."""
+        from .relic_state import init_relic_on_obtain
+
         self.relics.append(relic_id)
+        init_relic_on_obtain(relic_id, self)
+        from .relic_hooks import apply_relic_on_obtain
+
+        apply_relic_on_obtain(self, relic_id)
         _wire_relics(self.event_bus, [relic_id])
 
     def add_potion(self, potion_id: str) -> None:

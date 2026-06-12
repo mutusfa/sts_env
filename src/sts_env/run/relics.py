@@ -6,8 +6,8 @@ Each relic has:
   - A RelicSpec (static metadata: relic_id).
   - Handler functions called at specific hooks.
 
-Currently implemented:
-  - BurningBlood: heal 6 HP after winning combat (Ironclad starter relic).
+Run-layer hooks (rest/shop/obtain) live in relic_hooks.py; combat effects in
+listeners_relics.py. Relic disable/charges use relic_data + relic_combat_disabled.
 """
 
 from __future__ import annotations
@@ -95,18 +95,12 @@ _register(RelicSpec("RedSkull"))
 # CentennialPuzzle: draw 3 cards first time you lose HP each combat (combat-internal)
 _register(RelicSpec("CentennialPuzzle"))
 
-# JuzuBracelet: normal enemies no longer attack (combat-internal — simplifies encounters)
+# JuzuBracelet: ?-room monster outcomes become events (run-layer, relic_hooks.py)
 _register(RelicSpec("JuzuBracelet"))
 
 # Orichalcum: if you end turn with 0 block, gain 6 block (combat-internal)
 _register(RelicSpec("Orichalcum"))
 
-# CeramicFish: gain 9 gold whenever you add a card to your deck
-def _ceramic_fish_on_card_add(run_state: CombatEndTarget) -> None:
-    run_state.gold += 9  # type: ignore[attr-defined]
-
-# Register CeramicFish with combat-end hook as a proxy for card-add events
-# (simplified: the runner calls this explicitly after card rewards)
 _register(RelicSpec("CeramicFish"))
 
 # TinyHouse: gain 50 gold, +3 max HP, gain 5 cards (simplified: just gold + HP)
