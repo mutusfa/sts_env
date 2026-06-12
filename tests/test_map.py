@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from sts_env.combat.rng import RNG
+from sts_env.run.rng_streams import RunRNG
 from sts_env.run.map import (
     MAP_HEIGHT,
     MAP_WIDTH,
@@ -211,12 +211,12 @@ class TestDeterminism:
 class TestEncounterSelection:
     def test_rest_returns_none(self):
         from sts_env.run.encounter_queue import EncounterQueue
-        queue = EncounterQueue(RNG(0))
+        queue = EncounterQueue(RunRNG(0))
         assert get_encounter_for_room(RoomType.REST, queue) is None
 
     def test_monster_returns_weak_encounter(self):
         from sts_env.run.encounter_queue import EncounterQueue
-        queue = EncounterQueue(RNG(42))
+        queue = EncounterQueue(RunRNG(42))
         encounter = get_encounter_for_room(RoomType.MONSTER, queue)
         assert encounter is not None
         # First encounter from the queue is always weak (easy pool)
@@ -226,7 +226,7 @@ class TestEncounterSelection:
 
     def test_elite_returns_elite_encounter(self):
         from sts_env.run.encounter_queue import EncounterQueue
-        queue = EncounterQueue(RNG(42))
+        queue = EncounterQueue(RunRNG(42))
         encounter = get_encounter_for_room(RoomType.ELITE, queue)
         assert encounter is not None
         assert encounter in [
@@ -237,15 +237,15 @@ class TestEncounterSelection:
 
     def test_boss_returns_boss_encounter(self):
         from sts_env.run.encounter_queue import EncounterQueue
-        queue = EncounterQueue(RNG(42))
+        queue = EncounterQueue(RunRNG(42))
         encounter = get_encounter_for_room(RoomType.BOSS, queue)
         assert encounter in ["slime_boss", "guardian", "hexaghost"]
 
     def test_encounter_determinism(self):
         from sts_env.run.encounter_queue import EncounterQueue
         for _ in range(20):
-            queue1 = EncounterQueue(RNG(77))
-            queue2 = EncounterQueue(RNG(77))
+            queue1 = EncounterQueue(RunRNG(77))
+            queue2 = EncounterQueue(RunRNG(77))
             e1 = get_encounter_for_room(RoomType.MONSTER, queue1)
             e2 = get_encounter_for_room(RoomType.MONSTER, queue2)
             assert e1 == e2

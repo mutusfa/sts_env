@@ -6,7 +6,7 @@ from sts_env.run.map import generate_act1_map, RoomType, get_encounter_for_room,
 from sts_env.combat.player_state import PlayerState
 from sts_env.run.rooms import rest_heal, rest_upgrade, pick_rest_choice, RestChoice, _best_upgrade_target
 from sts_env.run.character import Character
-from sts_env.combat.rng import RNG
+from sts_env.run.rng_streams import RunRNG
 
 
 # =========================================================================
@@ -97,26 +97,26 @@ class TestMapGeneration:
 class TestEncounterSelection:
     def test_monster_returns_encounter(self):
         from sts_env.run.encounter_queue import EncounterQueue
-        queue = EncounterQueue(RNG(42))
+        queue = EncounterQueue(RunRNG(42))
         enc = get_encounter_for_room(RoomType.MONSTER, queue)
         assert enc is not None
         assert isinstance(enc, str)
 
     def test_elite_returns_encounter(self):
         from sts_env.run.encounter_queue import EncounterQueue
-        queue = EncounterQueue(RNG(42))
+        queue = EncounterQueue(RunRNG(42))
         enc = get_encounter_for_room(RoomType.ELITE, queue)
         assert enc is not None
 
     def test_boss_returns_act1_boss(self):
         from sts_env.run.encounter_queue import EncounterQueue
-        queue = EncounterQueue(RNG(42))
+        queue = EncounterQueue(RunRNG(42))
         enc = get_encounter_for_room(RoomType.BOSS, queue)
         assert enc in ["slime_boss", "guardian", "hexaghost"]
 
     def test_rest_returns_none(self):
         from sts_env.run.encounter_queue import EncounterQueue
-        queue = EncounterQueue(RNG(42))
+        queue = EncounterQueue(RunRNG(42))
         enc = get_encounter_for_room(RoomType.REST, queue)
         assert enc is None
 

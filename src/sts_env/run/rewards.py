@@ -29,6 +29,7 @@ from .bus import RunEvent
 if TYPE_CHECKING:
     from ..combat.rng import RNG
     from .bus import RunEventBus
+    from .rng_streams import RunRNG
 
 
 # ---------------------------------------------------------------------------
@@ -335,7 +336,8 @@ class CombatRewardOffer:
 
 
 def roll_combat_reward_offer(
-    rng: "RNG",
+    run_rng: "RunRNG",
+    floor: int,
     room: Room,
     card_rarity_factor: int = 0,
     event_bus: "RunEventBus | None" = None,
@@ -347,6 +349,7 @@ def roll_combat_reward_offer(
     for the given room type into a single call.  The caller is responsible for
     persisting the returned ``new_card_rarity_factor`` on the run state.
     """
+    rng = run_rng.derive("card_reward", floor)
     card_choices, new_factor = roll_card_rewards(
         rng,
         room=room,

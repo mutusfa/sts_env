@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..combat.rng import RNG
+    from .rng_streams import RunRNG
 
 # ---------------------------------------------------------------------------
 # Act 1 encounter pools
@@ -149,8 +150,10 @@ class EncounterQueue:
     are consumed sequentially via next_monster() / next_elite().
     """
 
-    def __init__(self, rng: RNG) -> None:
-        self._rng = rng
+    def __init__(self, run_rng: "RunRNG") -> None:
+        self._monster_rng = run_rng.derive("monster_queue")
+        self._elite_rng = run_rng.derive("elite_queue")
+        self._boss_rng = run_rng.derive("boss")
         self.monster_list: list[str] = []
         self.monster_offset: int = 0
         self.elite_list: list[str] = []
@@ -174,16 +177,16 @@ class EncounterQueue:
         self.monster_offset = 0
 
         # 3 weak encounters (2-back no-repeat among themselves)
-        weak = _populate_monster_list(self._rng, WEAK_POOL, WEAK_WEIGHTS, 3)
+        weak = _populate_monster_list(self._monster_rng, WEAK_POOL, WEAK_WEIGHTS, 3)
         self.monster_list = weak
 
         # 1 first-strong with thematic constraints vs last weak
-        first_strong = _pick_first_strong(self._rng, self.monster_list)
+        first_strong = _pick_first_strong(self._monster_rng, self.monster_list)
         self.monster_list.append(first_strong)
 
         # 12 more strong (2-back no-repeat, continuing from the list)
         strong = _populate_monster_list(
-            self._rng, STRONG_POOL, STRONG_WEIGHTS, 12,
+            self._monster_rng, STRONG_POOL, STRONG_WEIGHTS, 12,
             existing=self.monster_list,
         )
         # _populate_monster_list returns the full list (existing + new)
@@ -192,18 +195,18 @@ class EncounterQueue:
     def _generate_strong_only(self) -> None:
         """Regenerate with only strong encounters (when list exhausted)."""
         self.monster_list = _populate_monster_list(
-            self._rng, STRONG_POOL, STRONG_WEIGHTS, 12,
+            self._monster_rng, STRONG_POOL, STRONG_WEIGHTS, 12,
         )
         self.monster_offset = 0
 
     def _generate_elites(self) -> None:
         """Generate 10 elite encounters (no consecutive repeats)."""
-        self.elite_list = _generate_elite_list(self._rng)
+        self.elite_list = _generate_elite_list(self._elite_rng)
         self.elite_offset = 0
 
     def _pick_boss(self) -> None:
         """Randomly pick a boss from the pool."""
-        self.boss = self._rng.choice(BOSS_POOL)
+        self.boss = self._boss_rng.choice(BOSS_POOL)
 
     # ------------------------------------------------------------------
     # Consumption

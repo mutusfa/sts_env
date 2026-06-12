@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from sts_env.combat.rng import RNG
+from sts_env.run.rng_streams import RunRNG
 from sts_env.run.character import Character
 from sts_env.run.rewards import ALL_RELICS, COMMON_RELICS, UNCOMMON_RELICS, RARE_RELICS
 from sts_env.run.treasure import (
@@ -16,6 +17,7 @@ from sts_env.run.treasure import (
     _MEDIUM_CHEST_CHANCE,
     _SMALL_CHEST_CHANCE,
     TreasureResult,
+    _open_treasure_with_rng,
     open_treasure,
 )
 
@@ -81,7 +83,7 @@ class TestRelicReward:
         # Force a no-gold path via high first roll to keep this focused on relic behavior.
         rng = _make_rng(randint_val=99, random_val=0.5, choice_val="Lantern")
         c = Character.ironclad()
-        result = open_treasure(c, rng)
+        result = _open_treasure_with_rng(c, rng)
         assert result.relic_found == "Lantern"
         assert c.relics.count("Lantern") == 1
 
@@ -101,7 +103,7 @@ class TestGoldReward:
         rng.choice.return_value = "Anchor"
         c = Character.ironclad()
         before = c.gold
-        result = open_treasure(c, rng)
+        result = _open_treasure_with_rng(c, rng)
         assert result.gold_found == 0
         assert c.gold == before
 
@@ -113,7 +115,7 @@ class TestGoldReward:
         rng.choice.return_value = "Anchor"
         c = Character.ironclad()
         before = c.gold
-        result = open_treasure(c, rng)
+        result = _open_treasure_with_rng(c, rng)
         assert result.gold_found == 22  # round(25 * 0.9)
         assert c.gold == before + 22
 
@@ -131,7 +133,7 @@ class TestTreasureResult:
         rng.random.return_value = 0.0
         rng.choice.return_value = "Anchor"
         c = Character.ironclad()
-        result = open_treasure(c, rng)
+        result = _open_treasure_with_rng(c, rng)
         assert result.gold_found == 22
 
     def test_result_matches_relic(self) -> None:
@@ -140,7 +142,7 @@ class TestTreasureResult:
         rng.random.return_value = 0.1
         rng.choice.return_value = "Nunchaku"
         c = Character.ironclad()
-        result = open_treasure(c, rng)
+        result = _open_treasure_with_rng(c, rng)
         assert result.relic_found == "Nunchaku"
 
 
@@ -156,7 +158,7 @@ class TestRelicPool:
         relics_found = set()
         for seed in range(500):
             c = Character.ironclad()
-            result = open_treasure(c, RNG(seed))
+            result = open_treasure(c, RunRNG(seed), 0)
             relics_found.add(result.relic_found)
         for r in relics_found:
             assert r in ALL_RELICS, f"Relic {r!r} not in any relic pool"
@@ -170,7 +172,7 @@ class TestRelicPool:
             rng.random.return_value = 0.5
             rng.choice.side_effect = lambda pool: pool[0]  # pick first from whatever pool
             c = Character.ironclad()
-            result = open_treasure(c, rng)
+            result = _open_treasure_with_rng(c, rng)
             assert result.relic_found not in RARE_RELICS, (
                 f"Small chest gave rare relic on rarity_roll={rarity_roll}: {result.relic_found}"
             )
@@ -183,7 +185,7 @@ class TestRelicPool:
             rng.random.return_value = 0.5
             rng.choice.side_effect = lambda pool: pool[0]
             c = Character.ironclad()
-            result = open_treasure(c, rng)
+            result = _open_treasure_with_rng(c, rng)
             assert result.relic_found not in COMMON_RELICS, (
                 f"Large chest gave common relic on rarity_roll={rarity_roll}: {result.relic_found}"
             )
@@ -193,7 +195,7 @@ class TestRelicPool:
         found_rare = False
         for seed in range(200):
             c = Character.ironclad()
-            result = open_treasure(c, RNG(seed))
+            result = open_treasure(c, RunRNG(seed), 0)
             if result.relic_found in RARE_RELICS:
                 found_rare = True
                 break

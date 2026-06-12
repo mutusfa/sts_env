@@ -83,8 +83,9 @@ def act1_encounters(seed: int) -> list[tuple[str, str]]:
     This mirrors typical StS Act 1 pacing.
     """
     from .encounter_queue import EncounterQueue
-    rng = RNG(seed ^ 0xA7C1B020)  # separate seed for act1 composition
-    queue = EncounterQueue(rng)
+    from .rng_streams import RunRNG
+
+    queue = EncounterQueue(RunRNG(seed ^ 0xA7C1B020))
 
     easy_encounters = [queue.next_monster() for _ in range(3)]
     hard_encounters = [queue.next_monster() for _ in range(2)]

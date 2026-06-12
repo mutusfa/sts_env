@@ -21,9 +21,8 @@ Relics (3 total, C++ Shop::setupRelics):
   - relics[2]           : always SHOP-tier
   - Prices: base * rng.uniform(0.95, 1.05), rounded
 
-NOTE: C++ uses separate cardRng / merchantRng / potionRng streams. Here a
-single RNG is passed for all operations, so draw order diverges from the
-reference (pricing rolls perturb subsequent card draws).
+NOTE: C++ uses separate cardRng / merchantRng / potionRng streams.
+``generate_shop`` derives one RNG per stream from floor-keyed :class:`RunRNG`.
 """
 
 from __future__ import annotations
@@ -48,6 +47,7 @@ from .rewards import (
 
 if TYPE_CHECKING:
     from .character import Character
+    from .rng_streams import RunRNG
 
 
 # ---------------------------------------------------------------------------
@@ -187,7 +187,8 @@ class ShopResult:
 
 
 def generate_shop(
-    rng: RNG,
+    run_rng: "RunRNG",
+    floor: int,
     character: "Character",
     card_rarity_factor: int = 0,
 ) -> ShopInventory:
@@ -196,6 +197,10 @@ def generate_shop(
     ``card_rarity_factor`` mirrors C++ gc.cardRarityFactor — it adjusts rarity
     rolls but is NOT mutated (shop doesn't update the factor).
     """
+    card_rng = run_rng.derive("shop_card", floor)
+    merchant_rng = run_rng.derive("shop_merchant", floor)
+    potion_rng = run_rng.derive("shop_potion", floor)
+
     color = character.character_class
     owned_relics = set(character.relics)
 
@@ -206,24 +211,24 @@ def generate_shop(
 
     def _pick_class_card(card_type: CardType, exclude: str | None = None) -> tuple[str, Rarity]:
         """Pick a class card of given type; re-roll (rarity + id) if matches *exclude*."""
-        rarity = _roll_rarity_shop(rng, card_rarity_factor)
+        rarity = _roll_rarity_shop(card_rng, card_rarity_factor)
         card_pool = typed_pool(color, card_type, rarity)
         if not card_pool:
             # Fallback: try UNCOMMON
             rarity = Rarity.UNCOMMON
             card_pool = typed_pool(color, card_type, rarity)
-        card_id = rng.choice(card_pool) if card_pool else ""
+        card_id = card_rng.choice(card_pool) if card_pool else ""
         if exclude is not None:
             # C++ assignRandomCardExcluding: re-roll both rarity and id until != exclude
             attempts = 0
             max_attempts = 20
             while card_id == exclude and attempts < max_attempts:
-                rarity = _roll_rarity_shop(rng, card_rarity_factor)
+                rarity = _roll_rarity_shop(card_rng, card_rarity_factor)
                 card_pool = typed_pool(color, card_type, rarity)
                 if not card_pool:
                     rarity = Rarity.UNCOMMON
                     card_pool = typed_pool(color, card_type, rarity)
-                card_id = rng.choice(card_pool) if card_pool else ""
+                card_id = card_rng.choice(card_pool) if card_pool else ""
                 attempts += 1
         return card_id, rarity
 
@@ -241,20 +246,20 @@ def generate_shop(
         r_pwr = Rarity.UNCOMMON
         pwr_pool = typed_pool(color, CardType.POWER, Rarity.UNCOMMON)
         if pwr_pool:
-            pwr_id = rng.choice(pwr_pool)
+            pwr_id = card_rng.choice(pwr_pool)
 
     # 2 colorless
     cl_uncommons = colorless_pool(Rarity.UNCOMMON)
     cl_rares = colorless_pool(Rarity.RARE)
-    cl_unc_id = rng.choice(cl_uncommons) if cl_uncommons else ""
-    cl_rare_id = rng.choice(cl_rares) if cl_rares else ""
+    cl_unc_id = card_rng.choice(cl_uncommons) if cl_uncommons else ""
+    cl_rare_id = card_rng.choice(cl_rares) if cl_rares else ""
 
     # -----------------------------------------------------------------------
     # Pricing (C++ merchantRng.random(0.9f, 1.1f) variance)
     # -----------------------------------------------------------------------
     def _card_price(rarity: Rarity, colorless: bool = False) -> int:
         base = CARD_PRICES[_RARITY_TO_PRICE_KEY[rarity]]
-        price = int(base * (0.9 + rng.random() * 0.2))
+        price = int(base * (0.9 + merchant_rng.random() * 0.2))
         if colorless:
             price = int(price * 1.2)
         return price
@@ -270,7 +275,7 @@ def generate_shop(
     ]
 
     # One sale among class cards (indices 0–4 inclusive): C++ saleIdx = merchantRng.random(4)
-    sale_idx = rng.randint(0, 4)
+    sale_idx = merchant_rng.randint(0, 4)
     raw_prices[sale_idx] = raw_prices[sale_idx] // 2
 
     # Global discounts
@@ -311,9 +316,9 @@ def generate_shop(
     ]
     potions: list[tuple[str | None, int]] = []
     for _ in range(3):
-        potion_pool, base_price = rng.choice(all_potion_pools)
-        potion_id = rng.choice(potion_pool)
-        price = int(round(base_price * (0.95 + rng.random() * 0.10)))
+        potion_pool, base_price = potion_rng.choice(all_potion_pools)
+        potion_id = potion_rng.choice(potion_pool)
+        price = int(round(base_price * (0.95 + potion_rng.random() * 0.10)))
         potions.append((potion_id, price))
 
     # -----------------------------------------------------------------------
@@ -332,28 +337,28 @@ def generate_shop(
         return 150  # COMMON
 
     for _ in range(2):
-        tier = _roll_relic_tier(rng)
+        tier = _roll_relic_tier(merchant_rng)
         rpool = _RELIC_POOL_BY_TIER.get(tier, [])
-        relic_id = _pick_relic(rng, rpool, owned_relics)
+        relic_id = _pick_relic(merchant_rng, rpool, owned_relics)
         if relic_id is None:
             # Fallback: try UNCOMMON then COMMON
             for fallback_tier in (RelicTier.UNCOMMON, RelicTier.COMMON):
-                relic_id = _pick_relic(rng, _RELIC_POOL_BY_TIER[fallback_tier], owned_relics)
+                relic_id = _pick_relic(merchant_rng, _RELIC_POOL_BY_TIER[fallback_tier], owned_relics)
                 if relic_id is not None:
                     break
         if relic_id is None:
-            relic_id = rng.choice(COMMON_RELICS)
+            relic_id = merchant_rng.choice(COMMON_RELICS)
         base = _relic_base_price(relic_id)
-        price = int(round(base * (0.95 + rng.random() * 0.10)))
+        price = int(round(base * (0.95 + merchant_rng.random() * 0.10)))
         price = _apply_discounts(price)
         relics.append((relic_id, price))
 
     # relic[2]: always SHOP-tier
-    shop_id = _pick_relic(rng, SHOP_TIER_RELICS, owned_relics)
+    shop_id = _pick_relic(merchant_rng, SHOP_TIER_RELICS, owned_relics)
     if shop_id is None:
-        shop_id = rng.choice(SHOP_TIER_RELICS)
+        shop_id = merchant_rng.choice(SHOP_TIER_RELICS)
     shop_base = _relic_base_price(shop_id)
-    shop_price = int(round(shop_base * (0.95 + rng.random() * 0.10)))
+    shop_price = int(round(shop_base * (0.95 + merchant_rng.random() * 0.10)))
     shop_price = _apply_discounts(shop_price)
     relics.append((shop_id, shop_price))
 

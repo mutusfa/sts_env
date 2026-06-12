@@ -12,6 +12,7 @@ import pytest
 
 from sts_env.combat.rng import RNG
 from sts_env.run.character import Character
+from sts_env.run.rng_streams import RunRNG
 from sts_env.run.events import (
     EventSpec,
     get_event,
@@ -21,6 +22,7 @@ from sts_env.run.events import (
     _pick_worst_card,
     transform_card,
     _da_state,
+    dead_adventurer_setup,
     _dead_adventurer_setup,
     _dead_adventurer_loot,
     _ooze_state,
@@ -39,6 +41,11 @@ def char() -> Character:
 @pytest.fixture
 def rng() -> RNG:
     return RNG(seed=42)
+
+
+@pytest.fixture
+def run_rng() -> RunRNG:
+    return RunRNG(42)
 
 
 # ---------------------------------------------------------------------------
@@ -77,14 +84,14 @@ class TestRegistry:
         with pytest.raises(KeyError):
             get_event("NonExistentEvent")
 
-    def test_random_act1_event_returns_valid(self, rng):
-        ev = random_act1_event(rng)
+    def test_random_act1_event_returns_valid(self, run_rng):
+        ev = random_act1_event(run_rng, 0)
         assert isinstance(ev, EventSpec)
         assert ev.event_id in self.ALL_EVENT_IDS
 
-    def test_random_act1_event_excludes_seen(self, rng):
+    def test_random_act1_event_excludes_seen(self, run_rng):
         seen = ["Big Fish", "The Cleric"]
-        ev = random_act1_event(rng, seen_events=seen)
+        ev = random_act1_event(run_rng, 0, seen_events=seen)
         assert ev.event_id not in seen
 
     def test_no_fabricated_events(self):
@@ -102,23 +109,23 @@ class TestRegistry:
 # ---------------------------------------------------------------------------
 
 class TestBigFish:
-    def test_heal_choice(self, char, rng):
+    def test_heal_choice(self, char, run_rng):
         char.player_hp = 30
         old_hp = char.player_hp
-        result = resolve_event("Big Fish", 0, char, rng)
+        result = resolve_event("Big Fish", 0, char, run_rng, 0)
         assert char.player_hp > old_hp
         assert "healed" in result.lower() or "Healed" in result
 
-    def test_max_hp_choice(self, char, rng):
+    def test_max_hp_choice(self, char, run_rng):
         old_max = char.player_max_hp
-        result = resolve_event("Big Fish", 1, char, rng)
+        result = resolve_event("Big Fish", 1, char, run_rng, 0)
         assert char.player_max_hp == old_max + 5
         assert "Max HP" in result
 
-    def test_relic_choice_adds_relic_and_regret(self, char, rng):
+    def test_relic_choice_adds_relic_and_regret(self, char, run_rng):
         old_relics = list(char.relics)
         old_deck_len = len(char.deck)
-        result = resolve_event("Big Fish", 2, char, rng)
+        result = resolve_event("Big Fish", 2, char, run_rng, 0)
         # Should have gotten a relic (or not, if pool exhausted)
         assert "Regret" in char.deck
         assert "Regret" in result or "relic" in result.lower()
@@ -132,36 +139,36 @@ class TestBigFish:
 # ---------------------------------------------------------------------------
 
 class TestCleric:
-    def test_heal_choice(self, char, rng):
+    def test_heal_choice(self, char, run_rng):
         char.player_hp = 50
         char.gold = 100
-        result = resolve_event("The Cleric", 0, char, rng)
+        result = resolve_event("The Cleric", 0, char, run_rng, 0)
         assert char.gold == 65  # paid 35
         assert char.player_hp > 50
         assert "Healed" in result
 
-    def test_heal_not_enough_gold(self, char, rng):
+    def test_heal_not_enough_gold(self, char, run_rng):
         char.gold = 20
         old_hp = char.player_hp
-        result = resolve_event("The Cleric", 0, char, rng)
+        result = resolve_event("The Cleric", 0, char, run_rng, 0)
         assert char.gold == 20
         assert char.player_hp == old_hp
 
-    def test_remove_choice_pays_gold(self, char, rng):
+    def test_remove_choice_pays_gold(self, char, run_rng):
         char.gold = 99
-        result = resolve_event("The Cleric", 1, char, rng)
+        result = resolve_event("The Cleric", 1, char, run_rng, 0)
         assert char.gold == 49  # paid 50
         # Card removal is handled by orchestrator, not resolve_event
 
-    def test_remove_not_enough_gold(self, char, rng):
+    def test_remove_not_enough_gold(self, char, run_rng):
         char.gold = 30
-        result = resolve_event("The Cleric", 1, char, rng)
+        result = resolve_event("The Cleric", 1, char, run_rng, 0)
         assert char.gold == 30
 
-    def test_leave(self, char, rng):
+    def test_leave(self, char, run_rng):
         old_hp = char.player_hp
         old_gold = char.gold
-        result = resolve_event("The Cleric", 2, char, rng)
+        result = resolve_event("The Cleric", 2, char, run_rng, 0)
         assert char.player_hp == old_hp
         assert char.gold == old_gold
 
@@ -197,10 +204,10 @@ class TestDeadAdventurer:
         # With seed 0 at phase 2 (75% chance), likely triggers combat
         assert "ambushed" in result.lower() or "Looted safely" in result
 
-    def test_leave(self, char, rng):
+    def test_leave(self, char, run_rng):
         _da_state.clear()
-        _da_state.update(_dead_adventurer_setup(rng))
-        result = resolve_event("Dead Adventurer", 1, char, rng)
+        _da_state.update(dead_adventurer_setup(run_rng, 0))
+        result = resolve_event("Dead Adventurer", 1, char, run_rng, 0)
         assert _da_state["phase"] == 3  # event ended
 
     def test_phase_exhausted(self, char):
@@ -229,30 +236,30 @@ class TestDeadAdventurer:
 # ---------------------------------------------------------------------------
 
 class TestGoldenIdol:
-    def test_relic_choice(self, char, rng):
-        result = resolve_event("Golden Idol", 0, char, rng)
+    def test_relic_choice(self, char, run_rng):
+        result = resolve_event("Golden Idol", 0, char, run_rng, 0)
         assert "Golden Idol" in char.relics
         assert "Golden Idol" in result
 
-    def test_leave(self, char, rng):
+    def test_leave(self, char, run_rng):
         old_hp = char.player_hp
-        result = resolve_event("Golden Idol", 1, char, rng)
+        result = resolve_event("Golden Idol", 1, char, run_rng, 0)
         assert char.player_hp == old_hp
 
-    def test_injury(self, char, rng):
-        result = resolve_event("Golden Idol", 2, char, rng)
+    def test_injury(self, char, run_rng):
+        result = resolve_event("Golden Idol", 2, char, run_rng, 0)
         assert "Injury" in char.deck
         assert "Injury" in result
 
-    def test_damage(self, char, rng):
+    def test_damage(self, char, run_rng):
         old_hp = char.player_hp
-        result = resolve_event("Golden Idol", 3, char, rng)
+        result = resolve_event("Golden Idol", 3, char, run_rng, 0)
         assert char.player_hp < old_hp
         assert "damage" in result.lower()
 
-    def test_lose_max_hp(self, char, rng):
+    def test_lose_max_hp(self, char, run_rng):
         old_max = char.player_max_hp
-        result = resolve_event("Golden Idol", 4, char, rng)
+        result = resolve_event("Golden Idol", 4, char, run_rng, 0)
         assert char.player_max_hp < old_max
         assert "Max HP" in result
 
@@ -265,22 +272,22 @@ class TestGoldenIdol:
 # ---------------------------------------------------------------------------
 
 class TestWingStatue:
-    def test_remove_takes_damage(self, char, rng):
+    def test_remove_takes_damage(self, char, run_rng):
         old_hp = char.player_hp
-        result = resolve_event("Wing Statue", 0, char, rng)
+        result = resolve_event("Wing Statue", 0, char, run_rng, 0)
         assert char.player_hp == old_hp - 7
         # Card removal handled by orchestrator
 
-    def test_gold_choice(self, char, rng):
+    def test_gold_choice(self, char, run_rng):
         old_gold = char.gold
-        result = resolve_event("Wing Statue", 1, char, rng)
+        result = resolve_event("Wing Statue", 1, char, run_rng, 0)
         assert char.gold > old_gold
         assert 50 <= (char.gold - old_gold) <= 80
 
-    def test_leave(self, char, rng):
+    def test_leave(self, char, run_rng):
         old_hp = char.player_hp
         old_gold = char.gold
-        result = resolve_event("Wing Statue", 2, char, rng)
+        result = resolve_event("Wing Statue", 2, char, run_rng, 0)
         assert char.player_hp == old_hp
         assert char.gold == old_gold
 
@@ -292,25 +299,25 @@ class TestWingStatue:
 # ---------------------------------------------------------------------------
 
 class TestWorldOfGoop:
-    def test_damage_and_gold(self, char, rng):
+    def test_damage_and_gold(self, char, run_rng):
         old_hp = char.player_hp
         old_gold = char.gold
-        result = resolve_event("World of Goop", 0, char, rng)
+        result = resolve_event("World of Goop", 0, char, run_rng, 0)
         assert char.player_hp == old_hp - 11
         assert char.gold == old_gold + 75
 
-    def test_lose_gold(self, char, rng):
+    def test_lose_gold(self, char, run_rng):
         char.gold = 100
         old_hp = char.player_hp
-        result = resolve_event("World of Goop", 1, char, rng)
+        result = resolve_event("World of Goop", 1, char, run_rng, 0)
         assert char.player_hp == old_hp  # no damage
         assert char.gold < 100
         loss = 100 - char.gold
         assert 20 <= loss <= 50
 
-    def test_lose_gold_capped_by_current(self, char, rng):
+    def test_lose_gold_capped_by_current(self, char, run_rng):
         char.gold = 10
-        result = resolve_event("World of Goop", 1, char, rng)
+        result = resolve_event("World of Goop", 1, char, run_rng, 0)
         assert char.gold == 0  # can't lose more than you have
 
 
@@ -321,15 +328,15 @@ class TestWorldOfGoop:
 # ---------------------------------------------------------------------------
 
 class TestSsssserpent:
-    def test_gold_and_doubt(self, char, rng):
+    def test_gold_and_doubt(self, char, run_rng):
         old_gold = char.gold
-        result = resolve_event("The Ssssserpent", 0, char, rng)
+        result = resolve_event("The Ssssserpent", 0, char, run_rng, 0)
         assert char.gold == old_gold + 175
         assert "Doubt" in char.deck
 
-    def test_leave(self, char, rng):
+    def test_leave(self, char, run_rng):
         old_gold = char.gold
-        result = resolve_event("The Ssssserpent", 1, char, rng)
+        result = resolve_event("The Ssssserpent", 1, char, run_rng, 0)
         assert char.gold == old_gold
         assert "Doubt" not in char.deck
 
@@ -342,23 +349,23 @@ class TestSsssserpent:
 # ---------------------------------------------------------------------------
 
 class TestLivingWall:
-    def test_remove_flagged(self, char, rng):
+    def test_remove_flagged(self, char, run_rng):
         spec = get_event("Living Wall")
         assert spec.choices[0].requires_card_removal is True
-        result = resolve_event("Living Wall", 0, char, rng)
+        result = resolve_event("Living Wall", 0, char, run_rng, 0)
         # Returns sentinel string for orchestrator
         assert "REMOVE" in result
 
-    def test_transform_flagged(self, char, rng):
+    def test_transform_flagged(self, char, run_rng):
         spec = get_event("Living Wall")
         assert spec.choices[1].requires_card_transform is True
-        result = resolve_event("Living Wall", 1, char, rng)
+        result = resolve_event("Living Wall", 1, char, run_rng, 0)
         assert "TRANSFORM" in result
 
-    def test_upgrade_flagged(self, char, rng):
+    def test_upgrade_flagged(self, char, run_rng):
         spec = get_event("Living Wall")
         assert spec.choices[2].requires_card_upgrade is True
-        result = resolve_event("Living Wall", 2, char, rng)
+        result = resolve_event("Living Wall", 2, char, run_rng, 0)
         assert "UPGRADE" in result
 
 
@@ -369,19 +376,19 @@ class TestLivingWall:
 # ---------------------------------------------------------------------------
 
 class TestMushrooms:
-    def test_fight_choice_triggers_combat(self, char, rng):
+    def test_fight_choice_triggers_combat(self, char, run_rng):
         spec = get_event("Hypnotizing Colored Mushrooms")
         assert spec.choices[0].triggers_combat is True
-        result = resolve_event("Hypnotizing Colored Mushrooms", 0, char, rng)
+        result = resolve_event("Hypnotizing Colored Mushrooms", 0, char, run_rng, 0)
         assert "FIGHT" in result
 
-    def test_fight_encounter_id(self, char, rng):
+    def test_fight_encounter_id(self, char, run_rng):
         spec = get_event("Hypnotizing Colored Mushrooms")
         assert spec.encounter_id == "three_fungi_beasts_event"
 
-    def test_gold_choice(self, char, rng):
+    def test_gold_choice(self, char, run_rng):
         old_gold = char.gold
-        result = resolve_event("Hypnotizing Colored Mushrooms", 1, char, rng)
+        result = resolve_event("Hypnotizing Colored Mushrooms", 1, char, run_rng, 0)
         assert char.gold == old_gold + 99
         assert "99" in result
 
@@ -398,37 +405,37 @@ class TestScrapOoze:
         assert state["attempts"] == 0
         assert state["done"] is False
 
-    def test_dig_takes_damage(self, char):
+    def test_dig_takes_damage(self, char, run_rng):
         _ooze_state.clear()
         _ooze_state.update(_scrap_ooze_setup())
         old_hp = char.player_hp
         rng = RNG(42)
-        result = resolve_event("Scrap Ooze", 0, char, rng)
+        result = resolve_event("Scrap Ooze", 0, char, run_rng, 0)
         assert char.player_hp == old_hp - 3
 
-    def test_dig_finds_relic_eventually(self, char):
+    def test_dig_finds_relic_eventually(self, char, run_rng):
         """After enough attempts, relic should be found."""
         rng = RNG(42)
         _ooze_state.clear()
         _ooze_state.update({"attempts": 10, "done": False})
-        result = resolve_event("Scrap Ooze", 0, char, rng)
+        result = resolve_event("Scrap Ooze", 0, char, run_rng, 0)
         # At attempt 10, chance is 125% → always finds relic
         assert _ooze_state["done"] is True
         assert "relic" in result.lower()
 
-    def test_leave(self, char, rng):
+    def test_leave(self, char, run_rng):
         _ooze_state.clear()
         _ooze_state.update(_scrap_ooze_setup())
-        result = resolve_event("Scrap Ooze", 1, char, rng)
+        result = resolve_event("Scrap Ooze", 1, char, run_rng, 0)
         assert _ooze_state["done"] is True
 
-    def test_escalating_chance(self, char):
+    def test_escalating_chance(self, char, run_rng):
         """Chance formula: 25 + attempts * 10."""
         _ooze_state.clear()
         _ooze_state.update({"attempts": 5, "done": False})
         rng = RNG(42)
         old_hp = char.player_hp
-        result = resolve_event("Scrap Ooze", 0, char, rng)
+        result = resolve_event("Scrap Ooze", 0, char, run_rng, 0)
         assert char.player_hp == old_hp - 3
         # Either found relic or incremented attempts
         if not _ooze_state["done"]:
@@ -442,19 +449,19 @@ class TestScrapOoze:
 # ---------------------------------------------------------------------------
 
 class TestShiningLight:
-    def test_step_damage_and_upgrade(self, char, rng):
+    def test_step_damage_and_upgrade(self, char, run_rng):
         old_hp = char.player_hp
         old_upgrades = sum(1 for c in char.deck if c.endswith("+"))
-        result = resolve_event("Shining Light", 0, char, rng)
+        result = resolve_event("Shining Light", 0, char, run_rng, 0)
         assert char.player_hp < old_hp
         # Should have upgraded 0-2 cards (may already be upgraded)
         new_upgrades = sum(1 for c in char.deck if c.endswith("+"))
         assert new_upgrades >= old_upgrades
         assert "Upgraded" in result or "damage" in result.lower()
 
-    def test_leave(self, char, rng):
+    def test_leave(self, char, run_rng):
         old_hp = char.player_hp
-        result = resolve_event("Shining Light", 1, char, rng)
+        result = resolve_event("Shining Light", 1, char, run_rng, 0)
         assert char.player_hp == old_hp
 
 
@@ -465,39 +472,39 @@ class TestShiningLight:
 # ---------------------------------------------------------------------------
 
 class TestMatchAndKeep:
-    def test_setup_creates_12_slots(self, char, rng):
+    def test_setup_creates_12_slots(self, char, run_rng):
         """Grid should have 12 slots (6 unique cards × 2)."""
         from sts_env.run.events import match_and_keep_setup, _mk_grid, _SlotState
-        match_and_keep_setup(char, rng)
+        match_and_keep_setup(char, run_rng.derive("event_resolve", 0, "Match and Keep", "setup"))
         assert len(_mk_grid) == 12
         # All start face-down
         for slot in _mk_grid:
             assert slot.state == _SlotState.FACE_DOWN
 
-    def test_setup_has_6_unique_cards_duplicated(self, char, rng):
+    def test_setup_has_6_unique_cards_duplicated(self, char, run_rng):
         """12 slots should contain exactly 6 unique card IDs, each appearing twice."""
         from sts_env.run.events import match_and_keep_setup, _mk_grid
-        match_and_keep_setup(char, rng)
+        match_and_keep_setup(char, run_rng.derive("event_resolve", 0, "Match and Keep", "setup"))
         card_ids = [s.card_id for s in _mk_grid]
         from collections import Counter
         counts = Counter(card_ids)
         assert len(counts) == 6
         assert all(c == 2 for c in counts.values())
 
-    def test_setup_includes_starter_card(self, char, rng):
+    def test_setup_includes_starter_card(self, char, run_rng):
         """Ironclad starter card (Bash) should be in the grid."""
         from sts_env.run.events import match_and_keep_setup, _mk_grid
-        match_and_keep_setup(char, rng)
+        match_and_keep_setup(char, run_rng.derive("event_resolve", 0, "Match and Keep", "setup"))
         card_ids = [s.card_id for s in _mk_grid]
         assert "Bash" in card_ids
 
-    def test_match_adds_card_to_deck(self, char, rng):
+    def test_match_adds_card_to_deck(self, char, run_rng):
         """Matching a pair should add 1 copy to deck."""
         from sts_env.run.events import (
             match_and_keep_setup, match_and_keep_resolve, _mk_grid,
             _SlotState,
         )
-        match_and_keep_setup(char, rng)
+        match_and_keep_setup(char, run_rng.derive("event_resolve", 0, "Match and Keep", "setup"))
         # Find a matching pair by looking at card_ids
         card_to_idx = {}
         for i, slot in enumerate(_mk_grid):
@@ -513,13 +520,13 @@ class TestMatchAndKeep:
         assert _mk_grid[idx1].state == _SlotState.MATCHED
         assert _mk_grid[idx2].state == _SlotState.MATCHED
 
-    def test_no_match_reveals_both(self, char, rng):
+    def test_no_match_reveals_both(self, char, run_rng):
         """Non-matching pair should be revealed, not added to deck."""
         from sts_env.run.events import (
             match_and_keep_setup, match_and_keep_resolve, _mk_grid,
             _SlotState,
         )
-        match_and_keep_setup(char, rng)
+        match_and_keep_setup(char, run_rng.derive("event_resolve", 0, "Match and Keep", "setup"))
         # Find two different cards
         seen = {}
         idx1 = idx2 = 0
@@ -539,14 +546,14 @@ class TestMatchAndKeep:
         assert _mk_grid[idx1].state == _SlotState.REVEALED
         assert _mk_grid[idx2].state == _SlotState.REVEALED
 
-    def test_five_attempts(self, char, rng):
+    def test_five_attempts(self, char, run_rng):
         """Event should allow exactly 5 attempts."""
         from sts_env.run.events import (
             match_and_keep_setup, match_and_keep_resolve,
             match_and_keep_done, match_and_keep_attempts_remaining,
             _mk_grid, _SlotState,
         )
-        match_and_keep_setup(char, rng)
+        match_and_keep_setup(char, run_rng.derive("event_resolve", 0, "Match and Keep", "setup"))
         assert match_and_keep_attempts_remaining() == 5
 
         # Pick non-matching pairs to waste attempts
@@ -566,18 +573,18 @@ class TestMatchAndKeep:
         assert match_and_keep_done()
         assert match_and_keep_attempts_remaining() == 0
 
-    def test_leave_adds_nothing(self, char, rng):
+    def test_leave_adds_nothing(self, char, run_rng):
         """Leaving should add no cards."""
         old_len = len(char.deck)
-        result = resolve_event("Match and Keep", 1, char, rng)
+        result = resolve_event("Match and Keep", 1, char, run_rng, 0)
         assert len(char.deck) == old_len
 
-    def test_extra_context_contains_pool_info(self, char, rng):
+    def test_extra_context_contains_pool_info(self, char, run_rng):
         """extra_context should describe the reward pool with starter card name."""
         from sts_env.run.events import (
             match_and_keep_setup, match_and_keep_extra_context,
         )
-        match_and_keep_setup(char, rng)
+        match_and_keep_setup(char, run_rng.derive("event_resolve", 0, "Match and Keep", "setup"))
         ctx = match_and_keep_extra_context()
         assert "Rare" in ctx
         assert "Uncommon" in ctx
@@ -585,19 +592,19 @@ class TestMatchAndKeep:
         assert "Starter: Bash" in ctx
         assert "5 attempts" in ctx
 
-    def test_grid_text_face_down_slot_shows_question_mark(self, char, rng):
+    def test_grid_text_face_down_slot_shows_question_mark(self, char, run_rng):
         """FACE_DOWN slots without chosen_idx show '?' in grid text."""
         from sts_env.run.events import match_and_keep_setup, match_and_keep_grid_text, _mk_grid, _SlotState
-        match_and_keep_setup(char, rng)
+        match_and_keep_setup(char, run_rng.derive("event_resolve", 0, "Match and Keep", "setup"))
         grid = list(_mk_grid)
         face_down_idx = next(i for i, s in enumerate(grid) if s.state == _SlotState.FACE_DOWN)
         text = match_and_keep_grid_text(grid)
         assert f"[{face_down_idx}] ? (FACE_DOWN)" in text
 
-    def test_grid_text_chosen_idx_reveals_card_and_marks_chosen(self, char, rng):
+    def test_grid_text_chosen_idx_reveals_card_and_marks_chosen(self, char, run_rng):
         """Grid text with chosen_idx shows card name as CHOSEN even for FACE_DOWN slots."""
         from sts_env.run.events import match_and_keep_setup, match_and_keep_grid_text, _mk_grid, _SlotState
-        match_and_keep_setup(char, rng)
+        match_and_keep_setup(char, run_rng.derive("event_resolve", 0, "Match and Keep", "setup"))
         grid = list(_mk_grid)
         face_down_idx = next(i for i, s in enumerate(grid) if s.state == _SlotState.FACE_DOWN)
         card_name = grid[face_down_idx].card_id
@@ -606,10 +613,10 @@ class TestMatchAndKeep:
         # Original FACE_DOWN marker should not appear for the chosen slot
         assert f"[{face_down_idx}] ? (FACE_DOWN)" not in text
 
-    def test_grid_text_chosen_idx_does_not_affect_other_slots(self, char, rng):
+    def test_grid_text_chosen_idx_does_not_affect_other_slots(self, char, run_rng):
         """Grid text with chosen_idx should leave all other slots unchanged."""
         from sts_env.run.events import match_and_keep_setup, match_and_keep_grid_text, _mk_grid, _SlotState
-        match_and_keep_setup(char, rng)
+        match_and_keep_setup(char, run_rng.derive("event_resolve", 0, "Match and Keep", "setup"))
         grid = list(_mk_grid)
         chosen_idx = 0
         text_no_chosen = match_and_keep_grid_text(grid)
@@ -630,20 +637,20 @@ class TestMatchAndKeep:
 # ---------------------------------------------------------------------------
 
 class TestGoldenShrine:
-    def test_pray_gold(self, char, rng):
+    def test_pray_gold(self, char, run_rng):
         old_gold = char.gold
-        result = resolve_event("Golden Shrine", 0, char, rng)
+        result = resolve_event("Golden Shrine", 0, char, run_rng, 0)
         assert char.gold == old_gold + 100
 
-    def test_desecrate_gold_and_regret(self, char, rng):
+    def test_desecrate_gold_and_regret(self, char, run_rng):
         old_gold = char.gold
-        result = resolve_event("Golden Shrine", 1, char, rng)
+        result = resolve_event("Golden Shrine", 1, char, run_rng, 0)
         assert char.gold == old_gold + 275
         assert "Regret" in char.deck
 
-    def test_leave(self, char, rng):
+    def test_leave(self, char, run_rng):
         old_gold = char.gold
-        result = resolve_event("Golden Shrine", 2, char, rng)
+        result = resolve_event("Golden Shrine", 2, char, run_rng, 0)
         assert char.gold == old_gold
 
 
@@ -654,14 +661,14 @@ class TestGoldenShrine:
 # ---------------------------------------------------------------------------
 
 class TestTransmorgrifier:
-    def test_transform_flagged(self, char, rng):
+    def test_transform_flagged(self, char, run_rng):
         spec = get_event("Transmorgrifier")
         assert spec.choices[0].requires_card_transform is True
-        result = resolve_event("Transmorgrifier", 0, char, rng)
+        result = resolve_event("Transmorgrifier", 0, char, run_rng, 0)
         assert "TRANSFORM" in result
 
-    def test_leave(self, char, rng):
-        result = resolve_event("Transmorgrifier", 1, char, rng)
+    def test_leave(self, char, run_rng):
+        result = resolve_event("Transmorgrifier", 1, char, run_rng, 0)
         assert "leave" in result.lower()
 
 
@@ -672,14 +679,14 @@ class TestTransmorgrifier:
 # ---------------------------------------------------------------------------
 
 class TestPurifier:
-    def test_remove_flagged(self, char, rng):
+    def test_remove_flagged(self, char, run_rng):
         spec = get_event("Purifier")
         assert spec.choices[0].requires_card_removal is True
-        result = resolve_event("Purifier", 0, char, rng)
+        result = resolve_event("Purifier", 0, char, run_rng, 0)
         assert "REMOVE" in result
 
-    def test_leave(self, char, rng):
-        result = resolve_event("Purifier", 1, char, rng)
+    def test_leave(self, char, run_rng):
+        result = resolve_event("Purifier", 1, char, run_rng, 0)
         assert "leave" in result.lower()
 
 
@@ -690,14 +697,14 @@ class TestPurifier:
 # ---------------------------------------------------------------------------
 
 class TestUpgradeShrine:
-    def test_upgrade_flagged(self, char, rng):
+    def test_upgrade_flagged(self, char, run_rng):
         spec = get_event("Upgrade Shrine")
         assert spec.choices[0].requires_card_upgrade is True
-        result = resolve_event("Upgrade Shrine", 0, char, rng)
+        result = resolve_event("Upgrade Shrine", 0, char, run_rng, 0)
         assert "UPGRADE" in result
 
-    def test_leave(self, char, rng):
-        result = resolve_event("Upgrade Shrine", 1, char, rng)
+    def test_leave(self, char, run_rng):
+        result = resolve_event("Upgrade Shrine", 1, char, run_rng, 0)
         assert "leave" in result.lower()
 
 
@@ -707,22 +714,22 @@ class TestUpgradeShrine:
 # ---------------------------------------------------------------------------
 
 class TestWheelOfChange:
-    def test_spin_changes_state(self, char, rng):
+    def test_spin_changes_state(self, char, run_rng):
         """Spin always changes something."""
         snapshot = (char.gold, char.player_hp, char.player_max_hp, list(char.deck), list(char.relics))
-        result = resolve_event("Wheel of Change", 0, char, rng)
+        result = resolve_event("Wheel of Change", 0, char, run_rng, 0)
         # Something should have changed
         new_snapshot = (char.gold, char.player_hp, char.player_max_hp, list(char.deck), list(char.relics))
         assert snapshot != new_snapshot or "no" in result.lower()
 
-    def test_gold_outcome(self, char):
+    def test_gold_outcome(self, char, run_rng):
         rng = RNG(0)  # Deterministic
         old_gold = char.gold
-        result = resolve_event("Wheel of Change", 0, char, rng)
+        result = resolve_event("Wheel of Change", 0, char, run_rng, 0)
         # Just verify it runs without error — outcome depends on RNG
         assert result  # non-empty result
 
-    def test_only_one_choice(self, char, rng):
+    def test_only_one_choice(self, char, run_rng):
         spec = get_event("Wheel of Change")
         assert len(spec.choices) == 1
 
@@ -748,13 +755,13 @@ class TestHelpers:
         result = _pick_worst_card(deck)
         assert result in deck
 
-    def test_transform_card(self, char):
+    def test_transform_card(self, char, run_rng):
         """Transform a card — should remove old and add new."""
         # Use Bash which is unique in starter deck
         bash_idx = char.deck.index("Bash")
         old_deck_len = len(char.deck)
         rng = RNG(42)
-        new_card = transform_card(char, "Bash", rng)
+        new_card = transform_card(char, "Bash", run_rng, 0)
         assert "Bash" not in char.deck
         if new_card is not None:
             assert new_card in char.deck

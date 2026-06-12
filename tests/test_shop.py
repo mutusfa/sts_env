@@ -8,6 +8,7 @@ from sts_env.combat.card_pools import typed_pool
 from sts_env.combat.cards import CardColor, CardType, Rarity
 from sts_env.combat.rng import RNG
 from sts_env.run.character import Character
+from sts_env.run.rng_streams import RunRNG
 from sts_env.run.shop import (
     CARD_PRICES,
     COMMON_POTION_PRICE,
@@ -49,8 +50,13 @@ def rich_character() -> Character:
 
 
 @pytest.fixture
-def shop(rng: RNG, character: Character) -> ShopInventory:
-    return generate_shop(rng, character)
+def run_rng() -> RunRNG:
+    return RunRNG(42)
+
+
+@pytest.fixture
+def shop(run_rng: RunRNG, character: Character) -> ShopInventory:
+    return generate_shop(run_rng, 0, character)
 
 
 # ---------------------------------------------------------------------------
@@ -61,17 +67,17 @@ def shop(rng: RNG, character: Character) -> ShopInventory:
 class TestGenerateShopCards:
     """Tests for the C++-faithful 2A+2S+1P+2CL card layout."""
 
-    def test_generates_seven_cards(self, rng: RNG, character: Character) -> None:
-        inv = generate_shop(rng, character)
+    def test_generates_seven_cards(self, run_rng: RunRNG, character: Character) -> None:
+        inv = generate_shop(run_rng, 0, character)
         # 2 ATTACK + 2 SKILL + 1 POWER + 1 colorless UNCOMMON + 1 colorless RARE = 7
         assert len(inv.cards) == 7
 
-    def test_card_type_layout(self, rng: RNG, character: Character) -> None:
+    def test_card_type_layout(self, run_rng: RunRNG, character: Character) -> None:
         """Slots 0-1=ATTACK, 2-3=SKILL, 4=POWER, 5-6=colorless."""
         from sts_env.combat.card_pools import colorless_pool
         from sts_env.combat.cards import get_spec
 
-        inv = generate_shop(rng, character)
+        inv = generate_shop(run_rng, 0, character)
         card_ids = [slot[0] for slot in inv.cards]
         assert card_ids[0] is not None and card_ids[1] is not None
         assert get_spec(card_ids[0]).card_type == CardType.ATTACK
@@ -88,14 +94,14 @@ class TestGenerateShopCards:
     def test_attack_pair_no_duplicates(self) -> None:
         """The two ATTACK slots must be different cards (C++ assignRandomCardExcluding)."""
         for seed in range(30):
-            inv = generate_shop(RNG(seed), Character.ironclad())
+            inv = generate_shop(RunRNG(seed), 0, Character.ironclad())
             a0, a1 = inv.cards[0][0], inv.cards[1][0]
             assert a0 != a1, f"Duplicate ATTACK cards at seed={seed}: {a0}"
 
     def test_skill_pair_no_duplicates(self) -> None:
         """The two SKILL slots must be different cards."""
         for seed in range(30):
-            inv = generate_shop(RNG(seed), Character.ironclad())
+            inv = generate_shop(RunRNG(seed), 0, Character.ironclad())
             s0, s1 = inv.cards[2][0], inv.cards[3][0]
             assert s0 != s1, f"Duplicate SKILL cards at seed={seed}: {s0}"
 
@@ -110,30 +116,30 @@ class TestGenerateShopCards:
         rare_power = set(typed_pool(CardColor.RED, CardType.POWER, Rarity.RARE))
         valid = uncommon_power | rare_power
         for seed in range(30):
-            inv = generate_shop(RNG(seed), Character.ironclad())
+            inv = generate_shop(RunRNG(seed), 0, Character.ironclad())
             card_id = inv.cards[4][0]
             assert card_id in valid, (
                 f"POWER slot has COMMON card {card_id} at seed={seed}"
             )
 
-    def test_generates_three_potions(self, rng: RNG, character: Character) -> None:
-        inv = generate_shop(rng, character)
+    def test_generates_three_potions(self, run_rng: RunRNG, character: Character) -> None:
+        inv = generate_shop(run_rng, 0, character)
         assert len(inv.potions) == 3
 
-    def test_remove_cost_is_set(self, rng: RNG, character: Character) -> None:
-        inv = generate_shop(rng, character)
+    def test_remove_cost_is_set(self, run_rng: RunRNG, character: Character) -> None:
+        inv = generate_shop(run_rng, 0, character)
         assert inv.remove_cost == REMOVE_CARD_COST
 
     def test_seeded_shops_are_deterministic(self, character: Character) -> None:
-        inv1 = generate_shop(RNG(42), character)
-        inv2 = generate_shop(RNG(42), character)
+        inv1 = generate_shop(RunRNG(42), 0, character)
+        inv2 = generate_shop(RunRNG(42), 0, character)
         assert inv1.cards == inv2.cards
         assert inv1.potions == inv2.potions
         assert inv1.relics == inv2.relics
 
     def test_different_seeds_produce_different_shops(self, character: Character) -> None:
-        inv1 = generate_shop(RNG(1), character)
-        inv2 = generate_shop(RNG(999), character)
+        inv1 = generate_shop(RunRNG(1), 0, character)
+        inv2 = generate_shop(RunRNG(999), 0, character)
         all_cards_same = all(a[0] == b[0] for a, b in zip(inv1.cards, inv2.cards))
         assert not all_cards_same
 
@@ -148,9 +154,9 @@ class TestShopPricing:
 
     _BASE = CARD_PRICES
 
-    def test_class_card_prices_near_base(self, rng: RNG, character: Character) -> None:
+    def test_class_card_prices_near_base(self, run_rng: RunRNG, character: Character) -> None:
         """Class card prices must be within ±10 % of base (before any sale)."""
-        inv = generate_shop(rng, character)
+        inv = generate_shop(run_rng, 0, character)
         for i in range(5):
             slot = inv.cards[i]
             assert slot[0] is not None
@@ -166,7 +172,7 @@ class TestShopPricing:
         """Colorless cards cost ×1.2 of base, so they should be >= class cards."""
         results: list[tuple[bool, bool]] = []
         for seed in range(20):
-            inv = generate_shop(RNG(seed), character)
+            inv = generate_shop(RunRNG(seed), 0, character)
             # At same rarity UNCOMMON: colorless(idx 5) vs class uncommon
             # After variance [0.9-1.1] × 1.2 vs [0.9-1.1] × 1.0
             # Colorless should usually be higher but occasionally variance crosses
@@ -183,7 +189,7 @@ class TestShopPricing:
         found_sale = False
         character = Character.ironclad()
         for seed in range(50):
-            inv = generate_shop(RNG(seed), character)
+            inv = generate_shop(RunRNG(seed), 0, character)
             for i in range(5):
                 price = inv.cards[i][1]
                 if price <= max_half:
@@ -197,7 +203,7 @@ class TestShopPricing:
         """Sale index is among 0..4 so colorless slots (5,6) must not be halved."""
         character = Character.ironclad()
         for seed in range(50):
-            inv = generate_shop(RNG(seed), character)
+            inv = generate_shop(RunRNG(seed), 0, character)
             for i in [5, 6]:
                 price = inv.cards[i][1]
                 # Minimum non-sale colorless uncommon price ≈ 75*1.2*0.9 = 81
@@ -212,19 +218,19 @@ class TestShopPricing:
 class TestShopRelics:
     """Shop generates 3 relics: 2 random-tier + 1 SHOP-tier."""
 
-    def test_generates_three_relics(self, rng: RNG, character: Character) -> None:
-        inv = generate_shop(rng, character)
+    def test_generates_three_relics(self, run_rng: RunRNG, character: Character) -> None:
+        inv = generate_shop(run_rng, 0, character)
         assert len(inv.relics) == 3
 
-    def test_all_relics_non_none(self, rng: RNG, character: Character) -> None:
-        inv = generate_shop(rng, character)
+    def test_all_relics_non_none(self, run_rng: RunRNG, character: Character) -> None:
+        inv = generate_shop(run_rng, 0, character)
         assert all(r is not None for r in inv.relics)
 
     def test_third_relic_always_shop_tier(self) -> None:
         """relic[2] must come from SHOP_TIER_RELICS."""
         character = Character.ironclad()
         for seed in range(20):
-            inv = generate_shop(RNG(seed), character)
+            inv = generate_shop(RunRNG(seed), 0, character)
             relic_id, _ = inv.relics[2]
             assert relic_id in SHOP_TIER_RELICS, (
                 f"relic[2]={relic_id} not in SHOP_TIER_RELICS (seed={seed})"
@@ -235,15 +241,15 @@ class TestShopRelics:
         known_pool = set(ALL_RELICS)
         character = Character.ironclad()
         for seed in range(20):
-            inv = generate_shop(RNG(seed), character)
+            inv = generate_shop(RunRNG(seed), 0, character)
             for i in [0, 1]:
                 relic_id, _ = inv.relics[i]
                 assert relic_id in known_pool, (
                     f"relic[{i}]={relic_id} not in known pool (seed={seed})"
                 )
 
-    def test_relic_prices_positive(self, rng: RNG, character: Character) -> None:
-        inv = generate_shop(rng, character)
+    def test_relic_prices_positive(self, run_rng: RunRNG, character: Character) -> None:
+        inv = generate_shop(run_rng, 0, character)
         for relic_entry in inv.relics:
             assert relic_entry is not None
             _, price = relic_entry
@@ -260,7 +266,7 @@ class TestShopRelics:
             inv.relics[i][0] in RARE_RELICS
             for seed in range(200)
             for i in [0, 1]
-            if (inv := generate_shop(RNG(seed), character)) is not None
+            if (inv := generate_shop(RunRNG(seed), 0, character)) is not None
         )
         assert found_rare, "No rare relic appeared in shop slots 0/1 over 200 seeds"
 

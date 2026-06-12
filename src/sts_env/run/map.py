@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 
 from ..combat.rng import RNG
+from .rng_streams import RunRNG
 
 
 # ---------------------------------------------------------------------------
@@ -679,7 +680,7 @@ def generate_act1_map(seed: int, ascension: int = 0) -> StSMap:
     for rows 0..14, then adds a boss node at (15, 3) connected from
     all reachable rest nodes on row 14.
     """
-    rng = RNG(seed)
+    rng = RunRNG(seed).derive("map")
 
     # Create 7x15 grid of nodes (rows 0..14)
     nodes: dict[int, dict[int, MapNode]] = {}

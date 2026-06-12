@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from sts_env.combat import Combat
-from sts_env.combat.rng import RNG
+from sts_env.run.rng_streams import RunRNG
 from sts_env.combat.state import Action
 from sts_env.run.character import Character
 from sts_env.run.rooms import RestChoice, RestResult
@@ -267,7 +267,7 @@ class TestApplyCombatRewardsRelics:
     def test_elite_grants_one_relic(self):
         character = Character.ironclad()
         initial = list(character.relics)
-        _apply_combat_rewards(character, _base_result(), "elite", 42, RNG(42), _MockAgent())
+        _apply_combat_rewards(character, _base_result(), "elite", 42, RunRNG(42), _MockAgent(), reward_floor=1)
         new_relics = [r for r in character.relics if r not in initial]
         assert len(new_relics) == 1
         assert new_relics[0] in ALL_RELICS
@@ -275,7 +275,7 @@ class TestApplyCombatRewardsRelics:
     def test_apply_combat_rewards_logs_card_added(self):
         character = Character.ironclad()
         before = character.snapshot_for_log()
-        _apply_combat_rewards(character, _base_result(), "monster", 42, RNG(42), _MockAgent())
+        _apply_combat_rewards(character, _base_result(), "monster", 42, RunRNG(42), _MockAgent(), reward_floor=1)
         record = character.finish_room(before, floor=1, room_type="monster")
         assert any(c.field == "card_added" for c in record.changes)
 
@@ -289,7 +289,7 @@ class TestApplyCombatRewardsRelics:
 
         character = Character.ironclad()
         initial = list(character.relics)
-        _apply_combat_rewards(character, _base_result(), "boss", 42, RNG(42), _SpyAgent())
+        _apply_combat_rewards(character, _base_result(), "boss", 42, RunRNG(42), _SpyAgent(), reward_floor=1)
         assert picked, "pick_boss_relic should have been called"
         assert all(r in BOSS_RELICS for r in picked)
         new_relics = [r for r in character.relics if r not in initial]
@@ -299,5 +299,28 @@ class TestApplyCombatRewardsRelics:
     def test_monster_does_not_grant_relic(self):
         character = Character.ironclad()
         initial = list(character.relics)
-        _apply_combat_rewards(character, _base_result(), "monster", 42, RNG(42), _MockAgent())
+        _apply_combat_rewards(character, _base_result(), "monster", 42, RunRNG(42), _MockAgent(), reward_floor=1)
         assert character.relics == initial
+
+
+class TestCounterfactualRunRNG:
+    """Floor-keyed run RNG must not shift when unrelated floors consume randomness."""
+
+    def test_prior_event_draws_do_not_change_floor_shop_or_rewards(self):
+        from sts_env.run.rewards import Room, roll_combat_reward_offer
+        from sts_env.run.shop import generate_shop
+
+        run_rng = RunRNG(999)
+        character = Character.ironclad()
+        baseline_shop = generate_shop(run_rng, floor=5, character=character)
+        baseline_offer, _ = roll_combat_reward_offer(
+            run_rng, floor=5, room=Room.MONSTER
+        )
+
+        noisy = RunRNG(999)
+        for _ in range(40):
+            noisy.derive("event_resolve", 2, "Big Fish", 0, 0).random()
+
+        assert generate_shop(noisy, floor=5, character=character) == baseline_shop
+        offer, _ = roll_combat_reward_offer(noisy, floor=5, room=Room.MONSTER)
+        assert offer == baseline_offer

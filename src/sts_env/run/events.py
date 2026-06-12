@@ -22,6 +22,7 @@ from ..run.rewards import roll_elite_relic
 
 if TYPE_CHECKING:
     from .character import Character
+    from .rng_streams import RunRNG
 
 
 # ---------------------------------------------------------------------------
@@ -79,8 +80,11 @@ def get_event(event_id: str) -> EventSpec:
     return _EVENTS[event_id]
 
 
-def random_act1_event(rng: RNG, seen_events: list[str] | None = None) -> EventSpec:
+def random_act1_event(
+    run_rng: "RunRNG", floor: int, seen_events: list[str] | None = None,
+) -> EventSpec:
     """Pick a random Act 1 event, excluding already-seen events."""
+    rng = run_rng.derive("event_pick", floor)
     exclude = set(seen_events) if seen_events else set()
     keys = [k for k in _EVENTS if k not in exclude]
     if not keys:
@@ -90,12 +94,33 @@ def random_act1_event(rng: RNG, seen_events: list[str] | None = None) -> EventSp
 
 
 def resolve_event(
-    event_id: str, choice_index: int, character: "Character", rng: RNG,
+    event_id: str,
+    choice_index: int,
+    character: "Character",
+    run_rng: "RunRNG",
+    floor: int,
+    *,
+    phase: int = 0,
 ) -> str:
     """Resolve an event choice.  Returns result description string."""
     spec = _EVENTS[event_id]
     choice = spec.choices[choice_index]
+    rng = run_rng.derive("event_resolve", floor, event_id, choice_index, phase)
     return choice.effect(character, rng)
+
+
+def dead_adventurer_setup(run_rng: "RunRNG", floor: int) -> dict:
+    """Initialize Dead Adventurer event state."""
+    rng = run_rng.derive("event_resolve", floor, "Dead Adventurer", "setup")
+    return _dead_adventurer_setup(rng)
+
+
+def match_and_keep_setup_for_floor(
+    character: "Character", run_rng: "RunRNG", floor: int,
+) -> None:
+    """Set up Match and Keep grid using floor-keyed RNG."""
+    rng = run_rng.derive("event_resolve", floor, "Match and Keep", "setup")
+    match_and_keep_setup(character, rng)
 
 
 # ---------------------------------------------------------------------------
@@ -168,11 +193,18 @@ def _upgrade_random_card(character: "Character", rng: RNG) -> str | None:
     return character.deck[idx]
 
 
-def transform_card(character: "Character", card_id: str, rng: RNG) -> str | None:
+def transform_card(
+    character: "Character",
+    card_id: str,
+    run_rng: "RunRNG",
+    floor: int,
+    index: int = 0,
+) -> str | None:
     """Remove a card and replace with a random card of the same color and rarity.
 
     Returns the new card ID, or None if no replacement was possible.
     """
+    rng = run_rng.derive("transform", floor, index)
     base_id = card_id.rstrip("+")
     try:
         spec = get_spec(base_id)

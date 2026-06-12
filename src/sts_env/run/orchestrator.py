@@ -33,10 +33,10 @@ from .rewards import (
     roll_boss_relic_choices,
 )
 from .encounter_queue import EncounterQueue
+from .rng_streams import RunRNG
 from . import relics as relics_mod
 from . import builder
 from ..combat import Combat
-from ..combat.rng import RNG
 
 if TYPE_CHECKING:
     from .events import EventSpec
@@ -307,8 +307,8 @@ def run_act1(
     :class:`RunResult`
     """
     character = Character.ironclad()
-    reward_rng = RNG(seed ^ 0xBEEF)
-    neow_rng = RNG(seed ^ 0xCA7)
+    run_rng = RunRNG(seed)
+    neow_rng = run_rng.derive("neow")
 
     neow_options = roll_neow_options(neow_rng)
     neow_pick = agent.pick_neow(neow_options)
@@ -322,7 +322,7 @@ def run_act1(
             seed,
             agent,
             character,
-            reward_rng,
+            run_rng,
             observer=observer,
             neow_record=neow_record,
         )
@@ -331,7 +331,7 @@ def run_act1(
             seed,
             agent,
             character,
-            reward_rng,
+            run_rng,
             observer=observer,
             neow_record=neow_record,
         )
@@ -371,14 +371,13 @@ def _run_map(
     seed: int,
     agent: RunAgentProtocol,
     character: Character,
-    reward_rng: RNG,
+    run_rng: RunRNG,
     *,
     observer: FloorObserver | None,
     neow_record: RoomRecord,
 ) -> RunResult:
     sts_map = generate_act1_map(seed)
-    encounter_rng = RNG(seed ^ 0xCAFE)
-    encounter_queue = EncounterQueue(encounter_rng)
+    encounter_queue = EncounterQueue(run_rng)
 
     # Track encounters seen by the player (open knowledge)
     hallway_seen: list[str] = []
@@ -473,16 +472,16 @@ def _run_map(
                 result.max_hp = character.player_max_hp
 
             elif room_type == RoomType.EVENT:
-                event = random_act1_event(encounter_rng, character.seen_events)
+                event = random_act1_event(run_rng, floor_num, character.seen_events)
                 character.seen_events.append(event.event_id)
                 log.info("FLOOR %d EVENT: %s", floor_num + 1, event.event_id)
 
                 # Set up multi-phase event state if needed
                 if event.multi_phase and event.event_id == "Dead Adventurer":
-                    from .events import _da_state, _dead_adventurer_setup
+                    from .events import _da_state, dead_adventurer_setup
 
                     _da_state.clear()
-                    _da_state.update(_dead_adventurer_setup(encounter_rng))
+                    _da_state.update(dead_adventurer_setup(run_rng, floor_num))
                 elif event.multi_phase and event.event_id == "Scrap Ooze":
                     from .events import _ooze_state, _scrap_ooze_setup
 
@@ -502,11 +501,19 @@ def _run_map(
                     )
                     choice_idx = int(choice_idx)
 
+                    event_phase = 0
+                    if event.multi_phase and event.event_id == "Dead Adventurer":
+                        from .events import _da_state as _da_phase_st
+
+                        event_phase = _da_phase_st.get("phase", 0)
+
                     desc = resolve_event(
                         event.event_id,
                         choice_idx,
                         character,
-                        encounter_rng,
+                        run_rng,
+                        floor_num,
+                        phase=event_phase,
                     )
                     log.info("  Event result: %s", desc)
 
@@ -519,7 +526,7 @@ def _run_map(
                         from .events import (
                             EventChoice,
                             EventSpec,
-                            match_and_keep_setup,
+                            match_and_keep_setup_for_floor,
                             match_and_keep_resolve,
                             match_and_keep_grid_view,
                             match_and_keep_grid_text,
@@ -528,7 +535,7 @@ def _run_map(
                             match_and_keep_extra_context,
                         )
 
-                        match_and_keep_setup(character, encounter_rng)
+                        match_and_keep_setup_for_floor(character, run_rng, floor_num)
                         mk_context = match_and_keep_extra_context()
 
                         _noop: EventChoice = EventChoice(
@@ -629,7 +636,9 @@ def _run_map(
                         if card and card in character.deck:
                             from .events import transform_card
 
-                            new_card = transform_card(character, card, encounter_rng)
+                            new_card = transform_card(
+                                character, card, run_rng, floor_num
+                            )
                             log.info("  Card transformed: %s -> %s", card, new_card)
                         else:
                             log.info(
@@ -677,7 +686,7 @@ def _run_map(
                                 combat_enc_id = da_st["combat_encounter_id"]
 
                         if combat_enc_id:
-                            combat_seed = seed * 1000 + floor_num
+                            combat_seed = run_rng.combat_seed(floor_num)
                             combat = builder.build_combat(
                                 combat_enc_type,
                                 combat_enc_id,
@@ -741,7 +750,10 @@ def _run_map(
                                         log.info("  DA bonus gold: %d", gold_reward)
                                         if da_st.get("combat_relic_reward"):
                                             relic = roll_elite_relic(
-                                                reward_rng, owned=character.relics
+                                                run_rng.derive(
+                                                    "relic", floor_num, "event_elite"
+                                                ),
+                                                owned=character.relics,
                                             )
                                             if relic:
                                                 character.add_relic(relic)
@@ -750,7 +762,8 @@ def _run_map(
 
                                 # Apply Mushrooms bonus rewards (gold + Odd Mushroom relic)
                                 if event.event_id == "Hypnotizing Colored Mushrooms":
-                                    gold_reward = encounter_rng.randint(20, 30)
+                                    gold_rng = run_rng.derive("gold", floor_num, "mushrooms")
+                                    gold_reward = gold_rng.randint(20, 30)
                                     character.gold += gold_reward
                                     character.add_relic("Odd Mushroom")
                                     log.info(
@@ -764,7 +777,7 @@ def _run_map(
                                     result,
                                     combat_enc_type,
                                     combat_seed,
-                                    reward_rng,
+                                    run_rng,
                                     agent,
                                     reward_floor=floor_num + 1,
                                     sts_map=sts_map,
@@ -808,7 +821,7 @@ def _run_map(
 
             elif room_type == RoomType.SHOP:
                 log.info("FLOOR %d SHOP", floor_num + 1)
-                shop_inv = generate_shop(encounter_rng, character)
+                shop_inv = generate_shop(run_rng, floor_num, character)
                 agent.shop(shop_inv, character)
                 result.encounter_types.append("shop")
                 result.damage_per_floor.append(0)
@@ -816,7 +829,7 @@ def _run_map(
 
             elif room_type == RoomType.TREASURE:
                 log.info("FLOOR %d TREASURE", floor_num + 1)
-                tres = open_treasure(character, encounter_rng)
+                tres = open_treasure(character, run_rng, floor_num)
                 log.info("  Found %d gold and %s", tres.gold_found, tres.relic_found)
                 attrs.update(
                     {
@@ -848,7 +861,7 @@ def _run_map(
                     elif room_type == RoomType.ELITE:
                         elites_seen.append(encounter_id)
 
-                    combat_seed = seed * 1000 + floor_num
+                    combat_seed = run_rng.combat_seed(floor_num)
                     combat = builder.build_combat(
                         encounter_type,
                         encounter_id,
@@ -916,7 +929,7 @@ def _run_map(
                             result,
                             encounter_type,
                             combat_seed,
-                            reward_rng,
+                            run_rng,
                             agent,
                             reward_floor=floor_num + 1,
                             sts_map=sts_map,
@@ -969,7 +982,7 @@ def _run_linear(
     seed: int,
     agent: RunAgentProtocol,
     character: Character,
-    reward_rng: RNG,
+    run_rng: RunRNG,
     *,
     observer: FloorObserver | None,
     neow_record: RoomRecord,
@@ -994,7 +1007,7 @@ def _run_linear(
         character.map_x = 0
         result.encounter_types.append(encounter_type)
 
-        combat_seed = seed * 1000 + floor_idx
+        combat_seed = run_rng.combat_seed(floor_idx)
 
         with _floor_scope(observer, floor_idx + 1, encounter_type, character) as attrs:
             room_before = character.snapshot_for_log()
@@ -1073,7 +1086,7 @@ def _run_linear(
                 result,
                 encounter_type,
                 combat_seed,
-                reward_rng,
+                run_rng,
                 agent,
                 reward_floor=floor_idx + 1,
                 remaining_path=[
@@ -1176,7 +1189,7 @@ def _apply_combat_rewards(
     result: RunResult,
     encounter_type: str,
     combat_seed: int,
-    reward_rng: RNG,
+    run_rng: RunRNG,
     agent: RunAgentProtocol,
     *,
     reward_floor: int | None = None,
@@ -1192,8 +1205,10 @@ def _apply_combat_rewards(
         if encounter_type == "boss"
         else _RewardRoom.MONSTER
     )
+    reward_floor_idx = (reward_floor - 1) if reward_floor is not None else 0
     offer, new_factor = roll_combat_reward_offer(
-        reward_rng,
+        run_rng,
+        reward_floor_idx,
         room,
         card_rarity_factor=character.card_rarity_factor,
         event_bus=character.event_bus,
@@ -1261,12 +1276,18 @@ def _apply_combat_rewards(
     character.gold += offer.gold
 
     if room == _RewardRoom.ELITE:
-        relic = roll_elite_relic(reward_rng, owned=character.relics)
+        relic = roll_elite_relic(
+            run_rng.derive("relic", reward_floor_idx, "elite"),
+            owned=character.relics,
+        )
         if relic is not None:
             character.add_relic(relic)
             log.info("  Elite relic reward: %s", relic)
     elif room == _RewardRoom.BOSS:
-        available = roll_boss_relic_choices(reward_rng, owned=character.relics)
+        available = roll_boss_relic_choices(
+            run_rng.derive("relic", reward_floor_idx, "boss"),
+            owned=character.relics,
+        )
         if available:
             relic = agent.pick_boss_relic(character, available)
             if relic is None:

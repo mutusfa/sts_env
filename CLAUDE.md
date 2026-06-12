@@ -73,7 +73,7 @@ Agents implement `RunAgentProtocol` (duck-typed, no inheritance): methods for `p
 ## Key design decisions
 
 - **Deepcopy safety**: `CombatState` must support `deepcopy` for MCTS / tree search. String-keyed subscriber registry (not callables) is the mechanism that enables this.
-- **Seeded RNG**: All randomness flows through `RNG(seed)` wrapper → fully deterministic replay given a seed.
+- **Seeded RNG**: All randomness flows through `RNG(seed)` wrapper → fully deterministic replay given a seed. Run-level outcomes (events, shops, rewards, encounter queues) use `RunRNG` in `src/sts_env/run/rng_streams.py`: each domain/floor derives a fresh RNG from `(master_seed, domain, keys)` so counterfactual branches stay aligned. Combat uses per-floor `RunRNG.combat_seed(floor)`.
 - **Declarative + escape hatch**: ~80% of cards use `CardSpec` declarative fields; ~20% need `custom` handlers. Prefer declarative; add `custom` only when the effect truly can't be expressed.
 - **No inheritance in card/enemy/relic specs**: Everything is data (`CardSpec`, `EnemySpec`, `RelicSpec` frozen dataclasses), not class hierarchies.
 

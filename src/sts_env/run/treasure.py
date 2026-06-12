@@ -23,6 +23,7 @@ from .rewards import COMMON_RELICS, UNCOMMON_RELICS, RARE_RELICS, RelicTier
 
 if TYPE_CHECKING:
     from .character import Character
+    from .rng_streams import RunRNG
 
 
 @dataclass
@@ -68,12 +69,8 @@ def _chest_relic_tier(roll: int, chest_idx: int) -> RelicTier:
         return RelicTier.RARE
 
 
-def open_treasure(character: Character, rng: RNG) -> TreasureResult:
-    """Open a treasure chest, granting relic and optional gold.
-
-    Uses one roll for chest size, then a second roll for both gold determination
-    and relic rarity — mirroring C++ setupTreasureRoom's single ``roll`` value.
-    """
+def _open_treasure_with_rng(character: Character, rng: RNG) -> TreasureResult:
+    """Open a treasure chest using the provided RNG (test / internal hook)."""
     size_roll = rng.randint(0, 99)
     if size_roll < _SMALL_CHEST_CHANCE:
         chest_idx = 0
@@ -108,3 +105,15 @@ def open_treasure(character: Character, rng: RNG) -> TreasureResult:
     character.add_relic(relic)
 
     return TreasureResult(gold_found=gold, relic_found=relic)
+
+
+def open_treasure(
+    character: Character, run_rng: "RunRNG", floor: int,
+) -> TreasureResult:
+    """Open a treasure chest, granting relic and optional gold.
+
+    Uses one roll for chest size, then a second roll for both gold determination
+    and relic rarity — mirroring C++ setupTreasureRoom's single ``roll`` value.
+    """
+    return _open_treasure_with_rng(character, run_rng.derive("treasure", floor))
+
