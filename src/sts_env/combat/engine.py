@@ -16,10 +16,10 @@ Enemy turn structure:
 from __future__ import annotations
 
 import copy
+import random as _random
+from collections import Counter, defaultdict
+from dataclasses import fields as _dc_fields
 from enum import Enum, auto
-
-import copy
-from collections import Counter
 
 from .cards import play_card as _play_card, CardType, TargetType
 from .player_state import PlayerState
@@ -121,6 +121,53 @@ IRONCLAD_STARTER: list[str] = (
     + ["Defend"] * 4
     + ["Bash"] * 1
 )
+
+
+# ---------------------------------------------------------------------------
+# Fast clone helpers (replace copy.deepcopy)
+# ---------------------------------------------------------------------------
+
+_POWERS_FIELDS = tuple(f.name for f in _dc_fields(Powers))
+
+
+def _clone_card(c: Card) -> Card:
+    """Create an independent copy of a Card, sharing the immutable _spec."""
+    nc = object.__new__(Card)
+    nc.card_id = c.card_id
+    nc.cost_override = c.cost_override
+    nc.cost_override_duration = c.cost_override_duration
+    nc.exhausts_override = c.exhausts_override
+    nc.corrupted = c.corrupted
+    nc._spec = c._spec  # immutable CacheSpec, safe to share
+    return nc
+
+
+def _clone_powers(p: Powers) -> Powers:
+    """Shallow-copy every scalar field; deep-copy the bomb_fuses list."""
+    new = object.__new__(Powers)
+    for name in _POWERS_FIELDS:
+        setattr(new, name, getattr(p, name))
+    if p.bomb_fuses:
+        new.bomb_fuses = list(p.bomb_fuses)
+    return new
+
+
+def _clone_enemy(e: EnemyState) -> EnemyState:
+    """Independent copy of one EnemyState."""
+    new = object.__new__(EnemyState)
+    new.name = e.name
+    new.hp = e.hp
+    new.max_hp = e.max_hp
+    new.block = e.block
+    new.powers = _clone_powers(e.powers)
+    new.move_history = list(e.move_history)
+    new.misc = e.misc
+    new.pending_split = e.pending_split
+    new.pending_mode_shift = e.pending_mode_shift
+    new.is_escaping = e.is_escaping
+    new.skill_played_str = e.skill_played_str
+    new.gold_stolen = e.gold_stolen
+    return new
 
 
 class Combat:
@@ -276,50 +323,49 @@ class Combat:
     # Public interface
     # ------------------------------------------------------------------
 
-    def step(self, action: Action) -> tuple[Observation, float, dict]:
-        """Apply one player action. Returns (observation, reward, info).
+    def _step_quiet(self, action: Action) -> float:
+        """Apply one action without building Observation. Returns reward.
 
-        reward = hp_after - hp_before (negative when damage is taken, 0 otherwise).
+        Skips the ``_is_done()`` guard — callers (MCTS, rollouts) must check
+        ``_is_done()`` before calling.
         """
         state = self._state
         hp_before = state.player_hp
 
-        if self._is_done():
-            raise RuntimeError("Combat is already done.")
-
-        if action.action_type == ActionType.PLAY_CARD:
+        at = action.action_type
+        if at == ActionType.PLAY_CARD:
             _play_card(state, action.hand_index, action.target_index)
             _drain_stack(state)
-
-        elif action.action_type == ActionType.END_TURN:
+        elif at == ActionType.END_TURN:
             self._resolve_end_of_player_turn()
-
-        elif action.action_type == ActionType.USE_POTION:
+        elif at == ActionType.USE_POTION:
             _use_potion(state, action.potion_index, action.target_index)
             _drain_stack(state)
-
-        elif action.action_type == ActionType.DISCARD_POTION:
+        elif at == ActionType.DISCARD_POTION:
             state.potions.pop(action.potion_index)
-
-        elif action.action_type == ActionType.CHOOSE_CARD:
+        elif at == ActionType.CHOOSE_CARD:
             frame = state.pending_stack.pop()
-            assert isinstance(frame, ChoiceFrame)
             card = frame.choices[action.choice_index]
             frame.on_choose(state, card)
             _drain_stack(state)
-
-        elif action.action_type == ActionType.SKIP_CHOICE:
+        elif at == ActionType.SKIP_CHOICE:
             frame = state.pending_stack.pop()
-            assert isinstance(frame, ChoiceFrame)
             frame.on_skip(state)
             _drain_stack(state)
 
         self._damage_taken = self._player_start_hp - state.player_hp
         self._max_hp_gained = state.player_max_hp - self._player_max_hp
-        reward = float(state.player_hp - hp_before)
+        return float(state.player_hp - hp_before)
 
-        info: dict = {}
-        return self._observe(), reward, info
+    def step(self, action: Action) -> tuple[Observation, float, dict]:
+        """Apply one player action. Returns (observation, reward, info).
+
+        reward = hp_after - hp_before (negative when damage is taken, 0 otherwise).
+        """
+        if self._is_done():
+            raise RuntimeError("Combat is already done.")
+        reward = self._step_quiet(action)
+        return self._observe(), reward, {}
 
     @property
     def damage_taken(self) -> int:
@@ -399,7 +445,77 @@ class Combat:
 
         The clone is fully independent: stepping one does not affect the other.
         """
-        return copy.deepcopy(self)
+        src = self._state
+
+        # --- Piles: clone every Card in all four lists ---
+        old_p = src.piles
+        new_piles = object.__new__(Piles)
+        new_piles.draw = [_clone_card(c) for c in old_p.draw]
+        new_piles.hand = [_clone_card(c) for c in old_p.hand]
+        new_piles.discard = [_clone_card(c) for c in old_p.discard]
+        new_piles.exhaust = [_clone_card(c) for c in old_p.exhaust]
+
+        # --- Enemies ---
+        new_enemies = [_clone_enemy(e) for e in src.enemies]
+
+        # --- RNG (copy internal random.Random state) ---
+        new_rng = RNG.__new__(RNG)
+        new_rng._rng = _random.Random()
+        new_rng._rng.setstate(src.rng._rng.getstate())
+
+        # --- Subscribers: nested defaultdict copy ---
+        new_subs = defaultdict(lambda: defaultdict(list))
+        for ev, owners in src.subscribers.items():
+            for owner, handlers in owners.items():
+                new_subs[ev][owner] = list(handlers)
+
+        # --- Pending stack: clone ChoiceFrame cards, share callbacks ---
+        new_pending = []
+        for frame in src.pending_stack:
+            if hasattr(frame, 'choices'):
+                new_pending.append(ChoiceFrame(
+                    choices=[_clone_card(c) for c in frame.choices],
+                    kind=frame.kind,
+                    on_choose=frame.on_choose,
+                    on_skip=frame.on_skip,
+                ))
+            else:
+                new_pending.append(ThunkFrame(run=frame.run, label=frame.label))
+
+        # --- Assemble new CombatState ---
+        ns = object.__new__(CombatState)
+        ns.player_hp = src.player_hp
+        ns.player_max_hp = src.player_max_hp
+        ns.player_block = src.player_block
+        ns.player_powers = _clone_powers(src.player_powers)
+        ns.energy = src.energy
+        ns.piles = new_piles
+        ns.enemies = new_enemies
+        ns.rng = new_rng
+        ns.turn = src.turn
+        ns.potions = list(src.potions)
+        ns.max_potion_slots = src.max_potion_slots
+        ns.energy_loss_next_turn = src.energy_loss_next_turn
+        ns.pending_stack = new_pending
+        ns.rampage_extra = src.rampage_extra
+        ns.gold = src.gold
+        ns.subscribers = new_subs
+        ns.relics = src.relics  # frozenset — immutable
+        ns.is_elite = src.is_elite
+        ns.relic_state = dict(src.relic_state)
+        ns.relic_data = dict(src.relic_data)
+        ns.relic_combat_disabled = set(src.relic_combat_disabled)
+        ns.is_boss = src.is_boss
+
+        # --- Assemble new Combat wrapper ---
+        new_cbt = object.__new__(Combat)
+        new_cbt._state = ns
+        new_cbt._damage_taken = self._damage_taken
+        new_cbt._max_hp_gained = self._max_hp_gained
+        new_cbt._player_start_hp = self._player_start_hp
+        new_cbt._player_max_hp = self._player_max_hp
+        new_cbt._intents = list(self._intents)  # Intent is frozen, share objects
+        return new_cbt
 
     def observe(self) -> Observation:
         """Return current observation without advancing state."""
