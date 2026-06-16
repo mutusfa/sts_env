@@ -39,13 +39,13 @@ class TestRunRNGDerive:
             event_rng.random()
 
         shop_a = generate_shop(run_rng, floor=5, character=Character.ironclad())
-        reward_a, _ = roll_combat_reward_offer(
+        reward_a, _, _ = roll_combat_reward_offer(
             run_rng, floor=7, room=Room.MONSTER
         )
         pick_a = run_rng.derive("event_pick", 8).choice(["A", "B", "C"])
 
         shop_b = generate_shop(run_rng, floor=5, character=Character.ironclad())
-        reward_b, _ = roll_combat_reward_offer(
+        reward_b, _, _ = roll_combat_reward_offer(
             run_rng, floor=7, room=Room.MONSTER
         )
         pick_b = run_rng.derive("event_pick", 8).choice(["A", "B", "C"])
@@ -58,7 +58,7 @@ class TestRunRNGDerive:
         """Floor-8 outcomes unchanged after extra floor-3 event draws."""
         run_rng = RunRNG(456)
         baseline_shop = generate_shop(run_rng, floor=8, character=Character.ironclad())
-        baseline_reward, _ = roll_combat_reward_offer(
+        baseline_reward, _, _ = roll_combat_reward_offer(
             run_rng, floor=8, room=Room.ELITE
         )
         baseline_event = run_rng.derive("event_pick", 8).choice(list("ABCDEF"))
@@ -69,7 +69,7 @@ class TestRunRNGDerive:
             noise_rng.randint(0, 99)
 
         assert generate_shop(noisy, floor=8, character=Character.ironclad()) == baseline_shop
-        offer, _ = roll_combat_reward_offer(noisy, floor=8, room=Room.ELITE)
+        offer, _, _ = roll_combat_reward_offer(noisy, floor=8, room=Room.ELITE)
         assert offer == baseline_reward
         assert noisy.derive("event_pick", 8).choice(list("ABCDEF")) == baseline_event
 

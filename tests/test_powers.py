@@ -458,6 +458,23 @@ def test_rage_resets_at_end_of_turn():
     assert combat._state.player_powers.rage_block == 0
 
 
+def test_regen_heals_at_end_of_turn():
+    combat = Combat(PlayerState(deck=IRONCLAD_STARTER, player_hp=50), ["Cultist"], 42)
+    combat._state.player_powers.regen = 5
+    from sts_env.combat.events import emit, Event
+    emit(combat._state, Event.TURN_END, "player")
+    assert combat._state.player_hp == 55
+    assert combat._state.player_powers.regen == 4
+
+
+def test_plated_armor_gains_block_at_eot():
+    combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["Cultist"], 42)
+    combat._state.player_powers.plated_armor = 4
+    from sts_env.combat.events import emit, Event
+    emit(combat._state, Event.TURN_END, "player")
+    assert combat._state.player_block == 4
+
+
 def test_double_tap_resets_at_end_of_turn():
     """DoubleTap counter resets at end of turn."""
     combat = Combat(PlayerState(deck=IRONCLAD_STARTER), ["JawWorm"], 42)

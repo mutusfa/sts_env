@@ -313,7 +313,7 @@ class TestCounterfactualRunRNG:
         run_rng = RunRNG(999)
         character = Character.ironclad()
         baseline_shop = generate_shop(run_rng, floor=5, character=character)
-        baseline_offer, _ = roll_combat_reward_offer(
+        baseline_offer, _, _ = roll_combat_reward_offer(
             run_rng, floor=5, room=Room.MONSTER
         )
 
@@ -322,5 +322,5 @@ class TestCounterfactualRunRNG:
             noisy.derive("event_resolve", 2, "Big Fish", 0, 0).random()
 
         assert generate_shop(noisy, floor=5, character=character) == baseline_shop
-        offer, _ = roll_combat_reward_offer(noisy, floor=5, room=Room.MONSTER)
+        offer, _, _ = roll_combat_reward_offer(noisy, floor=5, room=Room.MONSTER)
         assert offer == baseline_offer

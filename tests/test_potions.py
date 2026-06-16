@@ -178,17 +178,6 @@ def test_steroid_potion_lost_at_end_of_turn():
     assert obs.player_powers.get("strength", 0) == str_before
 
 
-def test_flex_potion_lost_at_end_of_turn():
-    """Flex Potion gives +5 strength this turn; lost at end of turn."""
-    combat = _combat_with_potions(["FlexPotion"])
-    obs = combat.observe()
-    str_before = obs.player_powers.get("strength", 0)
-    obs, _, _ = combat.step(Action.use_potion(0))
-    assert obs.player_powers.get("strength", 0) == str_before + 5
-    obs, _, _ = combat.step(Action.end_turn())
-    assert obs.player_powers.get("strength", 0) == str_before
-
-
 def test_dexterity_potion_persists():
     """Dexterity Potion grants +2 dexterity permanently (for this combat)."""
     combat = _combat_with_potions(["DexterityPotion"])
@@ -255,7 +244,7 @@ def test_heart_of_iron_grants_metallicize_block_at_eot():
     obs = combat.observe()
     obs, _, _ = combat.step(Action.use_potion(0))
     # Confirm metallicize field visible in observation
-    assert obs.player_powers.get("metallicize", 0) == 4
+    assert obs.player_powers.get("metallicize", 0) == 6
     block_before = obs.player_block
     obs, _, _ = combat.step(Action.end_turn())
     # After end of player turn, should have gained 4 block (then player turn starts wiping block;
@@ -266,7 +255,7 @@ def test_heart_of_iron_grants_metallicize_block_at_eot():
     # Actually: _resolve_end_of_player_turn fires metallicize, then enemies attack (may reduce block),
     # then new player turn starts and wipes block. The observation reflects the NEW player turn state.
     # => the metallicize block will have been wiped. We test the power is still applied (=4).
-    assert obs.player_powers.get("metallicize", 0) == 4
+    assert obs.player_powers.get("metallicize", 0) == 6
 
 
 def test_heart_of_iron_block_applied_before_enemy_attacks():
@@ -289,6 +278,144 @@ def test_heart_of_iron_block_applied_before_enemy_attacks():
 
     # With metallicize the player should have taken less or equal damage
     assert combat_with_met.damage_taken <= combat_no_met.damage_taken
+
+
+def test_weak_potion_applies_weak():
+    combat = _combat_with_potions(["WeakPotion"])
+    ti = _first_live_enemy_idx(combat.observe())
+    combat.step(Action.use_potion(0, ti))
+    assert combat._state.enemies[ti].powers.weak >= 3
+
+
+def test_ancient_potion_grants_artifact():
+    combat = _combat_with_potions(["AncientPotion"])
+    combat.step(Action.use_potion(0))
+    assert combat._state.player_powers.artifact == 1
+
+
+def test_regen_potion_heals_at_eot():
+    combat = _combat_with_potions(["RegenPotion"], player_hp=50)
+    combat.step(Action.use_potion(0))
+    hp_before = combat._state.player_hp
+    combat.step(Action.end_turn())
+    assert combat._state.player_hp > hp_before
+    assert combat._state.player_powers.regen == 4
+
+
+def test_fruit_juice_increases_max_hp():
+    combat = _combat_with_potions(["FruitJuice"], player_hp=70)
+    combat.step(Action.use_potion(0))
+    assert combat._state.player_max_hp == 85
+    assert combat._state.player_hp == 75
+
+
+def test_gamblers_brew_skip_discards_nothing():
+    """Skip without picking discards nothing and draws nothing."""
+    from sts_env.combat.card import Card
+
+    combat = _combat_with_potions(["GamblersBrew"])
+    combat.observe()
+    combat._state.piles.hand = [Card("Strike"), Card("Defend"), Card("Bash")]
+
+    obs, _, _ = combat.step(Action.use_potion(0))
+    assert obs.pending_choice_kind == "gamble"
+    assert {c.card_id for c in obs.pending_choices} == {"Strike", "Defend", "Bash"}
+
+    obs, _, _ = combat.step(Action.skip_choice())
+    assert obs.pending_choice_kind == ""
+    assert {c["card_id"] for c in obs.hand} == {"Strike", "Defend", "Bash"}
+    assert sum(obs.discard_pile.values()) == 0
+
+
+def test_gamblers_brew_player_chooses_discards():
+    """Each chosen card is discarded; skip draws one card per discard."""
+    from sts_env.combat.card import Card
+
+    combat = _combat_with_potions(["GamblersBrew"], seed=0)
+    combat.observe()
+    combat._state.piles.hand = [Card("Strike"), Card("Defend"), Card("Bash")]
+    combat._state.piles.draw = [Card("IronWave"), Card("Cleave")]
+
+    obs, _, _ = combat.step(Action.use_potion(0))
+    assert obs.pending_choice_kind == "gamble"
+
+    obs, _, _ = combat.step(Action.choose_card(1))  # discard Defend
+    assert obs.discard_pile.get("Defend", 0) == 1
+    assert {c["card_id"] for c in obs.hand} == {"Strike", "Bash"}
+    assert obs.pending_choice_kind == "gamble"
+
+    obs, _, _ = combat.step(Action.skip_choice())
+    assert obs.pending_choice_kind == ""
+    assert obs.discard_pile.get("Defend", 0) == 1
+    assert len(obs.hand) == 3  # kept Strike+Bash, drew 1
+    assert obs.draw_pile.get("Cleave", 0) == 1
+
+
+def test_liquid_memories_returns_discard_card_at_zero_cost():
+    """Liquid Memories puts the chosen discard card in hand at 0 cost this turn."""
+    from sts_env.combat.card import Card
+
+    combat = _combat_with_potions(["LiquidMemories"])
+    combat.observe()
+    combat._state.piles.hand = [Card("Strike")]
+    combat._state.piles.discard = [Card("Bash")]
+
+    obs, _, _ = combat.step(Action.use_potion(0))
+    assert obs.pending_choice_kind == "liquid-memories"
+    assert [c.card_id for c in obs.pending_choices] == ["Bash"]
+
+    obs, _, _ = combat.step(Action.choose_card(0))
+    assert obs.pending_choice_kind == ""
+    bash = next(c for c in obs.hand if c["card_id"] == "Bash")
+    assert bash["cost"] == 0
+
+
+def test_elixir_potion_lets_player_choose_cards_to_exhaust():
+    """Elixir uses ExhaustMany: pick cards one at a time, skip to stop early."""
+    from sts_env.combat.card import Card
+
+    combat = _combat_with_potions(["ElixirPotion"])
+    combat.observe()
+    combat._state.piles.hand = [Card("Strike"), Card("Defend"), Card("Bash")]
+
+    obs, _, _ = combat.step(Action.use_potion(0))
+    assert "ElixirPotion" not in obs.potions
+    assert obs.pending_choice_kind == "elixir"
+    assert [c.card_id for c in obs.pending_choices] == ["Strike", "Defend", "Bash"]
+
+    obs, _, _ = combat.step(Action.choose_card(1))  # exhaust Defend
+    assert obs.exhaust_pile.get("Defend", 0) == 1
+    assert {c["card_id"] for c in obs.hand} == {"Strike", "Bash"}
+    assert obs.pending_choice_kind == "elixir"
+
+    obs, _, _ = combat.step(Action.skip_choice())
+    assert obs.pending_choice_kind == ""
+    assert {c["card_id"] for c in obs.hand} == {"Strike", "Bash"}
+    assert obs.exhaust_pile.get("Defend", 0) == 1
+
+
+def test_smoke_bomb_is_passive():
+    from sts_env.combat.potions import get_spec
+    assert get_spec("SmokeBomb").passive is True
+
+
+def test_sacred_bark_doubles_block_potion():
+    combat = Combat(
+        PlayerState(potions=["BlockPotion"], relics=["SacredBark"]),
+        ["Cultist"],
+        0,
+    )
+    obs = combat.observe()
+    block_before = obs.player_block
+    obs, _, _ = combat.step(Action.use_potion(0))
+    assert obs.player_block == block_before + 24
+
+
+def test_all_ironclad_pool_potions_registered():
+    from sts_env.combat.potion_pools import IRONCLAD_POTION_POOL
+    from sts_env.combat.potions import get_spec
+    for pid in IRONCLAD_POTION_POOL:
+        get_spec(pid)
 
 
 # ---------------------------------------------------------------------------

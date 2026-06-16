@@ -11,10 +11,8 @@ from sts_env.run.character import Character
 from sts_env.run.rng_streams import RunRNG
 from sts_env.run.shop import (
     CARD_PRICES,
-    COMMON_POTION_PRICE,
     REMOVE_CARD_COST,
     SHOP_TIER_RELICS,
-    UNCOMMON_POTION_PRICE,
     ShopInventory,
     ShopResult,
     buy_card,

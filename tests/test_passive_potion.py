@@ -33,9 +33,9 @@ def test_potion_decorator_defaults_to_active():
 
 
 def test_fairy_in_a_bottle_is_passive():
-    """FairyInABottle should be marked as a passive potion."""
-    spec = get_spec("FairyInABottle")
-    assert spec.passive is True, "FairyInABottle should be passive"
+    """FairyPotion should be marked as a passive potion."""
+    spec = get_spec("FairyPotion")
+    assert spec.passive is True, "FairyPotion should be passive"
 
 
 def test_fairy_in_a_bottle_not_in_legal_actions():
@@ -43,12 +43,12 @@ def test_fairy_in_a_bottle_not_in_legal_actions():
 
     They should only be discardable.
     """
-    c = Combat(PlayerState(deck=["Strike", "Defend", "Bash"], potions=["FairyInABottle"]), ["JawWorm"], 42)
+    c = Combat(PlayerState(deck=["Strike", "Defend", "Bash"], potions=["FairyPotion"]), ["JawWorm"], 42)
     c.observe()
     legal = c.valid_actions()
 
     # Should have discard_potion(0)
-    assert Action.discard_potion(0) in legal, "Should be able to discard FairyInABottle"
+    assert Action.discard_potion(0) in legal, "Should be able to discard FairyPotion"
 
     # Should NOT have use_potion(0) (target index doesn't matter for NONE-target potions)
     use_actions = [a for a in legal if a.action_type == ActionType.USE_POTION and a.potion_index == 0]

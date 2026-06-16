@@ -341,6 +341,25 @@ def _apply_spec(
         state.piles.draw_cards(spec.draw + u.get("draw", 0), state.rng)
 
 
+def _resolve_card_effects(
+    state: "CombatState",
+    spec: CardSpec,
+    hand_index: int,
+    target_index: int,
+    upgraded: int,
+    *,
+    x_energy: int = 0,
+    upgrade_count: int = 0,
+) -> None:
+    """Apply declarative spec effects and optional custom handler."""
+    _apply_spec(state, spec, target_index, upgraded, x_energy=x_energy, upgrade_count=upgrade_count)
+    if spec.custom is not None:
+        if spec.x_cost:
+            spec.custom(state, hand_index, target_index, upgrade_count, x_energy)
+        else:
+            spec.custom(state, hand_index, target_index, upgrade_count)
+
+
 def play_card(state: "CombatState", hand_index: int, target_index: int) -> None:
     """Validate and execute a card play, updating state in place."""
     card = state.piles.hand[hand_index]
@@ -372,12 +391,10 @@ def play_card(state: "CombatState", hand_index: int, target_index: int) -> None:
 
     upgraded = 1 if upgrade_count > 0 else 0
     x_energy = effective_cost if spec.x_cost else 0
-    _apply_spec(state, spec, target_index, upgraded, x_energy=x_energy, upgrade_count=upgrade_count)
-    if spec.custom is not None:
-        if spec.x_cost:
-            spec.custom(state, hand_index, target_index, upgrade_count, x_energy)
-        else:
-            spec.custom(state, hand_index, target_index, upgrade_count)
+    _resolve_card_effects(
+        state, spec, hand_index, target_index, upgraded,
+        x_energy=x_energy, upgrade_count=upgrade_count,
+    )
 
     if played_card.effective_exhausts():
         state.piles.move_to_exhaust(played_card)
@@ -387,6 +404,13 @@ def play_card(state: "CombatState", hand_index: int, target_index: int) -> None:
     # Emit CARD_PLAYED for subscribed listeners (Rage, Gremlin Nob)
     from .events import emit, Event
     emit(state, Event.CARD_PLAYED, "player", card=played_card)
+
+    if state.player_powers.duplication > 0:
+        state.player_powers.duplication -= 1
+        _resolve_card_effects(
+            state, spec, hand_index, target_index, upgraded,
+            x_energy=x_energy, upgrade_count=upgrade_count,
+        )
 
     # Emit CARD_EXHAUSTED for triggered effects (Dark Embrace, Feel No Pain, Sentinel)
     if played_card.effective_exhausts():
@@ -443,9 +467,7 @@ def _havoc_custom(state: "CombatState", _hi: int, _ti: int, _upgraded: int) -> N
     )
 
     # Now resolve the top card's effects — any frames it pushes land on top of our thunk
-    _apply_spec(state, top_spec, ti, up)
-    if top_spec.custom is not None:
-        top_spec.custom(state, -1, ti, up)
+    _resolve_card_effects(state, top_spec, -1, ti, up, upgrade_count=up)
 
 
 def _sword_boomerang_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:

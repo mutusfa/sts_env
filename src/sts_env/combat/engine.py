@@ -266,7 +266,7 @@ class Combat:
         # Enemy ticks are wired per-enemy via TURN_START events.
         # Triggered-effect and turn-boundary listeners are subscribed when active.
         always_subscribe_player = (
-            "metallicize", "demon_form", "brutality", "berserk_energy",
+            "metallicize", "plated_armor", "regen", "demon_form", "brutality", "berserk_energy",
             "strength_loss_eot", "dexterity_loss_eot",
             "no_card_block_turns", "magnetism", "mayhem",
         )

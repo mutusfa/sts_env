@@ -1,5 +1,7 @@
 """Tests for the rewards system (cards, potions, elite relics)."""
 
+from unittest.mock import patch
+
 from sts_env.combat.card_pools import pool
 from sts_env.combat.cards import CardColor, Rarity
 from sts_env.combat.rng import RNG
@@ -217,12 +219,39 @@ class TestBossRelicChoices:
         assert not overlap, f"Boss pool contains non-boss relics: {overlap}"
 
 
+class TestPotionPityTimer:
+    def test_miss_increments_chance(self):
+        rng = RNG(0)
+        with patch.object(RNG, "randint", return_value=99):
+            potion, chance = roll_potion_reward(rng, potion_chance=0)
+        assert potion is None
+        assert chance == 10
+
+    def test_hit_decrements_chance(self):
+        rng = RNG(0)
+        with patch.object(RNG, "randint", return_value=0):
+            with patch(
+                "sts_env.run.rewards.roll_random_potion",
+                return_value="BlockPotion",
+            ):
+                potion, chance = roll_potion_reward(rng, potion_chance=0)
+        assert potion == "BlockPotion"
+        assert chance == -10
+
+    def test_reward_screen_full_skips(self):
+        rng = RNG(0)
+        potion, chance = roll_potion_reward(rng, potion_chance=0, reward_screen_size=4)
+        assert potion is None
+        assert chance == 10
+
+
 class TestPotionReward:
     """Smoke test for potion rewards."""
 
     def test_returns_potion_or_none(self, rng: RNG) -> None:
-        result = roll_potion_reward(rng)
-        assert result is None or isinstance(result, str)
+        potion, chance = roll_potion_reward(rng)
+        assert potion is None or isinstance(potion, str)
+        assert isinstance(chance, int)
 
 
 class TestCombatGold:
@@ -245,36 +274,36 @@ class TestCombatRewardOffer:
     """Tests for CombatRewardOffer dataclass and roll_combat_reward_offer."""
 
     def test_returns_offer_and_factor(self, rng: RNG) -> None:
-        offer, new_factor = roll_combat_reward_offer(RunRNG(42), 0, Room.MONSTER)
+        offer, new_factor, _ = roll_combat_reward_offer(RunRNG(42), 0, Room.MONSTER)
         assert isinstance(offer, CombatRewardOffer)
         assert isinstance(new_factor, int)
 
     def test_offer_has_three_cards(self, rng: RNG) -> None:
-        offer, _ = roll_combat_reward_offer(RunRNG(42), 0, Room.MONSTER)
+        offer, _, _ = roll_combat_reward_offer(RunRNG(42), 0, Room.MONSTER)
         assert len(offer.card_choices) == 3
 
     def test_offer_gold_matches_combat_gold_constant(self) -> None:
         for room in (Room.MONSTER, Room.ELITE, Room.BOSS):
-            offer, _ = roll_combat_reward_offer(RunRNG(0), 0, room)
+            offer, _, _ = roll_combat_reward_offer(RunRNG(0), 0, room)
             assert offer.gold == COMBAT_GOLD[room]
 
     def test_offer_potion_is_str_or_none(self, rng: RNG) -> None:
-        offer, _ = roll_combat_reward_offer(RunRNG(42), 0, Room.MONSTER)
+        offer, _, _ = roll_combat_reward_offer(RunRNG(42), 0, Room.MONSTER)
         assert offer.potion is None or isinstance(offer.potion, str)
 
     def test_elite_offer_has_correct_gold(self, rng: RNG) -> None:
-        offer, _ = roll_combat_reward_offer(RunRNG(42), 0, Room.ELITE)
+        offer, _, _ = roll_combat_reward_offer(RunRNG(42), 0, Room.ELITE)
         assert offer.gold == COMBAT_GOLD[Room.ELITE]
 
     def test_boss_offer_has_correct_gold(self, rng: RNG) -> None:
-        offer, _ = roll_combat_reward_offer(RunRNG(42), 0, Room.BOSS)
+        offer, _, _ = roll_combat_reward_offer(RunRNG(42), 0, Room.BOSS)
         assert offer.gold == COMBAT_GOLD[Room.BOSS]
 
     def test_factor_propagated(self) -> None:
         """new_card_rarity_factor must equal what roll_card_rewards would return."""
         run_rng = RunRNG(77)
         card_rng = run_rng.derive("card_reward", 0)
-        _, factor_from_offer = roll_combat_reward_offer(
+        _, factor_from_offer, _ = roll_combat_reward_offer(
             run_rng, 0, Room.MONSTER, card_rarity_factor=3
         )
         _, factor_from_roll = roll_card_rewards(
@@ -284,8 +313,8 @@ class TestCombatRewardOffer:
 
     def test_deterministic_with_same_seed(self) -> None:
         r1, r2 = RNG(42), RNG(42)
-        offer1, f1 = roll_combat_reward_offer(RunRNG(42), 0, Room.MONSTER)
-        offer2, f2 = roll_combat_reward_offer(RunRNG(42), 0, Room.MONSTER)
+        offer1, f1, _ = roll_combat_reward_offer(RunRNG(42), 0, Room.MONSTER)
+        offer2, f2, _ = roll_combat_reward_offer(RunRNG(42), 0, Room.MONSTER)
         assert offer1.card_choices == offer2.card_choices
         assert offer1.potion == offer2.potion
         assert offer1.gold == offer2.gold

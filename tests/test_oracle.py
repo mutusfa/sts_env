@@ -412,3 +412,34 @@ class TestAcidSlimeMWeakTiming:
         assert delta == 4, (
             f"Our engine: Strike with Weak should deal 4, got {delta}"
         )
+
+
+class TestPotionMechanics:
+    """Potion effect values aligned with sts_lightspeed drinkPotion (asc 0, no Sacred Bark)."""
+
+    def test_block_potion_grants_12(self):
+        combat = Combat(PlayerState(potions=["BlockPotion"]), ["Cultist"], 0)
+        obs = combat.observe()
+        block_before = obs.player_block
+        obs, _, _ = combat.step(Action.use_potion(0))
+        assert obs.player_block == block_before + 12
+        assert obs.potions == []
+
+    def test_fire_potion_deals_20(self):
+        combat = Combat(PlayerState(potions=["FirePotion"]), ["Cultist"], 0)
+        obs = combat.observe()
+        hp_before = obs.enemies[0].hp
+        obs, _, _ = combat.step(Action.use_potion(0, 0))
+        assert hp_before - obs.enemies[0].hp == 20
+
+    def test_heart_of_iron_metallicize_6(self):
+        combat = Combat(PlayerState(potions=["HeartOfIron"]), ["Cultist"], 0)
+        obs, _, _ = combat.step(Action.use_potion(0))
+        assert obs.player_powers.get("metallicize", 0) == 6
+
+    @pytest.mark.skip(reason="make_battle_context not exposed in pybind11 bindings")
+    def test_block_potion_matches_sts_lightspeed(self):
+        bc = _sts_bc(sts.MonsterEncounter.CULTIST, seed=0)
+        block_before = bc.player_block
+        sts.BattleAction.use_potion(0, 0).execute(bc)
+        assert bc.player_block == block_before + 12

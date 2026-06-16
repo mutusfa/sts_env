@@ -110,6 +110,9 @@ class Powers:
     berserk_energy: int = 0      # start of turn: gain this much energy
     corruption: bool = False     # skills cost 0 and are exhausted when played
     double_tap: int = 0          # next N attacks this turn are played twice
+    duplication: int = 0         # next N cards played twice (Duplication potion)
+    regen: int = 0               # heal this much at end of player turn; decrements
+    plated_armor: int = 0        # gain block at EOT; lose 1 on unblocked HP loss
     rage_block: int = 0          # gain this much block per Attack played this turn
     artifact: int = 0            # block N debuffs (decremented per debuff blocked)
     no_card_block_turns: int = 0 # cannot gain block from cards for N turns

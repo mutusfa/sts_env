@@ -346,7 +346,7 @@ class TestRewards:
 
     def test_potion_reward_returns_string_or_none(self):
         rng = RNG(42)
-        potion = rewards.roll_potion_reward(rng)
+        potion, _ = rewards.roll_potion_reward(rng)
         # Potion reward may be None (no potion) or a string
         assert potion is None or isinstance(potion, str)
 
@@ -537,11 +537,11 @@ class TestCardPotions:
         )
 
     def test_potion_card_in_reward_pool(self):
-        """AttackPotion, SkillPotion, PowerPotion should be in reward pools."""
-        from sts_env.run.rewards import COMMON_POTIONS, UNCOMMON_POTIONS
-        assert "AttackPotion" in COMMON_POTIONS
-        assert "SkillPotion" in COMMON_POTIONS
-        assert "PowerPotion" in UNCOMMON_POTIONS
+        """AttackPotion, SkillPotion, PowerPotion should be in Ironclad pool."""
+        from sts_env.combat.potion_pools import IRONCLAD_POTION_POOL
+        assert "AttackPotion" in IRONCLAD_POTION_POOL
+        assert "SkillPotion" in IRONCLAD_POTION_POOL
+        assert "PowerPotion" in IRONCLAD_POTION_POOL
 
 
 # ---------------------------------------------------------------------------

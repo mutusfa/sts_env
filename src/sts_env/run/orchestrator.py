@@ -1206,15 +1206,17 @@ def _apply_combat_rewards(
         else _RewardRoom.MONSTER
     )
     reward_floor_idx = (reward_floor - 1) if reward_floor is not None else 0
-    offer, new_factor = roll_combat_reward_offer(
+    offer, new_factor, new_potion_chance = roll_combat_reward_offer(
         run_rng,
         reward_floor_idx,
         room,
         card_rarity_factor=character.card_rarity_factor,
+        potion_chance=character.potion_chance,
         event_bus=character.event_bus,
         relics=character.relics,
     )
     character.card_rarity_factor = new_factor
+    character.potion_chance = new_potion_chance
 
     upcoming = _upcoming_from_path(remaining_path or [], sts_map)
 

@@ -184,6 +184,35 @@ def _metallicize(state: CombatState, owner: Owner, payload: dict) -> None:
         gain_player_block(state, powers.metallicize, source="power")
 
 
+@listener(Event.TURN_END, "plated_armor", subscriptions=[(POWER_SUBSCRIPTIONS, "plated_armor")])
+def _plated_armor_eot(state: CombatState, owner: Owner, payload: dict) -> None:
+    from .engine import gain_player_block
+    powers = _get_powers(state, owner)
+    if powers is None or powers.plated_armor <= 0:
+        return
+    if owner == "player":
+        gain_player_block(state, powers.plated_armor, source="power")
+
+
+@listener(Event.TURN_END, "regen", subscriptions=[(POWER_SUBSCRIPTIONS, "regen")])
+def _regen_eot(state: CombatState, owner: Owner, payload: dict) -> None:
+    from .healing import heal_player
+    powers = _get_powers(state, owner)
+    if powers is None or powers.regen <= 0:
+        return
+    if owner == "player":
+        heal_player(state, powers.regen)
+        powers.regen -= 1
+
+
+@listener(Event.HP_LOSS, "plated_armor_loss", subscriptions=[(POWER_SUBSCRIPTIONS, "plated_armor")])
+def _plated_armor_on_damage(state: CombatState, owner: Owner, payload: dict) -> None:
+    if owner != "player":
+        return
+    if state.player_powers.plated_armor > 0:
+        state.player_powers.plated_armor -= 1
+
+
 @listener(Event.TURN_END, "strength_loss", subscriptions=[(POWER_SUBSCRIPTIONS, "strength_loss_eot")])
 def _strength_loss(state: CombatState, owner: Owner, payload: dict) -> None:
     powers = _get_powers(state, owner)
@@ -283,8 +312,7 @@ def _mayhem(state: CombatState, owner: Owner, payload: dict) -> None:
         state.piles.shuffle_draw_from_discard(state.rng, state=state)
     if not state.piles.draw:
         return
-    from .cards import get_spec, _apply_spec, _SPECS, CardType
-    from .card import Card
+    from .cards import get_spec, _resolve_card_effects
     top_card = state.piles.draw.pop(0)
     top_spec = get_spec(top_card.card_id.rstrip("+"))
     if not top_spec.playable:
@@ -299,9 +327,7 @@ def _mayhem(state: CombatState, owner: Owner, payload: dict) -> None:
     else:
         ti = 0
     up = 1 if top_card.upgraded else 0
-    _apply_spec(state, top_spec, ti, up)
-    if top_spec.custom is not None:
-        top_spec.custom(state, -1, ti, up)
+    _resolve_card_effects(state, top_spec, -1, ti, up, upgrade_count=up)
     if top_spec.exhausts:
         state.piles.move_to_exhaust(top_card)
     else:

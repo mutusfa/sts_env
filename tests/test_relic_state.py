@@ -171,7 +171,7 @@ class TestFrozenEgg:
 
         char = Character.ironclad()
         char.add_relic("FrozenEgg")
-        offer, _ = roll_combat_reward_offer(RunRNG(7), 0, Room.MONSTER, relics=char.relics)
+        offer, _, _ = roll_combat_reward_offer(RunRNG(7), 0, Room.MONSTER, relics=char.relics)
         picked = offer.card_choices[0]
         char.add_card(picked)
         assert char.deck[-1] == picked

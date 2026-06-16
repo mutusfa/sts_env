@@ -36,10 +36,9 @@ from ..combat.card_pools import colorless_pool, typed_pool
 from ..combat.cards import CardColor, CardType, Rarity
 from ..combat.rng import RNG
 from .events import _pick_worst_card
+from ..combat.potion_pools import get_potion_base_price, roll_random_potion
 from .rewards import (
-    COMMON_POTIONS,
     COMMON_RELICS,
-    UNCOMMON_POTIONS,
     UNCOMMON_RELICS,
     RARE_RELICS,
     RelicTier,
@@ -59,9 +58,6 @@ CARD_PRICES: dict[str, int] = {
     "uncommon": 75,
     "rare": 150,
 }
-
-COMMON_POTION_PRICE = 50
-UNCOMMON_POTION_PRICE = 75
 
 REMOVE_CARD_COST = 75  # flat base cost; increases with each removal in C++
 
@@ -308,16 +304,12 @@ def generate_shop(
     cards = [(cid or None, fp) for cid, fp in zip(card_entries, final_prices)]
 
     # -----------------------------------------------------------------------
-    # Potions — 3 random, no dedup (matches C++)
+    # Potions — 3 random via returnRandomPotion (matches C++ Shop::setupPotions)
     # -----------------------------------------------------------------------
-    all_potion_pools: list[tuple[list[str], int]] = [
-        (COMMON_POTIONS, COMMON_POTION_PRICE),
-        (UNCOMMON_POTIONS, UNCOMMON_POTION_PRICE),
-    ]
     potions: list[tuple[str | None, int]] = []
     for _ in range(3):
-        potion_pool, base_price = potion_rng.choice(all_potion_pools)
-        potion_id = potion_rng.choice(potion_pool)
+        potion_id = roll_random_potion(potion_rng)
+        base_price = get_potion_base_price(potion_id)
         price = int(round(base_price * (0.95 + potion_rng.random() * 0.10)))
         potions.append((potion_id, price))
 

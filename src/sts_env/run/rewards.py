@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 
 from ..combat.card_pools import pool
 from ..combat.cards import CardColor, Rarity
+from ..combat.potion_pools import roll_random_potion
 from .bus import RunEvent
 
 if TYPE_CHECKING:
@@ -153,42 +154,31 @@ def roll_card_rewards(
 # Potion rewards
 # ---------------------------------------------------------------------------
 
-COMMON_POTIONS: list[str] = [
-    "BlockPotion",
-    "EnergyPotion",
-    "FirePotion",
-    "ExplosivePotion",
-    "StrengthPotion",
-    "SwiftPotion",
-    "DexterityPotion",
-    "SpeedPotion",
-    "SteroidPotion",
-    "FlexPotion",
-    "FearPotion",
-    "AttackPotion",
-    "SkillPotion",
-]
-
-UNCOMMON_POTIONS: list[str] = [
-    "BloodPotion",
-    "HeartOfIron",
-    "PowerPotion",
-]
-
-_ALL_POTIONS = COMMON_POTIONS + UNCOMMON_POTIONS
-
-# 40% chance to receive a potion after combat
-_POTION_DROP_RATE = 0.40
+# 40% base chance to receive a potion after combat (pity timer in roll_potion_reward)
+_POTION_DROP_BASE = 40
 
 
-def roll_potion_reward(rng: "RNG") -> str | None:
-    """Return a potion ID if one drops, or None.
+def roll_potion_reward(
+    rng: "RNG",
+    *,
+    potion_chance: int = 0,
+    reward_screen_size: int = 0,
+    has_white_beast_statue: bool = False,
+) -> tuple[str | None, int]:
+    """Return (potion_id or None, updated_potion_chance).
 
-    40% chance to drop a random potion from the common/uncommon pool.
+    Mirrors GameContext::addPotionRewards.
     """
-    if rng.random() < _POTION_DROP_RATE:
-        return rng.choice(_ALL_POTIONS)
-    return None
+    chance = _POTION_DROP_BASE + potion_chance
+    if has_white_beast_statue:
+        chance = 100
+    if reward_screen_size >= 4:
+        chance = 0
+
+    if rng.randint(0, 99) >= chance:
+        return None, potion_chance + 10
+
+    return roll_random_potion(rng), potion_chance - 10
 
 
 # ---------------------------------------------------------------------------
@@ -340,14 +330,13 @@ def roll_combat_reward_offer(
     floor: int,
     room: Room,
     card_rarity_factor: int = 0,
+    potion_chance: int = 0,
     event_bus: "RunEventBus | None" = None,
     relics: list[str] | None = None,
-) -> tuple[CombatRewardOffer, int]:
-    """Roll a complete post-combat reward offer and return (offer, new_card_rarity_factor).
+) -> tuple[CombatRewardOffer, int, int]:
+    """Roll a complete post-combat reward offer.
 
-    Bundles ``roll_card_rewards``, ``roll_potion_reward``, and the gold amount
-    for the given room type into a single call.  The caller is responsible for
-    persisting the returned ``new_card_rarity_factor`` on the run state.
+    Returns ``(offer, new_card_rarity_factor, new_potion_chance)``.
     """
     rng = run_rng.derive("card_reward", floor)
     card_choices, new_factor = roll_card_rewards(
@@ -357,6 +346,18 @@ def roll_combat_reward_offer(
         event_bus=event_bus,
         relics=relics,
     )
-    potion = roll_potion_reward(rng)
+    # One card-reward screen + one gold line (C++ Rewards counters, not card count).
+    reward_screen_size = 2
+    has_wbs = relics is not None and "WhiteBeastStatue" in relics
+    potion, new_potion_chance = roll_potion_reward(
+        rng,
+        potion_chance=potion_chance,
+        reward_screen_size=reward_screen_size,
+        has_white_beast_statue=has_wbs,
+    )
     gold = COMBAT_GOLD.get(room, COMBAT_GOLD[Room.MONSTER])
-    return CombatRewardOffer(card_choices=card_choices, potion=potion, gold=gold), new_factor
+    return (
+        CombatRewardOffer(card_choices=card_choices, potion=potion, gold=gold),
+        new_factor,
+        new_potion_chance,
+    )
