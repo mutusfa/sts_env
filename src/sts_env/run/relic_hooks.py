@@ -126,16 +126,14 @@ def resolve_mystery_room(
         character.relic_data["TinyChest"] = visits + 1
 
     roll = rng.random()
-    monster_size = int(_MONSTER_CHANCE * 100)
-    shop_size = (0 if last_room_was_shop else int(_SHOP_CHANCE * 100)) + monster_size
-    treasure_size = int(_TREASURE_CHANCE * 100) + shop_size
-    idx = int(roll * 100)
+    shop_cutoff = _MONSTER_CHANCE + (0.0 if last_room_was_shop else _SHOP_CHANCE)
+    treasure_cutoff = shop_cutoff + _TREASURE_CHANCE
 
-    if idx < monster_size:
+    if roll < _MONSTER_CHANCE:
         outcome = MysteryOutcome.MONSTER
-    elif idx < shop_size:
+    elif roll < shop_cutoff:
         outcome = MysteryOutcome.SHOP
-    elif idx < treasure_size:
+    elif roll < treasure_cutoff:
         outcome = MysteryOutcome.TREASURE
     else:
         outcome = MysteryOutcome.EVENT

@@ -419,7 +419,7 @@ class TestScrapOoze:
         _ooze_state.clear()
         _ooze_state.update({"attempts": 10, "done": False})
         result = resolve_event("Scrap Ooze", 0, char, run_rng, 0)
-        # At attempt 10, chance is 125% → always finds relic
+        # At attempt 10, chance is 1.25 → always finds relic
         assert _ooze_state["done"] is True
         assert "relic" in result.lower()
 
@@ -430,7 +430,7 @@ class TestScrapOoze:
         assert _ooze_state["done"] is True
 
     def test_escalating_chance(self, char, run_rng):
-        """Chance formula: 25 + attempts * 10."""
+        """Chance formula: 0.25 + attempts * 0.10."""
         _ooze_state.clear()
         _ooze_state.update({"attempts": 5, "done": False})
         rng = RNG(42)

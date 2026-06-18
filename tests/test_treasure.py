@@ -13,8 +13,7 @@ from sts_env.run.treasure import (
     _CHEST_GOLD_AMOUNTS,
     _CHEST_GOLD_CHANCES,
     _CHEST_RELIC_TIER_CHANCES,
-    _LARGE_CHEST_CHANCE,
-    _MEDIUM_CHEST_CHANCE,
+    _MEDIUM_CHEST_CUMULATIVE,
     _SMALL_CHEST_CHANCE,
     TreasureResult,
     _open_treasure_with_rng,
@@ -43,12 +42,11 @@ class TestChestModel:
     """Treasure constants should mirror C++ chest behavior."""
 
     def test_chest_size_roll_chances(self) -> None:
-        assert _SMALL_CHEST_CHANCE == 50
-        assert _MEDIUM_CHEST_CHANCE == 33
-        assert _LARGE_CHEST_CHANCE == 17
+        assert _SMALL_CHEST_CHANCE == pytest.approx(0.50)
+        assert _MEDIUM_CHEST_CUMULATIVE == pytest.approx(0.83)
 
     def test_gold_chance_by_size(self) -> None:
-        assert _CHEST_GOLD_CHANCES == (50, 35, 50)
+        assert _CHEST_GOLD_CHANCES == (0.50, 0.35, 0.50)
 
     def test_gold_base_by_size(self) -> None:
         assert _CHEST_GOLD_AMOUNTS == (25, 50, 75)
@@ -57,14 +55,14 @@ class TestChestModel:
         """3 chest sizes, each with (common_chance, uncommon_chance) — remainder is rare."""
         assert len(_CHEST_RELIC_TIER_CHANCES) == 3
         for common_c, uncommon_c in _CHEST_RELIC_TIER_CHANCES:
-            assert 0 <= common_c <= 100
-            assert 0 <= uncommon_c <= 100
-            assert common_c + uncommon_c <= 100
+            assert 0.0 <= common_c <= 1.0
+            assert 0.0 <= uncommon_c <= 1.0
+            assert common_c + uncommon_c <= 1.0
 
     def test_small_chest_never_rare(self) -> None:
-        """Small chest: common=75 uncommon=25 rare=0 → C++ chestRelicTierChances[0]."""
+        """Small chest: common=0.75 uncommon=0.25 rare=0 → C++ chestRelicTierChances[0]."""
         common_c, uncommon_c = _CHEST_RELIC_TIER_CHANCES[0]
-        assert common_c + uncommon_c == 100, "Small chest should have 0% rare"
+        assert common_c + uncommon_c == pytest.approx(1.0), "Small chest should have 0% rare"
 
     def test_large_chest_never_common(self) -> None:
         """Large chest: common=0 uncommon=75 rare=25 → C++ chestRelicTierChances[2]."""

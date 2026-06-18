@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ..combat.rng import RNG
+from ..helpers import below_d100, roll_d100
 from .rewards import COMMON_RELICS, UNCOMMON_RELICS, RARE_RELICS, RelicTier
 
 if TYPE_CHECKING:
@@ -34,21 +35,20 @@ class TreasureResult:
     gold_found: int = 0
 
 
-# Chest size roll chances: SMALL 50%, MEDIUM 33%, LARGE 17%
-_SMALL_CHEST_CHANCE = 50
-_MEDIUM_CHEST_CHANCE = 33
-_LARGE_CHEST_CHANCE = 17
+# Chest size roll chances (cumulative): SMALL 50%, MEDIUM 83%, LARGE 100%
+_SMALL_CHEST_CHANCE = 0.50
+_MEDIUM_CHEST_CUMULATIVE = 0.83
 
-# Gold drop chance and base amount per chest size (indices 0=SMALL, 1=MEDIUM, 2=LARGE)
-_CHEST_GOLD_CHANCES = (50, 35, 50)
+# Gold drop chance per chest size (indices 0=SMALL, 1=MEDIUM, 2=LARGE)
+_CHEST_GOLD_CHANCES = (0.50, 0.35, 0.50)
 _CHEST_GOLD_AMOUNTS = (25, 50, 75)
 
 # (common_chance, uncommon_chance) per chest size — remainder is rare.
 # Mirrors C++ chestRelicTierChances[3][2].
-_CHEST_RELIC_TIER_CHANCES: tuple[tuple[int, int], ...] = (
-    (75, 25),   # SMALL:  common 75%, uncommon 25%, rare  0%
-    (35, 50),   # MEDIUM: common 35%, uncommon 50%, rare 15%
-    (0,  75),   # LARGE:  common  0%, uncommon 75%, rare 25%
+_CHEST_RELIC_TIER_CHANCES: tuple[tuple[float, float], ...] = (
+    (0.75, 0.25),   # SMALL:  common 75%, uncommon 25%, rare  0%
+    (0.35, 0.50),   # MEDIUM: common 35%, uncommon 50%, rare 15%
+    (0.0,  0.75),   # LARGE:  common  0%, uncommon 75%, rare 25%
 )
 
 _RELIC_POOL_BY_TIER: dict[RelicTier, list[str]] = {
@@ -61,9 +61,9 @@ _RELIC_POOL_BY_TIER: dict[RelicTier, list[str]] = {
 def _chest_relic_tier(roll: int, chest_idx: int) -> RelicTier:
     """Determine relic tier from the shared gold/tier roll and chest size index."""
     common_c, uncommon_c = _CHEST_RELIC_TIER_CHANCES[chest_idx]
-    if roll < common_c:
+    if below_d100(roll, common_c):
         return RelicTier.COMMON
-    elif roll < common_c + uncommon_c:
+    elif below_d100(roll, common_c + uncommon_c):
         return RelicTier.UNCOMMON
     else:
         return RelicTier.RARE
@@ -71,19 +71,19 @@ def _chest_relic_tier(roll: int, chest_idx: int) -> RelicTier:
 
 def _open_treasure_with_rng(character: Character, rng: RNG) -> TreasureResult:
     """Open a treasure chest using the provided RNG (test / internal hook)."""
-    size_roll = rng.randint(0, 99)
-    if size_roll < _SMALL_CHEST_CHANCE:
+    size_roll = roll_d100(rng)
+    if below_d100(size_roll, _SMALL_CHEST_CHANCE):
         chest_idx = 0
-    elif size_roll < _SMALL_CHEST_CHANCE + _MEDIUM_CHEST_CHANCE:
+    elif below_d100(size_roll, _MEDIUM_CHEST_CUMULATIVE):
         chest_idx = 1
     else:
         chest_idx = 2
 
     # Same roll used for both gold check and relic tier (mirrors C++).
-    roll = rng.randint(0, 99)
+    roll = roll_d100(rng)
 
     gold = 0
-    if roll < _CHEST_GOLD_CHANCES[chest_idx]:
+    if below_d100(roll, _CHEST_GOLD_CHANCES[chest_idx]):
         base_gold = _CHEST_GOLD_AMOUNTS[chest_idx]
         variance_mult = 0.9 + (0.2 * rng.random())
         gold = round(base_gold * variance_mult)

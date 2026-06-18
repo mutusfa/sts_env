@@ -51,7 +51,7 @@ class Character(PlayerState):
     # so shop pricing rolls will perturb card draws slightly vs the reference.
     card_rarity_factor: int = 0
     # Pity timer for potion drops — mirrors C++ GameContext::potionChance.
-    potion_chance: int = 0
+    potion_chance: float = 0.0
 
     def __post_init__(self) -> None:
         """Wire relic event handlers for starting relics."""

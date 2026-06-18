@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Callable
 from ..combat.card_pools import colorless_pool, curse_pool, pool
 from ..combat.cards import CardColor, Rarity, get_spec
 from ..combat.rng import RNG
+from ..helpers import below_d100, roll_d100
 from ..run.rewards import roll_elite_relic
 
 if TYPE_CHECKING:
@@ -361,9 +362,9 @@ def _dead_adventurer_loot(character: "Character", rng: RNG) -> str:
     if phase >= 3:
         return "There is nothing left to loot."
 
-    # Encounter chance: phase * 25 + 25%
-    encounter_chance = phase * 25 + 25
-    did_encounter = rng.randint(0, 99) < encounter_chance
+    # Encounter chance: (phase + 1) * 0.25
+    encounter_chance = (phase + 1) * 0.25
+    did_encounter = below_d100(roll_d100(rng), encounter_chance)
 
     if did_encounter:
         # Fight the elite — collect remaining gold + relic rewards
@@ -706,15 +707,19 @@ def _scrap_ooze_setup() -> dict:
     return {"attempts": 0, "done": False}
 
 
+_SCRAP_OOZE_BASE_RELIC_CHANCE = 0.25
+_SCRAP_OOZE_RELIC_STEP = 0.10
+
+
 def _scrap_ooze_dig(character: "Character", rng: RNG) -> str:
     state = _ooze_state
     _damage_player(character, 3)
     attempts = state.get("attempts", 0)
 
-    relic_chance = 25 + attempts * 10
-    roll = rng.randint(0, 99)
+    relic_chance = _SCRAP_OOZE_BASE_RELIC_CHANCE + attempts * _SCRAP_OOZE_RELIC_STEP
+    roll = roll_d100(rng)
 
-    if roll < relic_chance:
+    if below_d100(roll, relic_chance):
         relic = roll_elite_relic(rng, owned=character.relics)
         if relic:
             character.add_relic(relic)
@@ -725,7 +730,7 @@ def _scrap_ooze_dig(character: "Character", rng: RNG) -> str:
         return "Took 3 damage.  No relics available."
 
     state["attempts"] = attempts + 1
-    return f"Took 3 damage.  No relic yet... (chance was {relic_chance}%)"
+    return f"Took 3 damage.  No relic yet... (chance was {relic_chance:.0%})"
 
 
 def _scrap_ooze_leave(character: "Character", rng: RNG) -> str:

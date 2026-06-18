@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING
 from ..combat.card_pools import colorless_pool, typed_pool
 from ..combat.cards import CardColor, CardType, Rarity
 from ..combat.rng import RNG
+from ..helpers import below_d100, d100_threshold, roll_d100
 from .events import _pick_worst_card
 from ..combat.potion_pools import get_potion_base_price, roll_random_potion
 from .rewards import (
@@ -102,8 +103,8 @@ SHOP_RELIC_POOL: list[str] = list({
 # Rarity roll for shop cards (C++ Shop::rollCardRarityShop)
 # ---------------------------------------------------------------------------
 
-_SHOP_BASE_RARE_CHANCE = 9
-_SHOP_BASE_UNCOMMON_CHANCE = 37
+_SHOP_BASE_RARE_CHANCE = 0.09
+_SHOP_BASE_UNCOMMON_CHANCE = 0.37
 
 
 def _roll_rarity_shop(rng: RNG, card_rarity_factor: int) -> Rarity:
@@ -112,10 +113,12 @@ def _roll_rarity_shop(rng: RNG, card_rarity_factor: int) -> Rarity:
     C++ Shop::rollCardRarityShop: rare 9 / uncommon 37 / common 54.
     Factor is read-only here — shop does NOT update cardRarityFactor.
     """
-    roll = rng.randint(0, 99) + card_rarity_factor
-    if roll < _SHOP_BASE_RARE_CHANCE:
+    roll = roll_d100(rng) + card_rarity_factor
+    rare_thresh = d100_threshold(_SHOP_BASE_RARE_CHANCE)
+    uncommon_thresh = d100_threshold(_SHOP_BASE_RARE_CHANCE + _SHOP_BASE_UNCOMMON_CHANCE)
+    if roll < rare_thresh:
         return Rarity.RARE
-    elif roll < _SHOP_BASE_RARE_CHANCE + _SHOP_BASE_UNCOMMON_CHANCE:
+    elif roll < uncommon_thresh:
         return Rarity.UNCOMMON
     else:
         return Rarity.COMMON
@@ -125,15 +128,19 @@ def _roll_rarity_shop(rng: RNG, card_rarity_factor: int) -> Rarity:
 # Relic tier roll (C++ Shop::rollRelicTier)
 # ---------------------------------------------------------------------------
 
+_SHOP_RELIC_COMMON = 0.48
+_SHOP_RELIC_UNCOMMON_CUMULATIVE = 0.82
+
+
 def _roll_relic_tier(rng: RNG) -> RelicTier:
     """Roll a relic tier: 48% COMMON, 34% UNCOMMON, 18% RARE.
 
     Mirrors C++ Shop::rollRelicTier.
     """
-    roll = rng.randint(0, 99)
-    if roll < 48:
+    roll = roll_d100(rng)
+    if below_d100(roll, _SHOP_RELIC_COMMON):
         return RelicTier.COMMON
-    elif roll < 82:
+    elif below_d100(roll, _SHOP_RELIC_UNCOMMON_CUMULATIVE):
         return RelicTier.UNCOMMON
     else:
         return RelicTier.RARE

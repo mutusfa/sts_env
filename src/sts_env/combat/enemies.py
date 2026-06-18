@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Callable
 
+from ..helpers import below_d100, roll_d100
+
 if TYPE_CHECKING:
     from .rng import RNG
     from .state import CombatState, EnemyState
@@ -185,6 +187,9 @@ _JW_INTENTS: dict[str, Intent] = {
     "Bellow": Intent(IntentType.DEFEND, block_gain=6, strength_gain=3),
 }
 
+_JAW_WORM_CHOMP = 0.25
+_JAW_WORM_THRASH_CUMULATIVE = 0.55
+
 
 def _last_move(history: list[str], move: str) -> bool:
     return bool(history) and history[-1] == move
@@ -200,16 +205,16 @@ def _jaw_worm_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:
         return _JW_INTENTS["Chomp"]
 
     history = enemy.move_history
-    roll = rng.randint(0, 99)
+    roll = roll_d100(rng)
 
-    if roll < 25:
+    if below_d100(roll, _JAW_WORM_CHOMP):
         if _last_move(history, "Chomp"):
             # Fallback: Bellow (56.25%) or Thrash (43.75%)
             chosen = "Bellow" if rng.random() < 0.5625 else "Thrash"
         else:
             chosen = "Chomp"
 
-    elif roll < 55:
+    elif below_d100(roll, _JAW_WORM_THRASH_CUMULATIVE):
         if _last_two_moves(history, "Thrash"):
             # Fallback: Chomp (35.7%) or Bellow (64.3%)
             chosen = "Chomp" if rng.random() < 0.357 else "Bellow"
@@ -260,18 +265,21 @@ _AS_INTENTS: dict[str, Intent] = {
     "Lick":          Intent(IntentType.DEBUFF, applies_weak=1),
 }
 
+_ACID_SLIME_FIRST_BUCKET = 0.30
+_ACID_SLIME_SECOND_CUMULATIVE = 0.70
+
 
 def _acid_slime_m_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
     history = enemy.move_history
-    roll = rng.randint(0, 99)
+    roll = roll_d100(rng)
 
-    if roll < 30:
+    if below_d100(roll, _ACID_SLIME_FIRST_BUCKET):
         if _last_two_moves(history, "CorrosiveSpit"):
             chosen = "Tackle" if rng.random() < 0.5 else "Lick"
         else:
             chosen = "CorrosiveSpit"
 
-    elif roll < 70:
+    elif below_d100(roll, _ACID_SLIME_SECOND_CUMULATIVE):
         if _last_move(history, "Tackle"):
             chosen = "CorrosiveSpit" if rng.random() < 0.4 else "Lick"
         else:
@@ -349,6 +357,8 @@ register_enemy(_ACID_SLIME_S, _acid_slime_s_intent)
 
 _RED_LOUSE = EnemySpec("RedLouse", hp_min=10, hp_max=15)
 
+_LOUSE_GROW_BUCKET = 0.25
+
 
 def _louse_pre_battle(enemy: "EnemyState", state: "CombatState") -> None:
     """Roll bite damage and Curl Up stacks."""
@@ -358,9 +368,9 @@ def _louse_pre_battle(enemy: "EnemyState", state: "CombatState") -> None:
 
 def _red_louse_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
     history = enemy.move_history
-    roll = rng.randint(0, 99)
+    roll = roll_d100(rng)
 
-    if roll < 25:
+    if below_d100(roll, _LOUSE_GROW_BUCKET):
         # Wants Grow.  Constraint (asc 0): lastMove(Grow) AND lastTwoMoves(Grow)
         # → max 2 in a row.
         if _last_move(history, "Grow") and _last_two_moves(history, "Grow"):
@@ -397,9 +407,9 @@ _GREEN_LOUSE = EnemySpec("GreenLouse", hp_min=11, hp_max=17)
 
 def _green_louse_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
     history = enemy.move_history
-    roll = rng.randint(0, 99)
+    roll = roll_d100(rng)
 
-    if roll < 25:
+    if below_d100(roll, _LOUSE_GROW_BUCKET):
         # Wants SpitWeb.  Constraint (asc 0): lastMove(SpitWeb) AND lastTwoMoves(SpitWeb)
         # → max 2 in a row.
         if _last_move(history, "SpitWeb") and _last_two_moves(history, "SpitWeb"):
@@ -559,12 +569,14 @@ _SSM_INTENTS: dict[str, Intent] = {
     "Lick":        Intent(IntentType.DEBUFF, applies_frail=1),
 }
 
+_SPIKE_SLIME_FLAME_BUCKET = 0.30
+
 
 def _spike_slime_m_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
     history = enemy.move_history
-    roll = rng.randint(0, 99)
+    roll = roll_d100(rng)
 
-    if roll < 30:
+    if below_d100(roll, _SPIKE_SLIME_FLAME_BUCKET):
         if _last_two_moves(history, "FlameTackle"):
             chosen = "Lick"
         else:
@@ -600,9 +612,9 @@ _SSL_INTENTS: dict[str, Intent] = {
 
 def _spike_slime_l_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
     history = enemy.move_history
-    roll = rng.randint(0, 99)
+    roll = roll_d100(rng)
 
-    if roll < 30:
+    if below_d100(roll, _SPIKE_SLIME_FLAME_BUCKET):
         if _last_two_moves(history, "FlameTackle"):
             chosen = "Lick"
         else:
@@ -645,15 +657,15 @@ _AL_INTENTS: dict[str, Intent] = {
 
 def _acid_slime_l_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
     history = enemy.move_history
-    roll = rng.randint(0, 99)
+    roll = roll_d100(rng)
 
-    if roll < 30:
+    if below_d100(roll, _ACID_SLIME_FIRST_BUCKET):
         if _last_two_moves(history, "CorrosiveSpit"):
             chosen = "Tackle" if rng.random() < 0.5 else "Lick"
         else:
             chosen = "CorrosiveSpit"
 
-    elif roll < 70:
+    elif below_d100(roll, _ACID_SLIME_SECOND_CUMULATIVE):
         if _last_move(history, "Tackle"):
             chosen = "CorrosiveSpit" if rng.random() < 0.4 else "Lick"
         else:
@@ -686,12 +698,14 @@ _BS_INTENTS: dict[str, Intent] = {
     "Rake": Intent(IntentType.ATTACK_DEBUFF, damage=7, hits=1, applies_weak=1),
 }
 
+_BLUE_SLAVER_STAB_THRESHOLD = 0.40
+
 
 def _blue_slaver_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
     history = enemy.move_history
-    roll = rng.randint(0, 99)
+    roll = roll_d100(rng)
 
-    if roll >= 40 and not _last_two_moves(history, "Stab"):
+    if not below_d100(roll, _BLUE_SLAVER_STAB_THRESHOLD) and not _last_two_moves(history, "Stab"):
         chosen = "Stab"
     elif not _last_two_moves(history, "Rake"):
         chosen = "Rake"
@@ -722,6 +736,9 @@ _RS_INTENTS: dict[str, Intent] = {
     "Scrape":  Intent(IntentType.ATTACK_DEBUFF, damage=8, hits=1, applies_vulnerable=1),
 }
 
+_RED_SLAVER_ENTANGLE_THRESHOLD = 0.75
+_RED_SLAVER_STAB_THRESHOLD = 0.50
+
 
 def _red_slaver_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
     history = enemy.move_history
@@ -731,12 +748,12 @@ def _red_slaver_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  #
         enemy.move_history.append("Stab")
         return _RS_INTENTS["Stab"]
 
-    roll = rng.randint(0, 99)
+    roll = roll_d100(rng)
 
-    if roll >= 75 and not used_entangle:
+    if not below_d100(roll, _RED_SLAVER_ENTANGLE_THRESHOLD) and not used_entangle:
         chosen = "Entangle"
         enemy.misc = 1  # Mark Entangle as used
-    elif roll >= 50 and used_entangle and not _last_two_moves(history, "Stab"):
+    elif not below_d100(roll, _RED_SLAVER_STAB_THRESHOLD) and used_entangle and not _last_two_moves(history, "Stab"):
         chosen = "Stab"
     elif not _last_two_moves(history, "Scrape"):
         chosen = "Scrape"
@@ -765,12 +782,14 @@ _FB_INTENTS: dict[str, Intent] = {
     "Grow": Intent(IntentType.BUFF, strength_gain=3),
 }
 
+_FUNGI_BEAST_BITE_THRESHOLD = 0.60
+
 
 def _fungi_beast_intent(enemy: "EnemyState", rng: "RNG", turn: int) -> Intent:  # noqa: ARG001
     history = enemy.move_history
-    roll = rng.randint(0, 99)
+    roll = roll_d100(rng)
 
-    if roll < 60:
+    if below_d100(roll, _FUNGI_BEAST_BITE_THRESHOLD):
         if _last_two_moves(history, "Bite"):
             chosen = "Grow"
         else:

@@ -2,6 +2,8 @@
 
 from unittest.mock import patch
 
+import pytest
+
 from sts_env.combat.card_pools import pool
 from sts_env.combat.cards import CardColor, Rarity
 from sts_env.combat.rng import RNG
@@ -225,7 +227,7 @@ class TestPotionPityTimer:
         with patch.object(RNG, "randint", return_value=99):
             potion, chance = roll_potion_reward(rng, potion_chance=0)
         assert potion is None
-        assert chance == 10
+        assert chance == pytest.approx(0.10)
 
     def test_hit_decrements_chance(self):
         rng = RNG(0)
@@ -236,13 +238,13 @@ class TestPotionPityTimer:
             ):
                 potion, chance = roll_potion_reward(rng, potion_chance=0)
         assert potion == "BlockPotion"
-        assert chance == -10
+        assert chance == pytest.approx(-0.10)
 
     def test_reward_screen_full_skips(self):
         rng = RNG(0)
         potion, chance = roll_potion_reward(rng, potion_chance=0, reward_screen_size=4)
         assert potion is None
-        assert chance == 10
+        assert chance == pytest.approx(0.10)
 
 
 class TestPotionReward:
@@ -251,7 +253,7 @@ class TestPotionReward:
     def test_returns_potion_or_none(self, rng: RNG) -> None:
         potion, chance = roll_potion_reward(rng)
         assert potion is None or isinstance(potion, str)
-        assert isinstance(chance, int)
+        assert isinstance(chance, float)
 
 
 class TestCombatGold:

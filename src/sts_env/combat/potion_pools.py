@@ -9,6 +9,8 @@ from __future__ import annotations
 from enum import Enum, auto
 from typing import TYPE_CHECKING
 
+from ..helpers import below_d100, roll_d100
+
 if TYPE_CHECKING:
     from .rng import RNG
 
@@ -147,12 +149,16 @@ def get_random_potion_from_pool(rng: RNG, *, index: int | None = None) -> str:
     return IRONCLAD_POTION_POOL[idx]
 
 
+_POTION_RARITY_COMMON = 0.65
+_POTION_RARITY_UNCOMMON_CUMULATIVE = 0.90
+
+
 def _roll_potion_rarity(rng: RNG) -> PotionRarity:
     """Mirrors returnRandomPotion rarity roll: 65% common, 25% uncommon, 10% rare."""
-    roll = rng.randint(0, 99)
-    if roll < 65:
+    roll = roll_d100(rng)
+    if below_d100(roll, _POTION_RARITY_COMMON):
         return PotionRarity.COMMON
-    if roll < 90:
+    if below_d100(roll, _POTION_RARITY_UNCOMMON_CUMULATIVE):
         return PotionRarity.UNCOMMON
     return PotionRarity.RARE
 

@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 from ..combat.card_pools import pool
 from ..combat.cards import CardColor, Rarity
 from ..combat.potion_pools import roll_random_potion
+from ..helpers import below_d100, d100_threshold, roll_d100
 from .bus import RunEvent
 
 if TYPE_CHECKING:
@@ -49,24 +50,24 @@ class Room(Enum):
 # Rarity roll — matches C++ GameContext::rollCardRarity
 # ---------------------------------------------------------------------------
 
-# Thresholds: (rare_chance, uncommon_chance) per room type.
+# Thresholds: (rare_chance, uncommon_chance) per room type — proportions in [0, 1].
 # roll = rng.randint(0, 99) + card_rarity_factor
-# if roll < rare_chance          → RARE
-# elif roll < rare + uncommon    → UNCOMMON
-# else                           → COMMON
-_RARE_CHANCE: dict[Room, int] = {
-    Room.MONSTER: 3,
-    Room.ELITE:   10,
-    Room.BOSS:    100,  # always rare
-    Room.REST:    3,
-    Room.EVENT:   3,
+# if roll < d100_threshold(rare)          → RARE
+# elif roll < d100_threshold(rare+uncommon) → UNCOMMON
+# else                                    → COMMON
+_RARE_CHANCE: dict[Room, float] = {
+    Room.MONSTER: 0.03,
+    Room.ELITE:   0.10,
+    Room.BOSS:    1.0,  # always rare
+    Room.REST:    0.03,
+    Room.EVENT:   0.03,
 }
-_UNCOMMON_CHANCE: dict[Room, int] = {
-    Room.MONSTER: 37,
-    Room.ELITE:   40,
-    Room.BOSS:    0,
-    Room.REST:    37,
-    Room.EVENT:   37,
+_UNCOMMON_CHANCE: dict[Room, float] = {
+    Room.MONSTER: 0.37,
+    Room.ELITE:   0.40,
+    Room.BOSS:    0.0,
+    Room.REST:    0.37,
+    Room.EVENT:   0.37,
 }
 
 _FACTOR_FLOOR = -40
@@ -80,13 +81,15 @@ def roll_card_rarity(rng: "RNG", room: Room, factor: int) -> tuple[Rarity, int]:
     """
     rare_chance = _RARE_CHANCE[room]
     uncommon_chance = _UNCOMMON_CHANCE[room]
+    rare_thresh = d100_threshold(rare_chance)
+    uncommon_thresh = d100_threshold(rare_chance + uncommon_chance)
 
-    roll = rng.randint(0, 99) + factor
+    roll = roll_d100(rng) + factor
 
-    if roll < rare_chance:
+    if roll < rare_thresh:
         rarity = Rarity.RARE
         new_factor = 5
-    elif roll < rare_chance + uncommon_chance:
+    elif roll < uncommon_thresh:
         rarity = Rarity.UNCOMMON
         new_factor = factor  # unchanged
     else:
@@ -155,30 +158,31 @@ def roll_card_rewards(
 # ---------------------------------------------------------------------------
 
 # 40% base chance to receive a potion after combat (pity timer in roll_potion_reward)
-_POTION_DROP_BASE = 40
+_POTION_DROP_BASE = 0.40
+POTION_PITY_STEP = 0.10
 
 
 def roll_potion_reward(
     rng: "RNG",
     *,
-    potion_chance: int = 0,
+    potion_chance: float = 0.0,
     reward_screen_size: int = 0,
     has_white_beast_statue: bool = False,
-) -> tuple[str | None, int]:
+) -> tuple[str | None, float]:
     """Return (potion_id or None, updated_potion_chance).
 
     Mirrors GameContext::addPotionRewards.
     """
     chance = _POTION_DROP_BASE + potion_chance
     if has_white_beast_statue:
-        chance = 100
+        chance = 1.0
     if reward_screen_size >= 4:
-        chance = 0
+        chance = 0.0
 
-    if rng.randint(0, 99) >= chance:
-        return None, potion_chance + 10
+    if roll_d100(rng) >= d100_threshold(chance):
+        return None, potion_chance + POTION_PITY_STEP
 
-    return roll_random_potion(rng), potion_chance - 10
+    return roll_random_potion(rng), potion_chance - POTION_PITY_STEP
 
 
 # ---------------------------------------------------------------------------
@@ -241,18 +245,22 @@ BOSS_RELICS: list[str] = [
 ]
 
 
+_ELITE_RELIC_COMMON = 0.50
+_ELITE_RELIC_RARE = 0.83  # roll >= threshold → RARE (~17%)
+
+
 def roll_elite_relic_tier(rng: "RNG") -> RelicTier:
     """Roll the rarity tier for an elite relic drop.
 
     Mirrors C++ returnRandomRelicTierElite:
-      roll < 50  → COMMON   (~50%)
-      roll > 82  → RARE     (~17%)
-      else       → UNCOMMON (~33%)
+      roll < 0.50  → COMMON   (~50%)
+      roll >= 0.83 → RARE     (~17%)
+      else         → UNCOMMON (~33%)
     """
-    roll = rng.randint(0, 99)
-    if roll < 50:
+    roll = roll_d100(rng)
+    if below_d100(roll, _ELITE_RELIC_COMMON):
         return RelicTier.COMMON
-    elif roll > 82:
+    elif roll >= d100_threshold(_ELITE_RELIC_RARE):
         return RelicTier.RARE
     else:
         return RelicTier.UNCOMMON
@@ -330,10 +338,10 @@ def roll_combat_reward_offer(
     floor: int,
     room: Room,
     card_rarity_factor: int = 0,
-    potion_chance: int = 0,
+    potion_chance: float = 0.0,
     event_bus: "RunEventBus | None" = None,
     relics: list[str] | None = None,
-) -> tuple[CombatRewardOffer, int, int]:
+) -> tuple[CombatRewardOffer, int, float]:
     """Roll a complete post-combat reward offer.
 
     Returns ``(offer, new_card_rarity_factor, new_potion_chance)``.

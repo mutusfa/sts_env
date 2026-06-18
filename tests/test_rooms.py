@@ -130,7 +130,7 @@ class TestRestHeal:
         c = Character.ironclad()
         c.player_hp = 40
         healed = rest_heal(c)
-        assert healed == 24  # 80 * 30 // 100
+        assert healed == 24  # 80 * REST_HEAL_FRACTION
         assert c.player_hp == 64
 
     def test_capped_at_max_hp(self):

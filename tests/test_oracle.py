@@ -188,9 +188,11 @@ def test_cultist_dark_strike_damage():
 
 
 def test_jaw_worm_base_probabilities_are_correct():
-    from sts_env.combat.state import EnemyState
-    from sts_env.combat.rng import RNG
-    from sts_env.combat.enemies import _jaw_worm_intent
+    from sts_env.combat.enemies import (
+        _JAW_WORM_CHOMP,
+        _JAW_WORM_THRASH_CUMULATIVE,
+    )
+    from sts_env.helpers import below_d100
     import random
 
     rng_main = random.Random(99)
@@ -198,17 +200,17 @@ def test_jaw_worm_base_probabilities_are_correct():
     N = 10_000
     for _ in range(N):
         roll = rng_main.randint(0, 99)
-        if roll < 25:
+        if below_d100(roll, _JAW_WORM_CHOMP):
             choices["Chomp"] += 1
-        elif roll < 55:
+        elif below_d100(roll, _JAW_WORM_THRASH_CUMULATIVE):
             choices["Thrash"] += 1
         else:
             choices["Bellow"] += 1
 
     total = sum(choices.values())
-    assert abs(choices["Chomp"]  / total * 100 - 25) < 3
-    assert abs(choices["Thrash"] / total * 100 - 30) < 3
-    assert abs(choices["Bellow"] / total * 100 - 45) < 3
+    assert abs(choices["Chomp"] / total - _JAW_WORM_CHOMP) < 0.03
+    assert abs(choices["Thrash"] / total - (_JAW_WORM_THRASH_CUMULATIVE - _JAW_WORM_CHOMP)) < 0.03
+    assert abs(choices["Bellow"] / total - (1.0 - _JAW_WORM_THRASH_CUMULATIVE)) < 0.03
 
 
 def test_vulnerable_is_150_percent():
