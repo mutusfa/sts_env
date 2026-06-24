@@ -782,6 +782,14 @@ def _doubt_eot(state: "CombatState") -> None:
 
 register("Doubt", cost=0, card_type=C, target=NO, color=CU, rarity=B,
          playable=False, eot_resolve=_doubt_eot)
+register("Injury", cost=0, card_type=C, target=NO, color=CU, rarity=B, playable=False)
+register("Normality", cost=0, card_type=C, target=NO, color=CU, rarity=B, playable=False)
+register("Decay", cost=0, card_type=C, target=NO, color=CU, rarity=B, playable=False)
+register("Regret", cost=0, card_type=C, target=NO, color=CU, rarity=B, playable=False)
+register("Pain", cost=0, card_type=C, target=NO, color=CU, rarity=B, playable=False)
+register("Parasite", cost=0, card_type=C, target=NO, color=CU, rarity=B, playable=False)
+register("Shame", cost=0, card_type=C, target=NO, color=CU, rarity=B, playable=False)
+register("Writhe", cost=0, card_type=C, target=NO, color=CU, rarity=B, playable=False)
 
 # --- Status ---
 register("Slimed", cost=1, card_type=ST, target=NO, color=CL, rarity=SP, exhausts=True)
