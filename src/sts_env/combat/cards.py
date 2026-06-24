@@ -70,9 +70,6 @@ class TargetType(Enum):
 # Custom handler signature: (state, hand_index, target_index, upgraded) -> None
 CardHandler = Callable[["CombatState", int, int, int], None]
 
-# EOT resolve handler: called once per copy in hand at end of player turn
-EotHandler = Callable[["CombatState"], None]
-
 
 @dataclass(frozen=True)
 class CardSpec:
@@ -112,9 +109,6 @@ class CardSpec:
     # Runs AFTER declarative effects.
     custom: CardHandler | None = field(default=None, hash=False, compare=False)
 
-    # Called once per copy in hand at end of player turn (before discard).
-    eot_resolve: EotHandler | None = field(default=None, hash=False, compare=False)
-
 
 _SPECS: dict[str, CardSpec] = {}
 
@@ -149,7 +143,6 @@ def register(
     innate: bool = False,
     upgrade: dict[str, int] | None = None,
     custom: CardHandler | None = None,
-    eot_resolve: EotHandler | None = None,
 ) -> None:
     _SPECS[card_id] = CardSpec(
         card_id=card_id,
@@ -180,7 +173,6 @@ def register(
         innate=innate,
         upgrade=upgrade or {},
         custom=custom,
-        eot_resolve=eot_resolve,
     )
 
 
@@ -370,7 +362,10 @@ def play_card(state: "CombatState", hand_index: int, target_index: int) -> None:
 
     spec = _SPECS[card_id]
 
-    if not spec.playable:
+    blue_candle_curse = (
+        spec.card_type == CardType.CURSE and "BlueCandle" in state.relics
+    )
+    if not spec.playable and not blue_candle_curse:
         raise ValueError(f"Card {card_id!r} is unplayable.")
 
     # Cost calculation
@@ -389,6 +384,8 @@ def play_card(state: "CombatState", hand_index: int, target_index: int) -> None:
     state.energy -= effective_cost
     played_card = state.piles.play_card(hand_index)
 
+    state.player_powers.cards_played_this_turn += 1
+
     upgraded = 1 if upgrade_count > 0 else 0
     x_energy = effective_cost if spec.x_cost else 0
     _resolve_card_effects(
@@ -396,7 +393,12 @@ def play_card(state: "CombatState", hand_index: int, target_index: int) -> None:
         x_energy=x_energy, upgrade_count=upgrade_count,
     )
 
-    if played_card.effective_exhausts():
+    if blue_candle_curse:
+        from .engine import lose_hp
+
+        lose_hp(state, 1)
+        state.piles.move_to_exhaust(played_card)
+    elif played_card.effective_exhausts():
         state.piles.move_to_exhaust(played_card)
     else:
         state.piles.move_to_discard(played_card)
@@ -413,7 +415,7 @@ def play_card(state: "CombatState", hand_index: int, target_index: int) -> None:
         )
 
     # Emit CARD_EXHAUSTED for triggered effects (Dark Embrace, Feel No Pain, Sentinel)
-    if played_card.effective_exhausts():
+    if played_card.effective_exhausts() or blue_candle_curse:
         emit(state, Event.CARD_EXHAUSTED, "player", card=played_card)
 
 
@@ -773,23 +775,19 @@ register("Bash",   cost=2, card_type=A, target=SE, color=R, rarity=B, attack=8, 
          upgrade={"attack": 2, "vulnerable": 1})
 
 # --- Curse ---
-register("AscendersBane", cost=0, card_type=C, target=NO, color=CU, rarity=B, playable=False)
+register("AscendersBane", cost=0, card_type=C, target=NO, color=CU, rarity=SP, playable=False)
 
-
-def _doubt_eot(state: "CombatState") -> None:
-    state.player_powers.weak += 1
-
-
-register("Doubt", cost=0, card_type=C, target=NO, color=CU, rarity=B,
-         playable=False, eot_resolve=_doubt_eot)
+register("Doubt", cost=0, card_type=C, target=NO, color=CU, rarity=B, playable=False)
 register("Injury", cost=0, card_type=C, target=NO, color=CU, rarity=B, playable=False)
 register("Normality", cost=0, card_type=C, target=NO, color=CU, rarity=B, playable=False)
 register("Decay", cost=0, card_type=C, target=NO, color=CU, rarity=B, playable=False)
 register("Regret", cost=0, card_type=C, target=NO, color=CU, rarity=B, playable=False)
 register("Pain", cost=0, card_type=C, target=NO, color=CU, rarity=B, playable=False)
-register("Parasite", cost=0, card_type=C, target=NO, color=CU, rarity=B, playable=False)
+register("Parasite", cost=0, card_type=C, target=NO, color=CU, rarity=SP, playable=False)
 register("Shame", cost=0, card_type=C, target=NO, color=CU, rarity=B, playable=False)
-register("Writhe", cost=0, card_type=C, target=NO, color=CU, rarity=B, playable=False)
+register("Writhe", cost=0, card_type=C, target=NO, color=CU, rarity=B, innate=True, playable=False)
+register("Necronomicurse", cost=0, card_type=C, target=NO, color=CU, rarity=SP, playable=False)
+register("CurseOfTheBell", cost=0, card_type=C, target=NO, color=CU, rarity=SP, playable=False)
 
 # --- Status ---
 register("Slimed", cost=1, card_type=ST, target=NO, color=CL, rarity=SP, exhausts=True)
@@ -1342,8 +1340,20 @@ register("MindBlast", cost=2, card_type=A, target=SE, color=CL, rarity=RA, innat
          custom=_mind_blast_custom, upgrade={"cost": -1})
 
 # Panache: Every 5th card you play each turn deals 10(14) damage to ALL enemies
+def _panache_custom(state: "CombatState", _hi: int, _ti: int, upgraded: int) -> None:
+    state.player_powers.panache_damage = 10 + (4 if upgraded else 0)
+    state.player_powers.panache_counter = 5
+    from .events import Event, subscribe
+
+    for event, name in (
+        (Event.CARD_PLAYED, "panache"),
+        (Event.TURN_START, "reset_turn_counters"),
+    ):
+        subscribe(state, event, name, "player")
+
+
 register("Panache", cost=0, card_type=P, target=NO, color=CL, rarity=RA,
-         custom=lambda s, _h, _t, u: setattr(s.player_powers, 'panache_damage', 10 + (4 if u else 0)))
+         custom=_panache_custom)
 
 # Sadistic Nature: Whenever an enemy receives a debuff, deal 5(7) damage to it
 register("SadisticNature", cost=0, card_type=P, target=NO, color=CL, rarity=RA,

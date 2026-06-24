@@ -92,6 +92,32 @@ def damage_player(state: CombatState, raw_dmg: int) -> None:
         emit(state, Event.HP_LOSS, "player", hp_before=hp_before)
 
 
+def lose_hp(state: CombatState, amount: int) -> None:
+    """Reduce player HP directly, bypassing block (Decay, Regret, Pain, Blue Candle)."""
+    if amount <= 0:
+        return
+    hp_before = state.player_hp
+    state.player_hp = max(0, state.player_hp - amount)
+    if state.player_hp < hp_before:
+        emit(state, Event.HP_LOSS, "player", hp_before=hp_before)
+
+
+def _prepare_draw_pile(cards: list[Card], rng: RNG) -> list[Card]:
+    """Partition innate vs normal cards; innate at front (drawn first via pop(0))."""
+    from .cards import get_spec
+
+    innate: list[Card] = []
+    normal: list[Card] = []
+    for card in cards:
+        if get_spec(card.base_id).innate:
+            innate.append(card)
+        else:
+            normal.append(card)
+    rng.shuffle(innate)
+    rng.shuffle(normal)
+    return innate + normal
+
+
 def gain_player_block(state: CombatState, amount: int, *, source: str = "card") -> None:
     """Add block to the player and emit BLOCK_GAINED.
 
@@ -214,9 +240,8 @@ class Combat:
 
         rng = RNG(seed)
 
-        # Build piles: shuffle deck into draw pile
-        piles = Piles(draw=list(deck))
-        rng.shuffle(piles.draw)
+        # Build draw pile: innate cards at front (drawn first)
+        piles = Piles(draw=_prepare_draw_pile(list(deck), rng))
 
         # Roll enemy HP; "Empty" slots are inert pre-allocated slots for splits
         enemy_list = []
@@ -299,6 +324,24 @@ class Combat:
                 owner = owner_override if owner_override is not None else i
                 subscribe(self._state, event, handler_name, owner)
 
+        from .listeners_curses import (
+            CURSE_CARD_PLAYED_LISTENERS,
+            CURSE_EXHAUST_LISTENERS,
+            CURSE_TURN_END_LISTENERS,
+        )
+
+        for name in (
+            *CURSE_TURN_END_LISTENERS,
+            *CURSE_CARD_PLAYED_LISTENERS,
+            *CURSE_EXHAUST_LISTENERS,
+        ):
+            event = Event.TURN_END if name in CURSE_TURN_END_LISTENERS else (
+                Event.CARD_PLAYED if name in CURSE_CARD_PLAYED_LISTENERS else Event.CARD_EXHAUSTED
+            )
+            subscribe(self._state, event, name, "player")
+
+        subscribe(self._state, Event.TURN_START, "reset_turn_counters", "player")
+
         # Pick initial intents for all enemies (None sentinel for Empty slots)
         self._intents: list[Intent] = []
         for i, enemy in enumerate(self._state.enemies):
@@ -313,8 +356,16 @@ class Combat:
         clear_combat_disabled(self._state)
         emit(self._state, Event.COMBAT_START_PRE_DRAW, "player")
 
-        # Draw opening hand
-        self._state.piles.draw_cards(_CARDS_PER_DRAW, rng, state=self._state)
+        # Draw opening hand (extra draws if many innate cards)
+        from .cards import get_spec
+
+        innate_count = sum(
+            1 for c in self._state.piles.draw if get_spec(c.base_id).innate
+        )
+        draw_n = _CARDS_PER_DRAW
+        if innate_count > _CARDS_PER_DRAW:
+            draw_n += innate_count - _CARDS_PER_DRAW
+        self._state.piles.draw_cards(draw_n, rng, state=self._state)
 
         # Fire COMBAT_START event (post-draw relics like Bag of Marbles)
         emit(self._state, Event.COMBAT_START, "player")
@@ -407,22 +458,31 @@ class Combat:
             if e.alive and not e.is_escaping
         ]
         entangled = state.player_powers.entangled
+        normality_blocked = (
+            state.player_powers.cards_played_this_turn >= 3
+            and any(c.base_id == "Normality" for c in state.piles.hand)
+        )
+        has_blue_candle = "BlueCandle" in state.relics
         actions: list[Action] = []
 
-        for hi, card in enumerate(state.piles.hand):
-            spec = card.spec
-            if not spec.playable:
-                continue
-            effective_cost = card.effective_cost(state.energy)
-            if effective_cost > state.energy:
-                continue
-            if entangled and spec.card_type in (CardType.SKILL, CardType.POWER):
-                continue
-            if spec.target == TargetType.SINGLE_ENEMY:
-                for ti in live_enemy_indices:
-                    actions.append(Action.play_card(hi, ti))
-            else:
-                actions.append(Action.play_card(hi, 0))
+        if not normality_blocked:
+            for hi, card in enumerate(state.piles.hand):
+                spec = card.spec
+                playable = spec.playable or (
+                    spec.card_type == CardType.CURSE and has_blue_candle
+                )
+                if not playable:
+                    continue
+                effective_cost = card.effective_cost(state.energy)
+                if effective_cost > state.energy:
+                    continue
+                if entangled and spec.card_type in (CardType.SKILL, CardType.POWER):
+                    continue
+                if spec.target == TargetType.SINGLE_ENEMY:
+                    for ti in live_enemy_indices:
+                        actions.append(Action.play_card(hi, ti))
+                else:
+                    actions.append(Action.play_card(hi, 0))
 
         for pi, potion_id in enumerate(state.potions):
             spec = _get_potion_spec(potion_id)
@@ -624,9 +684,6 @@ class Combat:
     def _resolve_end_of_player_turn(self) -> None:
         state = self._state
 
-        # Emit player TURN_END (Metallicize, strength/dex_loss_eot, etc.)
-        emit(state, Event.TURN_END, "player")
-
         # Reset per-turn triggered power counters
         state.player_powers.rage_block = 0
         state.player_powers.double_tap = 0
@@ -635,20 +692,15 @@ class Combat:
         for card in state.piles.hand:
             card.clear_cost_override()
 
-        # Collect EOT card resolvers while cards are still in hand, fire after
-        # _tick_player_start so freshly-applied stacks aren't immediately
-        # decremented (mirrors STS decrementIfNotJustApplied logic).
-        eot_resolvers = [
-            card.spec.eot_resolve
-            for card in state.piles.hand
-            if card.spec.eot_resolve is not None
-        ]
+        # Ethereal: collect before TURN_END so Regret counts ethereal cards
+        ethereal_in_hand = [card for card in state.piles.hand if card.spec.ethereal]
 
-        # Ethereal: cards with ethereal=True that are still in hand are exhausted
-        ethereal_in_hand = []
-        for card in state.piles.hand:
-            if card.spec.ethereal:
-                ethereal_in_hand.append(card)
+        # Tick existing statuses before TURN_END curse listeners apply new ones
+        _tick_player_start(state)
+
+        # Powers (Metallicize, Combust) + curse EOT listeners — hand still intact
+        emit(state, Event.TURN_END, "player")
+
         for card in ethereal_in_hand:
             state.piles.hand.remove(card)
             state.piles.move_to_exhaust(card)
@@ -656,16 +708,6 @@ class Combat:
 
         # Discard hand
         state.piles.discard_hand(state.rng)
-
-        # Tick player power durations *before* enemies act so that statuses
-        # applied by enemies this turn survive until the next player turn
-        # (mirrors sts_lightspeed's decrementIfNotJustApplied logic).
-        _tick_player_start(state)
-
-        # Resolve EOT card effects after the tick so freshly-applied stacks
-        # survive until the next player turn (e.g. Doubt → 1 Weak).
-        for resolve in eot_resolvers:
-            resolve(state)
 
         # Each living enemy resolves its stored intent, then picks next intent
         new_intents: list[Intent] = []

@@ -270,10 +270,13 @@ def _tick_no_card_block(state: CombatState, owner: Owner, payload: dict) -> None
         state.player_powers.no_card_block_turns -= 1
 
 
-@listener(Event.TURN_END, "reset_panache_counter", subscriptions=[(POWER_SUBSCRIPTIONS, "panache_damage")])
-def _reset_panache_counter(state: CombatState, owner: Owner, payload: dict) -> None:
-    if owner == "player":
-        state.player_powers.cards_played_this_turn = 0
+@listener(Event.TURN_START, "reset_turn_counters", subscriptions=[])
+def _reset_turn_counters(state: CombatState, owner: Owner, payload: dict) -> None:
+    if owner != "player":
+        return
+    state.player_powers.cards_played_this_turn = 0
+    if state.player_powers.panache_damage > 0:
+        state.player_powers.panache_counter = 5
 
 
 @listener(Event.TURN_END, "reset_strength_loss_this_turn", subscriptions=[])
@@ -342,16 +345,20 @@ def _mayhem(state: CombatState, owner: Owner, payload: dict) -> None:
 def _panache(state: CombatState, owner: Owner, payload: dict) -> None:
     if state.player_powers.panache_damage <= 0:
         return
-    state.player_powers.cards_played_this_turn += 1
-    if state.player_powers.cards_played_this_turn % 5 == 0:
+    played = payload.get("card")
+    if played is not None and played.base_id == "Panache":
+        return
+    state.player_powers.panache_counter -= 1
+    if state.player_powers.panache_counter <= 0:
         from .powers import calc_damage, apply_damage
         dmg = state.player_powers.panache_damage
-        for ei, enemy in enumerate(state.enemies):
+        for enemy in state.enemies:
             if enemy.hp > 0 and enemy.name != "Empty":
                 raw = calc_damage(dmg, state.player_powers, enemy.powers)
                 nb, nhp = apply_damage(raw, enemy.block, enemy.hp)
                 enemy.block = nb
                 enemy.hp = nhp
+        state.player_powers.panache_counter = 5
 
 
 # ---------------------------------------------------------------------------

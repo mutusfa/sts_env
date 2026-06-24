@@ -67,10 +67,18 @@ def status_pool() -> list[str]:
     ]
 
 
+STANDARD_CURSE_IDS: frozenset[str] = frozenset({
+    "Injury",
+    "Doubt",
+    "Regret",
+    "Pain",
+    "Shame",
+    "Writhe",
+    "Decay",
+    "Normality",
+})
+
+
 def curse_pool() -> list[str]:
-    """Return all curse card IDs."""
-    return [
-        spec.card_id
-        for spec in all_specs().values()
-        if spec.card_type == CardType.CURSE
-    ]
+    """Return standard curse IDs used by events/rewards (excludes special curses)."""
+    return sorted(STANDARD_CURSE_IDS)
